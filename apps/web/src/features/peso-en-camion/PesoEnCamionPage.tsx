@@ -92,17 +92,19 @@ export function PesoEnCamionPage() {
   const [notice, setNotice] = useState<string | null>(null);
   const noticeTimer = useRef<number | null>(null);
 
-  // Guía en edición (null = guía nueva) y su referencia del día.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Guía cargada en el formulario para editar (null = guía nueva).
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [loadedReference, setLoadedReference] = useState<number | null>(null);
+  // Guía resaltada en la lista (para editar / imprimir / bloquear).
+  const [selectedGuia, setSelectedGuia] = useState<PesoCamionGuia | null>(null);
 
   const abiertas = usePesoCamionAbiertas();
-  const nextRef = usePesoCamionNextReference(fecha, !selectedId);
+  const nextRef = usePesoCamionNextReference(fecha, !editingId);
   const createGuia = useCreatePesoCamion();
   const updateGuia = useUpdatePesoCamion();
 
   // Referencia (orden de llegada del día): la de la guía cargada o el próximo.
-  const referencia = selectedId
+  const referencia = editingId
     ? loadedReference != null
       ? String(loadedReference)
       : '—'
@@ -150,7 +152,8 @@ export function PesoEnCamionPage() {
 
   // Vacía el formulario para empezar una guía nueva.
   function resetForm() {
-    setSelectedId(null);
+    setEditingId(null);
+    setSelectedGuia(null);
     setLoadedReference(null);
     setFecha(today());
     setGuia('');
@@ -184,9 +187,9 @@ export function PesoEnCamionPage() {
     setSaveError(null);
     try {
       let ref: number;
-      if (selectedId) {
+      if (editingId) {
         const updated = await updateGuia.mutateAsync({
-          id: selectedId,
+          id: editingId,
           input: buildInput(),
         });
         ref = updated.reference;
@@ -203,7 +206,8 @@ export function PesoEnCamionPage() {
   }
 
   function loadGuia(g: PesoCamionGuia) {
-    setSelectedId(g.id);
+    setEditingId(g.id);
+    setSelectedGuia(g);
     setLoadedReference(g.reference);
     setFecha(g.date);
     setGuia(g.guia ?? '');
@@ -225,8 +229,13 @@ export function PesoEnCamionPage() {
     setNotice(null);
   }
 
-  function imprimir() {
-    void downloadReciboPdf({
+  // El lápiz carga la guía seleccionada en el formulario para editarla.
+  function editar() {
+    if (selectedGuia) loadGuia(selectedGuia);
+  }
+
+  function reciboFromForm() {
+    return {
       guia,
       fecha,
       proveedor,
@@ -245,7 +254,39 @@ export function PesoEnCamionPage() {
       operario: user?.fullName ?? '',
       impreso: new Date().toLocaleString('es-CO'),
       logoUrl: new URL(logoSantaCruz, window.location.href).href,
-    });
+    };
+  }
+
+  function reciboFromGuia(g: PesoCamionGuia) {
+    const gNeto = (g.entrada ?? 0) - (g.salida ?? 0);
+    const gProm = g.cantidad && g.cantidad > 0 ? gNeto / g.cantidad : 0;
+    return {
+      guia: g.guia ?? '',
+      fecha: g.date,
+      proveedor: g.proveedor ?? '',
+      procedencia: g.procedencia ?? '',
+      ciudad: '',
+      cliente: g.cliente ?? '',
+      referencia: String(g.reference),
+      placa: g.placa ?? '',
+      conductor: g.conductor ?? '',
+      entrada: kg(g.entrada ?? 0),
+      salida: kg(g.salida ?? 0),
+      neto: kg(gNeto),
+      cantidad: g.cantidad != null ? String(g.cantidad) : '0',
+      prom: kg(gProm),
+      observaciones: g.observaciones ?? '',
+      operario: user?.fullName ?? '',
+      impreso: new Date().toLocaleString('es-CO'),
+      logoUrl: new URL(logoSantaCruz, window.location.href).href,
+    };
+  }
+
+  // Imprime la guía seleccionada (o el formulario si se está editando/creando).
+  function imprimir() {
+    const data =
+      !editingId && selectedGuia ? reciboFromGuia(selectedGuia) : reciboFromForm();
+    void downloadReciboPdf(data);
   }
 
   const guiasAbiertas = abiertas.data ?? [];
@@ -284,7 +325,7 @@ export function PesoEnCamionPage() {
             ) : (
               <Save className="size-5" />
             )}
-            {selectedId ? 'Actualizar' : 'Guardar'}
+            {editingId ? 'Actualizar' : 'Guardar'}
           </Button>
           <Button
             variant="outline"
@@ -296,7 +337,14 @@ export function PesoEnCamionPage() {
             <Eraser className="size-5" />
           </Button>
           <span className="mx-1 h-8 w-px bg-border" />
-          <Button variant="outline" size="icon" className="size-11" title="Editar">
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-11"
+            title="Editar guía seleccionada"
+            onClick={editar}
+            disabled={!selectedGuia}
+          >
             <Pencil className="size-5" />
           </Button>
           <Button
@@ -326,10 +374,16 @@ export function PesoEnCamionPage() {
           {notice}
         </div>
       )}
-      {selectedId && (
+      {editingId && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
           Editando la guía de referencia N.º {loadedReference}. Guardá para
           aplicar los cambios.
+        </div>
+      )}
+      {!editingId && selectedGuia && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
+          Guía N.º {selectedGuia.reference} seleccionada. Usá el lápiz para
+          editarla, o el botón imprimir.
         </div>
       )}
 
@@ -498,10 +552,13 @@ export function PesoEnCamionPage() {
                 guiasAbiertas.map((g) => (
                   <TR
                     key={g.id}
-                    onClick={() => loadGuia(g)}
+                    onClick={() =>
+                      setSelectedGuia((cur) => (cur?.id === g.id ? null : g))
+                    }
                     className={cn(
                       'cursor-pointer',
-                      g.id === selectedId && 'bg-accent',
+                      g.id === selectedGuia?.id &&
+                        'bg-sky-100 hover:bg-sky-100',
                     )}
                   >
                     <TD className="font-medium tabular-nums">{g.reference}</TD>
