@@ -118,6 +118,7 @@ enum TraceEventType {
 }
 
 enum UserRole {
+  desarrollador
   admin
   supervisor_desposte
   operario_desposte

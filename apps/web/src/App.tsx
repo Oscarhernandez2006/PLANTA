@@ -13,7 +13,12 @@ import { WelcomeScreen } from './features/auth/WelcomeScreen';
 import { DeviceGate } from './features/device/DeviceGate';
 import { DevicesPage } from './features/device/DevicesPage';
 import { CanalFriaPage } from './features/canal-fria/CanalFriaPage';
+import { CanalCalientePage } from './features/canal-caliente/CanalCalientePage';
 import { PesoEnCamionPage } from './features/peso-en-camion/PesoEnCamionPage';
+import { PesoEnPiePage } from './features/peso-en-pie/PesoEnPiePage';
+import { InsensibilizacionPage } from './features/insensibilizacion/InsensibilizacionPage';
+import { PielesPage } from './features/pieles/PielesPage';
+import { SubproductosPage } from './features/subproductos/SubproductosPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { GoodsReceiptsPage } from './features/goods-receipts/GoodsReceiptsPage';
 
@@ -24,7 +29,12 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'canal-fria', element: <CanalFriaPage /> },
+      { path: 'canal-caliente', element: <CanalCalientePage /> },
       { path: 'peso-en-camion', element: <PesoEnCamionPage /> },
+      { path: 'peso-en-pie', element: <PesoEnPiePage /> },
+      { path: 'insensibilizacion', element: <InsensibilizacionPage /> },
+      { path: 'pieles', element: <PielesPage /> },
+      { path: 'subproductos', element: <SubproductosPage /> },
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
       { path: 'equipos', element: <DevicesPage /> },
       { path: '*', element: <Navigate to="/" replace /> },

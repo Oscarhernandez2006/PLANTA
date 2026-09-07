@@ -1,10 +1,10 @@
 import { GiCow } from 'react-icons/gi';
-import { Snowflake } from 'lucide-react';
+import { Flame } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Ícono de vaca: Game Icons (Delapouite / game-icons.net) vía react-icons — CC BY 3.0.
-/** Ícono del módulo Canal Fría: res de perfil con un copo de nieve (cadena de frío). */
-export function CanalFriaIcon({ className }: { className?: string }) {
+/** Ícono del módulo Canal Caliente: res de perfil con una llama (canal en caliente). */
+export function CanalCalienteIcon({ className }: { className?: string }) {
   return (
     <span
       className={cn(
@@ -12,9 +12,9 @@ export function CanalFriaIcon({ className }: { className?: string }) {
         className,
       )}
     >
-      <GiCow className="size-full translate-y-[12%]" />
-      <Snowflake
-        className="absolute -right-1.5 -top-1.5 size-[42%] text-sky-400"
+      <GiCow className="size-full" />
+      <Flame
+        className="absolute -right-1.5 -top-1.5 size-[42%] text-orange-500"
         strokeWidth={2.5}
       />
     </span>

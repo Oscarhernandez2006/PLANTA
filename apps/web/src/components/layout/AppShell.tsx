@@ -3,7 +3,12 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { LogOut, MonitorSmartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
+import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { PesoEnCamionIcon } from '@/components/icons/PesoEnCamionIcon';
+import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
+import { InsensibilizacionIcon } from '@/components/icons/InsensibilizacionIcon';
+import { PielesIcon } from '@/components/icons/PielesIcon';
+import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { useAuth } from '@/features/auth/auth-context';
 import { useDevice } from '@/features/device/device-context';
@@ -15,6 +20,11 @@ const nav: {
 }[] = [
   { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
   { to: '/peso-en-camion', label: 'Peso En Camión', icon: PesoEnCamionIcon },
+  { to: '/peso-en-pie', label: 'Peso En Pie', icon: PesoEnPieIcon },
+  { to: '/insensibilizacion', label: 'Insensibilización', icon: InsensibilizacionIcon },
+  { to: '/pieles', label: 'Pieles', icon: PielesIcon },
+  { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
+  { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
 ];
 
 // Etiqueta de área a partir del rol (identificador) del usuario.
