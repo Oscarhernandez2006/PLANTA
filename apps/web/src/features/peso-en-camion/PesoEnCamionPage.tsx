@@ -33,6 +33,7 @@ import {
   usePesoCamionNextReference,
   useCreatePesoCamion,
   useUpdatePesoCamion,
+  useClosePesoCamion,
   type PesoCamionGuia,
   type SavePesoCamionInput,
 } from './api';
@@ -102,6 +103,7 @@ export function PesoEnCamionPage() {
   const nextRef = usePesoCamionNextReference(fecha, !editingId);
   const createGuia = useCreatePesoCamion();
   const updateGuia = useUpdatePesoCamion();
+  const closeGuia = useClosePesoCamion();
 
   // Referencia (orden de llegada del día): la de la guía cargada o el próximo.
   const referencia = editingId
@@ -234,6 +236,33 @@ export function PesoEnCamionPage() {
     if (selectedGuia) loadGuia(selectedGuia);
   }
 
+  // Clic en fila: selecciona; si ya estaba seleccionada, deselecciona.
+  // Si se estaba editando esa misma guía, cancela la edición.
+  function toggleSelect(g: PesoCamionGuia) {
+    if (selectedGuia?.id === g.id) {
+      if (editingId === g.id) resetForm();
+      else setSelectedGuia(null);
+    } else {
+      setSelectedGuia(g);
+    }
+  }
+
+  // El candado cierra la guía: sale de “Guías abiertas”.
+  async function cerrar() {
+    if (!selectedGuia) return;
+    const ref = selectedGuia.reference;
+    const id = selectedGuia.id;
+    setSaveError(null);
+    try {
+      await closeGuia.mutateAsync(id);
+      if (editingId === id) resetForm();
+      setSelectedGuia(null);
+      showNotice(`Guía N.º ${ref} cerrada.`);
+    } catch {
+      setSaveError('No se pudo cerrar la guía.');
+    }
+  }
+
   function reciboFromForm() {
     return {
       guia,
@@ -356,7 +385,14 @@ export function PesoEnCamionPage() {
           >
             <Printer className="size-5" />
           </Button>
-          <Button variant="outline" size="icon" className="size-11" title="Bloquear">
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-11"
+            title="Cerrar guía seleccionada"
+            onClick={cerrar}
+            disabled={!selectedGuia || closeGuia.isPending}
+          >
             <Lock className="size-5" />
           </Button>
         </div>
@@ -552,9 +588,7 @@ export function PesoEnCamionPage() {
                 guiasAbiertas.map((g) => (
                   <TR
                     key={g.id}
-                    onClick={() =>
-                      setSelectedGuia((cur) => (cur?.id === g.id ? null : g))
-                    }
+                    onClick={() => toggleSelect(g)}
                     className={cn(
                       'cursor-pointer',
                       g.id === selectedGuia?.id &&

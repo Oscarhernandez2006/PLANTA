@@ -58,4 +58,12 @@ export class PesoCamionController {
   ) {
     return this.service.update(user, id, dto);
   }
+
+  @Patch(':id/close')
+  close(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.close(user, id);
+  }
 }
