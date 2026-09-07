@@ -19,6 +19,9 @@ import { PesoEnPiePage } from './features/peso-en-pie/PesoEnPiePage';
 import { InsensibilizacionPage } from './features/insensibilizacion/InsensibilizacionPage';
 import { PielesPage } from './features/pieles/PielesPage';
 import { SubproductosPage } from './features/subproductos/SubproductosPage';
+import { OrdenBeneficioPage } from './features/registrar/OrdenBeneficioPage';
+import { OrdenDespachoFrioPage } from './features/registrar/OrdenDespachoFrioPage';
+import { OrdenDespostePage } from './features/registrar/OrdenDespostePage';
 import { DashboardPage } from './pages/DashboardPage';
 import { GoodsReceiptsPage } from './features/goods-receipts/GoodsReceiptsPage';
 
@@ -35,6 +38,9 @@ const router = createBrowserRouter([
       { path: 'insensibilizacion', element: <InsensibilizacionPage /> },
       { path: 'pieles', element: <PielesPage /> },
       { path: 'subproductos', element: <SubproductosPage /> },
+      { path: 'orden-beneficio', element: <OrdenBeneficioPage /> },
+      { path: 'orden-despacho-frio', element: <OrdenDespachoFrioPage /> },
+      { path: 'orden-desposte', element: <OrdenDespostePage /> },
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
       { path: 'equipos', element: <DevicesPage /> },
       { path: '*', element: <Navigate to="/" replace /> },

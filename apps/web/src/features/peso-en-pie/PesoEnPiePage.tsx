@@ -1,138 +1,287 @@
-import { useState } from 'react';
-import {
-  Calculator,
-  Check,
-  ClipboardList,
-  Eraser,
-  Pencil,
-  Printer,
-  Scale,
-} from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Save, Eraser, Hash, Inbox, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input, Label } from '@/components/ui/input';
-import { Tabs, type TabItem } from '@/components/ui/tabs';
+import { Card } from '@/components/ui/card';
+import { Input, Label, Select } from '@/components/ui/input';
+import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
 import { cn } from '@/lib/utils';
+import {
+  usePesoEnPieList,
+  usePesoEnPieNextReference,
+  useCreatePesoEnPie,
+  type PesoEnPieStatus,
+  type TipoPesaje,
+} from './api';
 
-const fieldClass = 'h-11 rounded-none border-slate-300 bg-white text-base';
-const corrales = Array.from({ length: 26 }, (_, index) =>
-  `Corral ${String(index + 1).padStart(2, '0')}`,
-);
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
+function num(s: string) {
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : 0;
+}
+function kg(n: number | null) {
+  if (n == null) return '—';
+  return n.toLocaleString('es-CO', {
+    minimumFractionDigits: 1,
+    maximumFractionDigits: 1,
+  });
+}
+
+const statusLabel: Record<PesoEnPieStatus, string> = {
+  pendiente: 'Pendiente',
+  en_insensibilizacion: 'En insensibilización',
+  procesado: 'Procesado',
+};
+const statusTone: Record<PesoEnPieStatus, string> = {
+  pendiente: 'bg-amber-100 text-amber-700',
+  en_insensibilizacion: 'bg-sky-100 text-sky-700',
+  procesado: 'bg-emerald-100 text-emerald-700',
+};
 
 export function PesoEnPiePage() {
-  const [fecha, setFecha] = useState('2026-09-07');
+  const [fecha, setFecha] = useState(today());
   const [guia, setGuia] = useState('');
-  const [proveedor, setProveedor] = useState('');
-  const [cliente, setCliente] = useState('');
-  const [tipoAnimal, setTipoAnimal] = useState('');
-  const [ubicacion, setUbicacion] = useState('');
-  const [lote, setLote] = useState('0');
-  const [animal, setAnimal] = useState('');
-  const [peso, setPeso] = useState('0.0');
-  const [tab, setTab] = useState('total');
-  const [guiasAbiertas, setGuiasAbiertas] = useState(10);
-  const [mensaje, setMensaje] = useState<string | null>(null);
+  const [corral, setCorral] = useState('');
+  const [cantidad, setCantidad] = useState('');
+  const [tipoPesaje, setTipoPesaje] = useState<TipoPesaje>('promediado');
+  const [pesoTotal, setPesoTotal] = useState('');
+  const [observaciones, setObservaciones] = useState('');
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
-  const tabs: TabItem[] = [
-    { value: 'total', label: `Total: 00 (${peso} kg)` },
-    { value: 'observaciones', label: 'Observaciones' },
-    { value: 'guias', label: `Guías Abiertas: ${guiasAbiertas}` },
-  ];
+  const lista = usePesoEnPieList();
+  const nextRef = usePesoEnPieNextReference(fecha, true);
+  const crear = useCreatePesoEnPie();
+
+  const cantNum = num(cantidad);
+  const totalNum = num(pesoTotal);
+  const promedio = useMemo(
+    () => (cantNum > 0 && totalNum > 0 ? totalNum / cantNum : 0),
+    [cantNum, totalNum],
+  );
+
+  const canSave = cantNum >= 1 && !crear.isPending;
 
   function limpiar() {
     setGuia('');
-    setProveedor('');
-    setCliente('');
-    setTipoAnimal('');
-    setUbicacion('');
-    setLote('0');
-    setAnimal('');
-    setPeso('0.0');
-    setMensaje(null);
+    setCorral('');
+    setCantidad('');
+    setPesoTotal('');
+    setObservaciones('');
+    setTipoPesaje('promediado');
+    setSaveError(null);
   }
 
-  function guardar() {
-    setMensaje('Registro listo para guardar cuando se conecte la báscula.');
-    setGuiasAbiertas((value) => value + 1);
+  async function guardar() {
+    if (!canSave) return;
+    setSaveError(null);
+    try {
+      const created = await crear.mutateAsync({
+        date: fecha,
+        guia: guia.trim() || undefined,
+        corral: corral.trim() || undefined,
+        animalCount: cantNum,
+        tipoPesaje,
+        pesoTotalKg: totalNum > 0 ? totalNum : undefined,
+        observaciones: observaciones.trim() || undefined,
+      });
+      limpiar();
+      setNotice(`Reporte N.º ${created.reference} guardado.`);
+      window.setTimeout(() => setNotice(null), 3500);
+    } catch {
+      setSaveError('No se pudo guardar el reporte.');
+    }
   }
 
   return (
-    <div className="min-h-[calc(100vh-4rem)] bg-white text-slate-900">
-      <div className="border border-slate-200 bg-slate-50 p-2 sm:p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          <div className="flex size-16 shrink-0 items-center justify-center border border-slate-400 bg-white text-slate-800">
-            <PesoEnPieIcon className="size-12" />
-          </div>
-          <div className="w-40 space-y-1">
-            <Label htmlFor="peso-pie-fecha">Fecha:</Label>
-            <Input id="peso-pie-fecha" type="date" className={fieldClass} value={fecha} onChange={(event) => setFecha(event.target.value)} />
-          </div>
-          <div className="min-w-64 flex-1 space-y-1">
-            <Label htmlFor="peso-pie-guia">Guía de Movilización:</Label>
-            <Input id="peso-pie-guia" className={fieldClass} value={guia} onChange={(event) => setGuia(event.target.value)} />
-          </div>
-          <ActionButton label="Confirmar registro" onClick={guardar}><Check className="size-10" /></ActionButton>
-          <ActionButton label="Limpiar formulario" onClick={limpiar}><Eraser className="size-9" /></ActionButton>
-          <div className="ml-auto flex items-center gap-2">
-            <ActionButton label="Calculadora"><Calculator className="size-9" /></ActionButton>
-            <ActionButton label="Lista de guías"><ClipboardList className="size-9" /></ActionButton>
+    <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
+      {/* Encabezado */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <PesoEnPieIcon className="size-9 text-foreground" />
+          <div>
+            <h1 className="text-xl font-semibold text-foreground">
+              Peso en Pie
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Reporte de animales que ingresan a la planta.
+            </p>
           </div>
         </div>
-
-        <div className="mt-2 grid gap-2">
-          <Field label="Proveedor:" value={proveedor} onChange={setProveedor} />
-          <Field label="Cliente:" value={cliente} onChange={setCliente} />
-        </div>
-
-        <div className="mt-2 grid gap-2 md:grid-cols-2">
-          <SelectField label="Tipo de Animal:" value={tipoAnimal} onChange={setTipoAnimal} options={['Bovino', 'Porcino', 'Otro']} />
-          <SelectField label="Ubicación (Corral):" value={ubicacion} onChange={setUbicacion} options={corrales} />
-        </div>
-
-        <div className="mt-2 grid gap-2 md:grid-cols-[1fr_1fr_1fr_auto]">
-          <LargeField label="Lote:" value={lote} onChange={setLote} />
-          <LargeField label="Animal No.:" value={animal} onChange={setAnimal} />
-          <LargeField label="Peso (kg):" value={peso} onChange={setPeso} inputMode="decimal" valueClass="text-4xl font-bold text-emerald-600" />
-          <div className="flex items-end gap-2 pb-0.5">
-            <ActionButton label="Leer báscula"><Scale className="size-9" /></ActionButton>
-            <ActionButton label="Editar peso"><Pencil className="size-9" /></ActionButton>
-            <ActionButton label="Imprimir recibo"><Printer className="size-9" /></ActionButton>
-          </div>
-        </div>
-
-        <div className="mt-2 overflow-hidden border border-slate-200 bg-white">
-          <Tabs tabs={tabs} value={tab} onChange={setTab} className="bg-slate-50" />
-          <div className="min-h-[260px] p-3 sm:min-h-[340px]">
-            {tab === 'observaciones' && (
-              <textarea className="min-h-40 w-full resize-y border border-slate-300 p-3 text-sm outline-none focus:border-slate-500" placeholder="Observaciones del pesaje..." />
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={limpiar}
+            disabled={crear.isPending}
+          >
+            <Eraser /> Limpiar
+          </Button>
+          <Button onClick={guardar} disabled={!canSave}>
+            {crear.isPending ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <Save />
             )}
-            {tab === 'guias' && (
-              <div className="grid gap-2 sm:grid-cols-3">
-                {Array.from({ length: guiasAbiertas }, (_, index) => (
-                  <button key={index} type="button" className="border border-slate-200 bg-slate-50 px-3 py-2 text-left text-sm hover:bg-slate-100">Guía abierta {String(index + 1).padStart(2, '0')}</button>
-                ))}
-              </div>
-            )}
-            {tab === 'total' && mensaje && <p className="border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{mensaje}</p>}
-          </div>
+            Guardar
+          </Button>
         </div>
       </div>
+
+      {notice && (
+        <div className="rounded-md bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+          {notice}
+        </div>
+      )}
+      {saveError && (
+        <div className="rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">
+          {saveError}
+        </div>
+      )}
+
+      {/* Formulario */}
+      <Card className="p-6">
+        <div className="grid gap-4 md:grid-cols-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="fecha">Fecha</Label>
+            <Input
+              id="fecha"
+              type="date"
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="ref">Referencia</Label>
+            <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm font-semibold">
+              <Hash className="size-4 text-muted-foreground" />
+              {nextRef.data?.next ?? '—'}
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="guia">Guía de movilidad</Label>
+            <Input
+              id="guia"
+              value={guia}
+              onChange={(e) => setGuia(e.target.value)}
+              placeholder="N.º de guía"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="corral">Corral</Label>
+            <Input
+              id="corral"
+              value={corral}
+              onChange={(e) => setCorral(e.target.value)}
+              placeholder="Corral asignado"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="cantidad">N.º de animales</Label>
+            <Input
+              id="cantidad"
+              inputMode="numeric"
+              value={cantidad}
+              onChange={(e) =>
+                setCantidad(e.target.value.replace(/[^0-9]/g, ''))
+              }
+              placeholder="0"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="tipo">Tipo de pesaje</Label>
+            <Select
+              id="tipo"
+              value={tipoPesaje}
+              onChange={(e) => setTipoPesaje(e.target.value as TipoPesaje)}
+            >
+              <option value="promediado">Promediado (peso total)</option>
+              <option value="individual">Individual (por animal)</option>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="total">Peso total (kg)</Label>
+            <Input
+              id="total"
+              inputMode="decimal"
+              value={pesoTotal}
+              onChange={(e) =>
+                setPesoTotal(e.target.value.replace(/[^0-9.]/g, ''))
+              }
+              placeholder="0.0"
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Peso promedio (kg/animal)</Label>
+            <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-semibold text-emerald-700">
+              {kg(promedio || null)}
+            </div>
+          </div>
+          <div className="space-y-1.5 md:col-span-3">
+            <Label htmlFor="obs">Observaciones</Label>
+            <Input
+              id="obs"
+              value={observaciones}
+              onChange={(e) => setObservaciones(e.target.value)}
+              placeholder="Opcional"
+            />
+          </div>
+        </div>
+      </Card>
+
+      {/* Reportes recientes */}
+      <Card className="overflow-hidden">
+        <div className="border-b border-border px-6 py-3 text-sm font-semibold">
+          Reportes recientes
+        </div>
+        {lista.isLoading ? (
+          <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin" /> Cargando…
+          </div>
+        ) : !lista.data?.length ? (
+          <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
+            <Inbox className="size-8" />
+            Aún no hay reportes registrados.
+          </div>
+        ) : (
+          <Table>
+            <THead>
+              <TR>
+                <TH>Ref.</TH>
+                <TH>Fecha</TH>
+                <TH>Guía</TH>
+                <TH>Corral</TH>
+                <TH className="text-right">Animales</TH>
+                <TH className="text-right">Prom. kg</TH>
+                <TH>Estado</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {lista.data.map((r) => (
+                <TR key={r.id}>
+                  <TD className="font-semibold">{r.reference}</TD>
+                  <TD>{r.date}</TD>
+                  <TD>{r.guia ?? '—'}</TD>
+                  <TD>{r.corral ?? '—'}</TD>
+                  <TD className="text-right">{r.animalCount}</TD>
+                  <TD className="text-right">{kg(r.pesoPromedioKg)}</TD>
+                  <TD>
+                    <span
+                      className={cn(
+                        'rounded-full px-2 py-0.5 text-xs font-medium',
+                        statusTone[r.status],
+                      )}
+                    >
+                      {statusLabel[r.status]}
+                    </span>
+                  </TD>
+                </TR>
+              ))}
+            </TBody>
+          </Table>
+        )}
+      </Card>
     </div>
   );
-}
-
-function ActionButton({ label, onClick, children }: { label: string; onClick?: () => void; children: React.ReactNode }) {
-  return <Button type="button" variant="outline" size="icon" className="size-14 rounded-lg border-2 border-slate-700 bg-white text-slate-800 shadow-none hover:bg-slate-100" title={label} aria-label={label} onClick={onClick}>{children}</Button>;
-}
-
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
-  return <label className="block border border-slate-200 bg-white px-2 pb-2 pt-0.5"><span className="relative -top-3 bg-white px-1 text-base font-medium">{label}</span><Input className={cn(fieldClass, '-mt-1')} value={value} onChange={(event) => onChange(event.target.value)} /></label>;
-}
-
-function SelectField({ label, value, onChange, options }: { label: string; value: string; onChange: (value: string) => void; options: string[] }) {
-  return <label className="block border border-slate-200 bg-white px-2 pb-2 pt-0.5"><span className="relative -top-3 bg-white px-1 text-base font-medium">{label}</span><select className={cn(fieldClass, '-mt-1 w-full px-3')} value={value} onChange={(event) => onChange(event.target.value)}><option value="">Seleccionar...</option>{options.map((option) => <option key={option}>{option}</option>)}</select></label>;
-}
-
-function LargeField({ label, value, onChange, inputMode, valueClass }: { label: string; value: string; onChange: (value: string) => void; inputMode?: 'decimal'; valueClass?: string }) {
-  return <label className="block border border-slate-200 bg-white px-2 pb-2 pt-0.5"><span className="relative -top-3 bg-white px-1 text-base font-medium">{label}</span><Input className={cn(fieldClass, '-mt-1 h-16 text-center text-3xl tabular-nums', valueClass)} value={value} onChange={(event) => onChange(event.target.value)} inputMode={inputMode} /></label>;
 }

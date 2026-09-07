@@ -93,6 +93,20 @@ export class PesoCamionService {
     return this.toDto(rec);
   }
 
+  /** Cierra la guía (sale de la lista de abiertas). */
+  async close(ctx: AuthContext, id: string) {
+    const existing = await this.prisma.pesoCamion.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Guía no encontrada.');
+
+    const rec = await this.prisma.pesoCamion.update({
+      where: { id },
+      data: { status: PesoCamionStatus.cerrada },
+    });
+    return this.toDto(rec);
+  }
+
   async findAll(ctx: AuthContext, status?: PesoCamionStatus) {
     const rows = await this.prisma.pesoCamion.findMany({
       where: {

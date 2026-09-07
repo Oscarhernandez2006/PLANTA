@@ -1,3 +1,6 @@
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
+
 export interface ReciboData {
   guia: string;
   fecha: string;
@@ -19,210 +22,216 @@ export interface ReciboData {
   logoUrl: string;
 }
 
-function esc(s: string) {
-  return String(s ?? '').replace(
-    /[&<>"']/g,
-    (c) =>
-      ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;',
-      })[c] as string,
-  );
-}
+const INK: [number, number, number] = [31, 41, 55];
+const GRAY: [number, number, number] = [243, 244, 246];
+const REDBG: [number, number, number] = [251, 233, 233];
+const REDTX: [number, number, number] = [127, 29, 29];
+const TEXT: [number, number, number] = [17, 17, 17];
 
-export function buildReciboHtml(d: ReciboData) {
-  return `<!doctype html>
-<html lang="es">
-<head>
-<meta charset="utf-8" />
-<title>Recibo guía ${esc(d.guia) || ''}</title>
-<style>
-  * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; }
-  body {
-    font-family: Arial, Helvetica, sans-serif;
-    color: #111;
-    font-size: 11px;
-    padding: 18px;
-  }
-  table { width: 100%; border-collapse: collapse; }
-  td, th { border: 1px solid #1f2937; padding: 4px 6px; vertical-align: middle; }
-  .frame { border: 1px solid #1f2937; }
-  .frame table td, .frame table th { border: 1px solid #1f2937; }
-  .logo { width: 150px; text-align: center; }
-  .logo img { max-width: 120px; max-height: 74px; object-fit: contain; }
-  .company { text-align: center; line-height: 1.35; }
-  .company .name { font-size: 13px; font-weight: 700; letter-spacing: .3px; }
-  .title {
-    text-align: center; font-weight: 700; font-size: 13px;
-    background: #f3f4f6; letter-spacing: .3px; padding: 6px;
-  }
-  .lbl {
-    text-align: center; font-weight: 700; font-size: 10px;
-    background: #fbe9e9; color: #7f1d1d; text-transform: uppercase;
-  }
-  .val { text-align: center; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; }
-  .center { text-align: center; }
-  .grp { text-align: center; font-weight: 700; background: #f3f4f6; }
-  .section-title {
-    text-align: center; font-weight: 700; background: #f3f4f6;
-    text-transform: uppercase; font-size: 10px;
-  }
-  .obs { min-height: 34px; }
-  .foot {
-    display: flex; justify-content: space-between;
-    margin-top: 6px; font-size: 10px; color: #374151;
-  }
-  .spacer { height: 6px; border: 0; }
-</style>
-</head>
-<body>
-  <div class="frame">
-    <table>
-      <tr>
-        <td class="logo" rowspan="1">
-          ${d.logoUrl ? `<img src="${esc(d.logoUrl)}" alt="Logo" />` : ''}
-        </td>
-        <td class="company">
-          <div class="name">AGROPECUARIA SANTA CRUZ LTDA</div>
-          <div>NIT. 830.505.537-2</div>
-          <div>KM 3 VÍA ORIENTAL TEL. 3766701</div>
-          <div>MALAMBO - ATLÁNTICO</div>
-        </td>
-        <td class="logo"></td>
-      </tr>
-    </table>
-    <table>
-      <tr>
-        <td class="title" colspan="3">
-          RECIBO DE ANIMALES EN VEHÍCULO GUÍA No. ${esc(d.guia) || '—'}
-        </td>
-      </tr>
-      <tr>
-        <td class="lbl" style="width:33%">Fecha de ingreso</td>
-        <td class="lbl" style="width:34%">Proveedor</td>
-        <td class="lbl" style="width:33%">Procedencia</td>
-      </tr>
-      <tr>
-        <td class="val">${esc(d.fecha) || '—'}</td>
-        <td class="val">${esc(d.proveedor) || '—'}</td>
-        <td class="val">${esc(d.procedencia) || '—'}</td>
-      </tr>
-      <tr>
-        <td class="lbl">Ciudad</td>
-        <td class="lbl">Cliente</td>
-        <td class="lbl">Referencia</td>
-      </tr>
-      <tr>
-        <td class="val">${esc(d.ciudad)}</td>
-        <td class="val">${esc(d.cliente) || '—'}</td>
-        <td class="val">${esc(d.referencia) || '—'}</td>
-      </tr>
-    </table>
-  </div>
-
-  <hr class="spacer" />
-
-  <div class="frame">
-    <table>
-      <tr>
-        <th rowspan="2" style="width:34px" class="grp">No.</th>
-        <th rowspan="2" class="grp">Vehículo</th>
-        <th rowspan="2" class="grp">Conductor</th>
-        <th colspan="3" class="grp">Pesaje de vehículo</th>
-        <th colspan="2" class="grp">Animales</th>
-      </tr>
-      <tr>
-        <th class="grp">Entrada (kg)</th>
-        <th class="grp">Salida (kg)</th>
-        <th class="grp">Neto (kg)</th>
-        <th class="grp">Cant.</th>
-        <th class="grp">Prom. (kg)</th>
-      </tr>
-      <tr>
-        <td class="center">1</td>
-        <td class="center">${esc(d.placa) || '—'}</td>
-        <td class="center">${esc(d.conductor) || '—'}</td>
-        <td class="num">${esc(d.entrada)}</td>
-        <td class="num">${esc(d.salida)}</td>
-        <td class="num">${esc(d.neto)}</td>
-        <td class="num">${esc(d.cantidad)}</td>
-        <td class="num">${esc(d.prom)}</td>
-      </tr>
-    </table>
-  </div>
-
-  <hr class="spacer" />
-
-  <div class="frame">
-    <table>
-      <tr><td class="section-title">Observaciones</td></tr>
-      <tr><td class="obs">${esc(d.observaciones)}</td></tr>
-    </table>
-  </div>
-
-  <div class="foot">
-    <span>Agropecuaria Santa Cruz — Sistema de Planta</span>
-    <span>Operario: ${esc(d.operario) || '—'} | ${esc(d.impreso)}</span>
-  </div>
-</body>
-</html>`;
-}
-
-/** Abre el diálogo de impresión (Guardar como PDF) con el recibo. */
-export function printRecibo(data: ReciboData) {
-  const html = buildReciboHtml(data);
-  const iframe = document.createElement('iframe');
-  iframe.setAttribute('aria-hidden', 'true');
-  iframe.style.position = 'fixed';
-  iframe.style.right = '0';
-  iframe.style.bottom = '0';
-  iframe.style.width = '0';
-  iframe.style.height = '0';
-  iframe.style.border = '0';
-  document.body.appendChild(iframe);
-
-  const win = iframe.contentWindow;
-  const doc = win?.document;
-  if (!win || !doc) {
-    document.body.removeChild(iframe);
-    return;
-  }
-  doc.open();
-  doc.write(html);
-  doc.close();
-
-  const cleanup = () => {
-    window.setTimeout(() => {
-      if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
-    }, 500);
-  };
-
-  const doPrint = () => {
-    win.focus();
-    win.print();
-    cleanup();
-  };
-
-  const imgs = Array.from(doc.images);
-  if (imgs.length === 0) {
-    doPrint();
-    return;
-  }
-  let pending = imgs.length;
-  const done = () => {
-    pending -= 1;
-    if (pending <= 0) doPrint();
-  };
-  imgs.forEach((img) => {
-    if (img.complete) done();
-    else {
-      img.onload = done;
-      img.onerror = done;
-    }
+function loadImage(url: string): Promise<HTMLImageElement | null> {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => resolve(null);
+    img.src = url;
   });
+}
+
+function finalY(doc: jsPDF): number {
+  return (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable
+    .finalY;
+}
+
+/** Genera y descarga el recibo como PDF: informerecibovehiculo{fecha}.pdf */
+export async function downloadReciboPdf(d: ReciboData) {
+  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const margin = 12;
+  const contentW = pageW - margin * 2;
+
+  // Encabezado: marco con logo + datos de la empresa.
+  const headerY = margin;
+  const headerH = 22;
+  doc.setDrawColor(...INK);
+  doc.setLineWidth(0.3);
+  doc.rect(margin, headerY, contentW, headerH);
+
+  const img = await loadImage(d.logoUrl);
+  if (img) {
+    const lw = 26;
+    const lh = 16;
+    doc.addImage(
+      img,
+      'PNG',
+      margin + 5,
+      headerY + (headerH - lh) / 2,
+      lw,
+      lh,
+      undefined,
+      'FAST',
+    );
+  }
+  doc.setTextColor(...TEXT);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(12);
+  doc.text('AGROPECUARIA SANTA CRUZ LTDA', pageW / 2, headerY + 6, {
+    align: 'center',
+  });
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(9);
+  doc.text('NIT. 830.505.537-2', pageW / 2, headerY + 11, { align: 'center' });
+  doc.text('KM 3 VÍA ORIENTAL TEL. 3766701', pageW / 2, headerY + 15, {
+    align: 'center',
+  });
+  doc.text('MALAMBO - ATLÁNTICO', pageW / 2, headerY + 19, { align: 'center' });
+
+  let y = headerY + headerH;
+
+  // Título.
+  autoTable(doc, {
+    startY: y,
+    margin: { left: margin, right: margin },
+    theme: 'grid',
+    styles: {
+      fontSize: 11,
+      fontStyle: 'bold',
+      halign: 'center',
+      fillColor: GRAY,
+      textColor: TEXT,
+      lineColor: INK,
+      lineWidth: 0.3,
+      cellPadding: 2,
+    },
+    body: [[`RECIBO DE ANIMALES EN VEHÍCULO GUÍA No. ${d.guia || '—'}`]],
+  });
+  y = finalY(doc);
+
+  // Datos de la guía.
+  const lbl = {
+    fontStyle: 'bold' as const,
+    fontSize: 8,
+    halign: 'center' as const,
+    fillColor: REDBG,
+    textColor: REDTX,
+  };
+  const val = { halign: 'center' as const, fontSize: 9, textColor: TEXT };
+  const third = contentW / 3;
+  autoTable(doc, {
+    startY: y,
+    margin: { left: margin, right: margin },
+    theme: 'grid',
+    styles: { lineColor: INK, lineWidth: 0.3, cellPadding: 1.6 },
+    columnStyles: {
+      0: { cellWidth: third },
+      1: { cellWidth: third },
+      2: { cellWidth: contentW - third * 2 },
+    },
+    body: [
+      [
+        { content: 'FECHA DE INGRESO', styles: lbl },
+        { content: 'PROVEEDOR', styles: lbl },
+        { content: 'PROCEDENCIA', styles: lbl },
+      ],
+      [
+        { content: d.fecha || '—', styles: val },
+        { content: d.proveedor || '—', styles: val },
+        { content: d.procedencia || '—', styles: val },
+      ],
+      [
+        { content: 'CIUDAD', styles: lbl },
+        { content: 'CLIENTE', styles: lbl },
+        { content: 'REFERENCIA', styles: lbl },
+      ],
+      [
+        { content: d.ciudad || '', styles: val },
+        { content: d.cliente || '—', styles: val },
+        { content: d.referencia || '—', styles: val },
+      ],
+    ],
+  });
+  y = finalY(doc) + 3;
+
+  // Pesaje del vehículo (encabezado agrupado).
+  const grp = {
+    fontStyle: 'bold' as const,
+    halign: 'center' as const,
+    fillColor: GRAY,
+    textColor: TEXT,
+    fontSize: 8,
+  };
+  const right = { halign: 'right' as const };
+  autoTable(doc, {
+    startY: y,
+    margin: { left: margin, right: margin },
+    theme: 'grid',
+    styles: {
+      lineColor: INK,
+      lineWidth: 0.3,
+      cellPadding: 1.6,
+      fontSize: 9,
+      halign: 'center',
+    },
+    headStyles: grp,
+    columnStyles: { 0: { cellWidth: 10 } },
+    head: [
+      [
+        { content: 'No.', rowSpan: 2 },
+        { content: 'Vehículo', rowSpan: 2 },
+        { content: 'Conductor', rowSpan: 2 },
+        { content: 'Pesaje de vehículo', colSpan: 3 },
+        { content: 'Animales', colSpan: 2 },
+      ],
+      [
+        'Entrada (kg)',
+        'Salida (kg)',
+        'Neto (kg)',
+        'Cant.',
+        'Prom. (kg)',
+      ],
+    ],
+    body: [
+      [
+        '1',
+        d.placa || '—',
+        d.conductor || '—',
+        { content: d.entrada, styles: right },
+        { content: d.salida, styles: right },
+        { content: d.neto, styles: right },
+        { content: d.cantidad, styles: right },
+        { content: d.prom, styles: right },
+      ],
+    ],
+  });
+  y = finalY(doc) + 3;
+
+  // Observaciones.
+  autoTable(doc, {
+    startY: y,
+    margin: { left: margin, right: margin },
+    theme: 'grid',
+    styles: { lineColor: INK, lineWidth: 0.3, cellPadding: 2, fontSize: 9 },
+    headStyles: {
+      fontStyle: 'bold',
+      halign: 'center',
+      fillColor: GRAY,
+      textColor: TEXT,
+      fontSize: 8,
+    },
+    head: [['OBSERVACIONES']],
+    body: [[{ content: d.observaciones || ' ', styles: { minCellHeight: 12 } }]],
+  });
+  y = finalY(doc) + 6;
+
+  // Pie.
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(55, 65, 81);
+  doc.text('Agropecuaria Santa Cruz — Sistema de Planta', margin, y);
+  doc.text(`Operario: ${d.operario || '—'} | ${d.impreso}`, pageW - margin, y, {
+    align: 'right',
+  });
+
+  const fecha = d.fecha || new Date().toISOString().slice(0, 10);
+  doc.save(`informerecibovehiculo${fecha}.pdf`);
 }

@@ -12,33 +12,27 @@ import {
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { SavePesoCamionDto } from './dto/save-peso-camion.dto';
-import { QueryPesoCamionDto } from './dto/query-peso-camion.dto';
-import { PesoCamionService } from './peso-camion.service';
+import { SavePesoEnPieDto } from './dto/save-peso-en-pie.dto';
+import { QueryPesoEnPieDto } from './dto/query-peso-en-pie.dto';
+import { PesoEnPieService } from './peso-en-pie.service';
 
 @UseGuards(JwtAuthGuard)
-@Controller('peso-camion')
-export class PesoCamionController {
-  constructor(private readonly service: PesoCamionService) {}
+@Controller('peso-en-pie')
+export class PesoEnPieController {
+  constructor(private readonly service: PesoEnPieService) {}
 
   @Get('next-reference')
-  nextReference(
-    @CurrentUser() user: AuthContext,
-    @Query('date') date?: string,
-  ) {
+  nextReference(@CurrentUser() user: AuthContext, @Query('date') date?: string) {
     return this.service.nextReference(user, date);
   }
 
   @Post()
-  create(@CurrentUser() user: AuthContext, @Body() dto: SavePesoCamionDto) {
+  create(@CurrentUser() user: AuthContext, @Body() dto: SavePesoEnPieDto) {
     return this.service.create(user, dto);
   }
 
   @Get()
-  findAll(
-    @CurrentUser() user: AuthContext,
-    @Query() query: QueryPesoCamionDto,
-  ) {
+  findAll(@CurrentUser() user: AuthContext, @Query() query: QueryPesoEnPieDto) {
     return this.service.findAll(user, query.status);
   }
 
@@ -54,16 +48,8 @@ export class PesoCamionController {
   update(
     @CurrentUser() user: AuthContext,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: SavePesoCamionDto,
+    @Body() dto: SavePesoEnPieDto,
   ) {
     return this.service.update(user, id, dto);
-  }
-
-  @Patch(':id/close')
-  close(
-    @CurrentUser() user: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.service.close(user, id);
   }
 }

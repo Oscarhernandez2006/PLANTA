@@ -2,6 +2,10 @@ packages:
   - "apps/*"
   - "packages/*"
 
+# core-js (dep de jspdf) trae un build innecesario; evitamos que rompa los comandos.
+strictDepBuilds: false
+verifyDepsBeforeRun: false
+
 onlyBuiltDependencies:
   - "@prisma/client"
   - "@prisma/engines"
@@ -9,3 +13,6 @@ onlyBuiltDependencies:
   - esbuild
   - electron
   - electron-builder
+
+allowBuilds:
+  core-js: set this to true or false

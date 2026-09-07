@@ -225,3 +225,12 @@ export function useUpdatePesoCamion() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['peso-camion'] }),
   });
 }
+
+export function useClosePesoCamion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.patch<PesoCamionGuia>(`/peso-camion/${id}/close`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['peso-camion'] }),
+  });
+}
