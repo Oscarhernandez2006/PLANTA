@@ -654,3 +654,82 @@ model TraceEvent {
   @@index([occurredAt])
   @@map("trace_event")
 }
+
+// ==================== PESO EN PIE / INSENSIBILIZACIÓN =====================
+// Peso en Pie reporta los animales que llegaron (guía de movilidad, corral,
+// cantidad, peso individual o promediado). Cada reporte es la "orden" que se
+// procesa en Insensibilización, donde se marca cada animal (1..N) con su hora.
+
+enum PesoEnPieTipoPesaje {
+  individual
+  promediado
+}
+
+enum PesoEnPieStatus {
+  pendiente
+  en_insensibilizacion
+  procesado
+}
+
+enum InsensibilizacionStatus {
+  en_proceso
+  completada
+}
+
+model PesoEnPie {
+  id             String              @id @default(uuid()) @db.Uuid
+  plantId        String              @map("plant_id") @db.Uuid
+  reference      Int
+  date           DateTime            @db.Date
+  guia           String?
+  corral         String?
+  animalCount    Int                 @map("animal_count")
+  tipoPesaje     PesoEnPieTipoPesaje @default(promediado) @map("tipo_pesaje")
+  pesoTotalKg    Decimal?            @map("peso_total_kg") @db.Decimal(12, 2)
+  pesoPromedioKg Decimal?            @map("peso_promedio_kg") @db.Decimal(12, 2)
+  observaciones  String?
+  status         PesoEnPieStatus     @default(pendiente)
+  createdById    String              @map("created_by") @db.Uuid
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?           @map("deleted_at") @db.Timestamptz(6)
+
+  insensibilizacion Insensibilizacion?
+
+  @@unique([plantId, date, reference])
+  @@index([plantId, status])
+  @@map("peso_en_pie")
+}
+
+model Insensibilizacion {
+  id          String                  @id @default(uuid()) @db.Uuid
+  plantId     String                  @map("plant_id") @db.Uuid
+  pesoEnPieId String                  @unique @map("peso_en_pie_id") @db.Uuid
+  status      InsensibilizacionStatus @default(en_proceso)
+  startedAt   DateTime                @default(now()) @map("started_at") @db.Timestamptz(6)
+  finishedAt  DateTime?               @map("finished_at") @db.Timestamptz(6)
+  createdById String                  @map("created_by") @db.Uuid
+  createdAt   DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime                @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  pesoEnPie PesoEnPie                 @relation(fields: [pesoEnPieId], references: [id])
+  eventos   InsensibilizacionEvento[]
+
+  @@index([plantId, status])
+  @@map("insensibilizacion")
+}
+
+model InsensibilizacionEvento {
+  id                  String   @id @default(uuid()) @db.Uuid
+  insensibilizacionId String   @map("insensibilizacion_id") @db.Uuid
+  sequence            Int
+  stunnedAt           DateTime @default(now()) @map("stunned_at") @db.Timestamptz(6)
+  operatorId          String   @map("operator_id") @db.Uuid
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  insensibilizacion Insensibilizacion @relation(fields: [insensibilizacionId], references: [id])
+
+  @@unique([insensibilizacionId, sequence])
+  @@index([insensibilizacionId])
+  @@map("insensibilizacion_evento")
+}
