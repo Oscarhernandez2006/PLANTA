@@ -1,0 +1,43 @@
+{
+  "name": "@frigorifico/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "App de escritorio (Electron) que envuelve el frontend y valida el equipo por MAC nativa.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "electron .",
+    "copy:web": "node copy-web.js",
+    "prepack": "node copy-web.js",
+    "pack": "electron-builder --dir",
+    "predist": "node copy-web.js",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.frigorifico.planta",
+    "productName": "Frigorifico Planta",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "open-touch-keyboard.ps1",
+      "web/**"
+    ],
+    "asarUnpack": [
+      "open-touch-keyboard.ps1"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": true,
+      "allowToChangeInstallationDirectory": true
+    }
+  }
+}

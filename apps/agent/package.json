@@ -1,0 +1,12 @@
+{
+  "name": "@frigorifico/agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Agente local: expone la MAC del equipo por localhost para validar acceso.",
+  "bin": {
+    "frigorifico-agent": "index.js"
+  },
+  "scripts": {
+    "start": "node index.js"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "name": "frigorifico",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.25.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "db:up": "docker compose up -d postgres",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter @frigorifico/database generate",
+    "db:migrate": "pnpm --filter @frigorifico/database migrate:dev",
+    "dev:api": "pnpm --filter @frigorifico/api start:dev",
+    "dev:web": "pnpm --filter @frigorifico/web dev",
+    "dev:desktop": "pnpm --filter @frigorifico/desktop dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "format": "prettier --write \"**/*.{ts,tsx,json,md}\""
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.3"
+  }
+}

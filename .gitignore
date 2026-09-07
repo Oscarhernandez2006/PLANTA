@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build outputs
+dist/
+build/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Prisma
+packages/database/prisma/*.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp
+
+# Coverage
+coverage/
+
+# Vite
+apps/web/dist/
+
+# Desktop (Electron)
+apps/desktop/web/
+apps/desktop/release/
+
+# Fotos originales pesadas (las optimizadas están en apps/web/src/assets)
+FOTOS AGRO/
+
+# Artefactos temporales
+_*.ps1
+_*.sql

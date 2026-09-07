@@ -1,0 +1,654 @@
+// ============================================================================
+// Frigorífico — Esquema de datos (MVP: Ingreso -> Desposte -> Despacho, bovino)
+// PostgreSQL + Prisma
+//
+// Notas de robustez (se aplican vía migraciones SQL personalizadas, no en
+// este schema declarativo):
+//   - Triggers de auditoría AFTER INSERT/UPDATE/DELETE en entidades críticas
+//   - Particionado RANGE (mensual) de trace_event y tablas de históricos
+//   - Constraints CHECK adicionales (ej: quarter_type solo si unit_form=cuarto)
+//   - Validación output+shrink ≈ input al cerrar orden de desposte
+// ============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ============================ ENUMS ========================================
+
+enum Species {
+  bovino
+}
+
+enum UnitForm {
+  canal_completa
+  media_canal
+  cuarto
+}
+
+enum QuarterType {
+  delantero
+  trasero
+}
+
+enum GoodsReceiptStatus {
+  borrador
+  confirmado
+  en_desposte
+  cerrado
+  anulado
+}
+
+enum GoodsReceiptItemStatus {
+  disponible
+  en_desposte
+  despiezado
+  anulado
+}
+
+enum CuttingOrderStatus {
+  abierta
+  en_proceso
+  cerrada
+  anulada
+}
+
+enum CutStatus {
+  en_proceso
+  empacado
+  en_stock
+  despachado
+  anulado
+}
+
+enum ProductCategory {
+  primario
+  secundario
+}
+
+enum ContainerType {
+  canastilla
+  caja
+  bolsa
+}
+
+enum PackageStatus {
+  abierto
+  cerrado
+  en_stock
+  despachado
+  anulado
+}
+
+enum ShipmentStatus {
+  preparacion
+  despachado
+  anulado
+}
+
+enum TraceUnitType {
+  receipt_item
+  cut
+  package
+  shipment
+}
+
+enum TraceUnitStatus {
+  activa
+  bloqueada
+  consumida
+  despachada
+}
+
+enum TraceRelation {
+  transform
+  aggregate
+}
+
+enum TraceEventType {
+  ingreso
+  desposte
+  empaque
+  despacho
+}
+
+enum UserRole {
+  admin
+  supervisor_desposte
+  operario_desposte
+  despacho
+  calidad
+}
+
+enum DispatchOrderStatus {
+  activo
+  inactivo
+  facturado
+}
+
+enum DispatchOrderType {
+  mp_a_proceso
+}
+
+// ===================== CANAL FRÍA / ÓRDENES DE DESPACHO ====================
+
+// Cliente (a futuro se sincroniza desde el ERP; global, no por planta).
+model Client {
+  id        String   @id @default(uuid()) @db.Uuid
+  nit       String   @unique
+  name      String
+  sede      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  dispatchOrders DispatchOrder[]
+
+  @@map("client")
+}
+
+model Procedencia {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      Int      @unique @default(autoincrement())
+  rspp      String?
+  concepto  String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("procedencia")
+}
+
+model Proveedor {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      Int      @unique @default(autoincrement())
+  concepto  String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("proveedor")
+}
+
+model Cliente {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      Int      @unique @default(autoincrement())
+  concepto  String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("cliente")
+}
+
+model Conductor {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      Int      @unique @default(autoincrement())
+  concepto  String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("conductor")
+}
+
+enum PesoCamionStatus {
+  abierta
+  cerrada
+}
+
+model PesoCamion {
+  id            String           @id @default(uuid()) @db.Uuid
+  plantId       String           @map("plant_id") @db.Uuid
+  reference     Int
+  date          DateTime         @db.Date
+  guia          String?
+  procedencia   String?
+  proveedor     String?
+  cliente       String?
+  placa         String?
+  conductor     String?
+  observaciones String?
+  cantidad      Int?
+  entrada       Decimal?         @db.Decimal(12, 2)
+  salida        Decimal?         @db.Decimal(12, 2)
+  status        PesoCamionStatus @default(abierta)
+  createdById   String           @map("created_by") @db.Uuid
+  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime?        @map("deleted_at") @db.Timestamptz(6)
+
+  @@unique([plantId, date, reference])
+  @@index([plantId, status])
+  @@map("peso_camion")
+}
+
+model DispatchOrder {
+  id               String              @id @default(uuid()) @db.Uuid
+  plantId          String              @map("plant_id") @db.Uuid
+  odNumber         Int                 @map("od_number")
+  registrationDate DateTime            @map("registration_date") @db.Date
+  processDate      DateTime            @map("process_date") @db.Date
+  clientId         String              @map("client_id") @db.Uuid
+  status           DispatchOrderStatus @default(activo)
+  type             DispatchOrderType   @default(mp_a_proceso)
+  createdById      String              @map("created_by") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
+
+  plant     Plant   @relation(fields: [plantId], references: [id])
+  client    Client  @relation(fields: [clientId], references: [id])
+  createdBy AppUser @relation("dispatchCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([plantId, odNumber])
+  @@index([plantId, status])
+  @@map("dispatch_order")
+}
+
+// ======================= ORGANIZACIÓN / SEGURIDAD ==========================
+
+model Plant {
+  id            String   @id @default(uuid()) @db.Uuid
+  code          String   @unique
+  legalName     String   @map("legal_name")
+  invimaRegistry String? @map("invima_registry")
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users          AppUser[]
+  suppliers      Supplier[]
+  goodsReceipts  GoodsReceipt[]
+  cuttingOrders  CuttingOrder[]
+  packages       Package[]
+  customers      Customer[]
+  shipments      Shipment[]
+  traceUnits     TraceUnit[]
+  traceEvents    TraceEvent[]
+  devices        Device[]
+  dispatchOrders DispatchOrder[]
+
+  @@map("plant")
+}
+
+model AppUser {
+  id           String    @id @default(uuid()) @db.Uuid
+  plantId      String    @map("plant_id") @db.Uuid
+  email        String    @unique
+  passwordHash String    @map("password_hash")
+  pinHash      String?   @map("pin_hash")
+  fullName     String    @map("full_name")
+  documentId   String?   @unique @map("document_id")
+  role         UserRole
+  active       Boolean   @default(true)
+  lastLogin    DateTime? @map("last_login") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant Plant @relation(fields: [plantId], references: [id])
+
+  receiptsReceived   GoodsReceipt[] @relation("receiptReceivedBy")
+  cuttingSupervised  CuttingOrder[] @relation("cuttingSupervisor")
+  shipmentsDispatched Shipment[]    @relation("shipmentDispatchedBy")
+  traceEvents        TraceEvent[]
+  dispatchOrders     DispatchOrder[] @relation("dispatchCreatedBy")
+
+  @@index([plantId])
+  @@map("app_user")
+}
+
+model Supplier {
+  id           String   @id @default(uuid()) @db.Uuid
+  plantId      String   @map("plant_id") @db.Uuid
+  name         String
+  icaFarmCode  String?  @map("ica_farm_code")
+  documentId   String?  @map("document_id")
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant         Plant          @relation(fields: [plantId], references: [id])
+  goodsReceipts GoodsReceipt[]
+
+  @@index([plantId])
+  @@map("supplier")
+}
+
+// Equipos (PCs) autorizados a acceder al software, identificados por MAC.
+// La MAC la entrega el agente local instalado en cada PC.
+model Device {
+  id          String    @id @default(uuid()) @db.Uuid
+  plantId     String    @map("plant_id") @db.Uuid
+  mac         String    @unique
+  name        String
+  description String?
+  hostname    String?
+  active      Boolean   @default(true)
+  lastSeenAt  DateTime? @map("last_seen_at") @db.Timestamptz(6)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant Plant @relation(fields: [plantId], references: [id])
+
+  @@index([plantId])
+  @@map("device")
+}
+
+// ===================== INGRESO DE MERCANCÍA (frontera) =====================
+
+model GoodsReceipt {
+  id             String             @id @default(uuid()) @db.Uuid
+  plantId        String             @map("plant_id") @db.Uuid
+  receiptNumber  String             @map("receipt_number")
+  supplierId     String             @map("supplier_id") @db.Uuid
+  originIcaCode  String?            @map("origin_ica_code")
+  receivedDate   DateTime           @map("received_date") @db.Date
+  receivedAt     DateTime           @default(now()) @map("received_at") @db.Timestamptz(6)
+  status         GoodsReceiptStatus @default(borrador)
+  receivedById   String             @map("received_by") @db.Uuid
+  extra          Json?
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?          @map("deleted_at") @db.Timestamptz(6)
+
+  plant      Plant              @relation(fields: [plantId], references: [id])
+  supplier   Supplier           @relation(fields: [supplierId], references: [id])
+  receivedBy AppUser            @relation("receiptReceivedBy", fields: [receivedById], references: [id])
+  items      GoodsReceiptItem[]
+
+  @@unique([plantId, receiptNumber])
+  @@index([plantId, status])
+  @@map("goods_receipt")
+}
+
+model GoodsReceiptItem {
+  id             String                 @id @default(uuid()) @db.Uuid
+  plantId        String                 @map("plant_id") @db.Uuid
+  goodsReceiptId String                 @map("goods_receipt_id") @db.Uuid
+  itemCode       String                 @map("item_code")
+  unitForm       UnitForm               @map("unit_form")
+  quarterType    QuarterType?           @map("quarter_type")
+  weightKg       Decimal                @map("weight_kg") @db.Decimal(10, 3)
+  species        Species                @default(bovino)
+  status         GoodsReceiptItemStatus @default(disponible)
+  createdAt      DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime               @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  goodsReceipt   GoodsReceipt    @relation(fields: [goodsReceiptId], references: [id])
+  cuttingRecords CuttingRecord[]
+
+  @@index([plantId, status])
+  @@index([goodsReceiptId])
+  @@map("goods_receipt_item")
+}
+
+// ---- Tablas de auditoría (escritas por triggers fn_audit; sin FK a propósito
+// ---- para no bloquear operaciones ni borrados de las entidades auditadas) ----
+
+model GoodsReceiptAudit {
+  auditId   BigInt   @id @default(autoincrement()) @map("audit_id")
+  operation String
+  rowId     String?  @map("row_id") @db.Uuid
+  changedAt DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+  changedBy String?  @map("changed_by") @db.Uuid
+  oldData   Json?    @map("old_data")
+  newData   Json?    @map("new_data")
+
+  @@index([rowId])
+  @@index([changedAt])
+  @@map("goods_receipt_audit")
+}
+
+model GoodsReceiptItemAudit {
+  auditId   BigInt   @id @default(autoincrement()) @map("audit_id")
+  operation String
+  rowId     String?  @map("row_id") @db.Uuid
+  changedAt DateTime @default(now()) @map("changed_at") @db.Timestamptz(6)
+  changedBy String?  @map("changed_by") @db.Uuid
+  oldData   Json?    @map("old_data")
+  newData   Json?    @map("new_data")
+
+  @@index([rowId])
+  @@index([changedAt])
+  @@map("goods_receipt_item_audit")
+}
+
+// ============================== DESPOSTE ===================================
+
+model ProductType {
+  id       String          @id @default(uuid()) @db.Uuid
+  name     String
+  category ProductCategory
+  gtin     String?
+  active   Boolean         @default(true)
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cuts Cut[]
+
+  @@unique([name])
+  @@map("product_type")
+}
+
+model CuttingOrder {
+  id           String             @id @default(uuid()) @db.Uuid
+  plantId      String             @map("plant_id") @db.Uuid
+  orderNumber  String             @map("order_number")
+  cuttingDate  DateTime           @map("cutting_date") @db.Date
+  status       CuttingOrderStatus @default(abierta)
+  supervisorId String             @map("supervisor_id") @db.Uuid
+  openedAt     DateTime           @default(now()) @map("opened_at") @db.Timestamptz(6)
+  closedAt     DateTime?          @map("closed_at") @db.Timestamptz(6)
+  createdAt    DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime?          @map("deleted_at") @db.Timestamptz(6)
+
+  plant      Plant           @relation(fields: [plantId], references: [id])
+  supervisor AppUser         @relation("cuttingSupervisor", fields: [supervisorId], references: [id])
+  records    CuttingRecord[]
+
+  @@unique([plantId, orderNumber])
+  @@index([plantId, status])
+  @@map("cutting_order")
+}
+
+model CuttingRecord {
+  id                 String   @id @default(uuid()) @db.Uuid
+  plantId            String   @map("plant_id") @db.Uuid
+  cuttingOrderId     String   @map("cutting_order_id") @db.Uuid
+  goodsReceiptItemId String   @map("goods_receipt_item_id") @db.Uuid
+  inputWeightKg      Decimal  @map("input_weight_kg") @db.Decimal(10, 3)
+  outputWeightKg     Decimal  @default(0) @map("output_weight_kg") @db.Decimal(10, 3)
+  shrinkKg           Decimal  @default(0) @map("shrink_kg") @db.Decimal(10, 3)
+  yieldPct           Decimal? @map("yield_pct") @db.Decimal(5, 2)
+  processedAt        DateTime @default(now()) @map("processed_at") @db.Timestamptz(6)
+  createdAt          DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cuttingOrder     CuttingOrder     @relation(fields: [cuttingOrderId], references: [id])
+  goodsReceiptItem GoodsReceiptItem @relation(fields: [goodsReceiptItemId], references: [id])
+  cuts             Cut[]
+
+  @@index([cuttingOrderId])
+  @@index([goodsReceiptItemId])
+  @@map("cutting_record")
+}
+
+model Cut {
+  id              String    @id @default(uuid()) @db.Uuid
+  plantId         String    @map("plant_id") @db.Uuid
+  cuttingRecordId String    @map("cutting_record_id") @db.Uuid
+  productTypeId   String    @map("product_type_id") @db.Uuid
+  cutCode         String    @map("cut_code")
+  weightKg        Decimal   @map("weight_kg") @db.Decimal(10, 3)
+  status          CutStatus @default(en_proceso)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cuttingRecord CuttingRecord @relation(fields: [cuttingRecordId], references: [id])
+  productType   ProductType   @relation(fields: [productTypeId], references: [id])
+  packageItems  PackageItem[]
+
+  @@unique([plantId, cutCode])
+  @@index([cuttingRecordId])
+  @@index([plantId, status])
+  @@map("cut")
+}
+
+// ============================== EMPAQUE ====================================
+
+model Package {
+  id             String        @id @default(uuid()) @db.Uuid
+  plantId        String        @map("plant_id") @db.Uuid
+  labelCode      String        @map("label_code")
+  lotNumber      String        @map("lot_number")
+  containerType  ContainerType @map("container_type")
+  productionDate DateTime      @map("production_date") @db.Date
+  expiryDate     DateTime?     @map("expiry_date") @db.Date
+  netWeightKg    Decimal       @default(0) @map("net_weight_kg") @db.Decimal(10, 3)
+  status         PackageStatus @default(abierto)
+  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant         Plant          @relation(fields: [plantId], references: [id])
+  items         PackageItem[]
+  shipmentItems ShipmentItem[]
+
+  @@unique([plantId, labelCode])
+  @@index([plantId, status])
+  @@map("package")
+}
+
+model PackageItem {
+  id        String  @id @default(uuid()) @db.Uuid
+  packageId String  @map("package_id") @db.Uuid
+  cutId     String  @map("cut_id") @db.Uuid
+  weightKg  Decimal @map("weight_kg") @db.Decimal(10, 3)
+
+  package Package @relation(fields: [packageId], references: [id])
+  cut     Cut     @relation(fields: [cutId], references: [id])
+
+  @@unique([packageId, cutId])
+  @@index([cutId])
+  @@map("package_item")
+}
+
+// ============================== DESPACHO ===================================
+
+model Customer {
+  id         String   @id @default(uuid()) @db.Uuid
+  plantId    String   @map("plant_id") @db.Uuid
+  name       String
+  documentId String?  @map("document_id")
+  address    Json?
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant     Plant      @relation(fields: [plantId], references: [id])
+  shipments Shipment[]
+
+  @@index([plantId])
+  @@map("customer")
+}
+
+model Shipment {
+  id              String         @id @default(uuid()) @db.Uuid
+  plantId         String         @map("plant_id") @db.Uuid
+  customerId      String         @map("customer_id") @db.Uuid
+  remissionNumber String         @map("remission_number")
+  dispatchedAt    DateTime?      @map("dispatched_at") @db.Timestamptz(6)
+  status          ShipmentStatus @default(preparacion)
+  dispatchedById  String         @map("dispatched_by") @db.Uuid
+  createdAt       DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime       @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt       DateTime?      @map("deleted_at") @db.Timestamptz(6)
+
+  plant        Plant          @relation(fields: [plantId], references: [id])
+  customer     Customer       @relation(fields: [customerId], references: [id])
+  dispatchedBy AppUser        @relation("shipmentDispatchedBy", fields: [dispatchedById], references: [id])
+  items        ShipmentItem[]
+
+  @@unique([plantId, remissionNumber])
+  @@index([plantId, status])
+  @@map("shipment")
+}
+
+model ShipmentItem {
+  id         String  @id @default(uuid()) @db.Uuid
+  shipmentId String  @map("shipment_id") @db.Uuid
+  packageId  String  @map("package_id") @db.Uuid
+  weightKg   Decimal @map("weight_kg") @db.Decimal(10, 3)
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id])
+  package  Package  @relation(fields: [packageId], references: [id])
+
+  @@unique([shipmentId, packageId])
+  @@index([packageId])
+  @@map("shipment_item")
+}
+
+// ======================= TRAZABILIDAD (DAG) ================================
+
+model TraceUnit {
+  id         String          @id @default(uuid()) @db.Uuid
+  plantId    String          @map("plant_id") @db.Uuid
+  unitType   TraceUnitType   @map("unit_type")
+  entityId   String          @map("entity_id") @db.Uuid
+  publicCode String          @map("public_code")
+  status     TraceUnitStatus @default(activa)
+  createdAt  DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime        @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant       Plant       @relation(fields: [plantId], references: [id])
+  parentLinks TraceLink[] @relation("parentUnit")
+  childLinks  TraceLink[] @relation("childUnit")
+
+  @@unique([unitType, entityId])
+  @@index([plantId, unitType])
+  @@map("trace_unit")
+}
+
+model TraceLink {
+  id           String        @id @default(uuid()) @db.Uuid
+  parentUnitId String        @map("parent_unit_id") @db.Uuid
+  childUnitId  String        @map("child_unit_id") @db.Uuid
+  eventId      String        @map("event_id") @db.Uuid
+  relation     TraceRelation
+  quantityKg   Decimal?      @map("quantity_kg") @db.Decimal(10, 3)
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  parentUnit TraceUnit  @relation("parentUnit", fields: [parentUnitId], references: [id])
+  childUnit  TraceUnit  @relation("childUnit", fields: [childUnitId], references: [id])
+  event      TraceEvent @relation(fields: [eventId], references: [id])
+
+  @@unique([parentUnitId, childUnitId, eventId])
+  @@index([parentUnitId])
+  @@index([childUnitId])
+  @@map("trace_link")
+}
+
+// Nota: en producción esta tabla se particiona por RANGE(occurred_at) mensual
+// mediante migración SQL personalizada.
+model TraceEvent {
+  id         String         @id @default(uuid()) @db.Uuid
+  plantId    String         @map("plant_id") @db.Uuid
+  eventType  TraceEventType @map("event_type")
+  actorId    String         @map("actor_id") @db.Uuid
+  occurredAt DateTime       @default(now()) @map("occurred_at") @db.Timestamptz(6)
+  payload    Json?
+
+  plant Plant       @relation(fields: [plantId], references: [id])
+  actor AppUser     @relation(fields: [actorId], references: [id])
+  links TraceLink[]
+
+  @@index([plantId, eventType])
+  @@index([occurredAt])
+  @@map("trace_event")
+}
