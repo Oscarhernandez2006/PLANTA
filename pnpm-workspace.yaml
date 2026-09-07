@@ -13,3 +13,6 @@ onlyBuiltDependencies:
   - esbuild
   - electron
   - electron-builder
+
+allowBuilds:
+  core-js: set this to true or false

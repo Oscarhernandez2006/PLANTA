@@ -26,13 +26,13 @@ const navGroups: { title: string; items: NavItem[] }[] = [
   {
     title: 'Módulos',
     items: [
-      { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
       { to: '/peso-en-camion', label: 'Peso En Camión', icon: PesoEnCamionIcon },
       { to: '/peso-en-pie', label: 'Peso En Pie', icon: PesoEnPieIcon },
       { to: '/insensibilizacion', label: 'Insensibilización', icon: InsensibilizacionIcon },
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
       { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
+      { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
     ],
   },
   {
