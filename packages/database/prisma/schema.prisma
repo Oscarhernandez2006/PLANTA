@@ -124,6 +124,7 @@ enum UserRole {
   operario_desposte
   despacho
   calidad
+  desarrollador
 }
 
 enum DispatchOrderStatus {

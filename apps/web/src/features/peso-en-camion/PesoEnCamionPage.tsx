@@ -36,7 +36,7 @@ import {
   type PesoCamionGuia,
   type SavePesoCamionInput,
 } from './api';
-import { printRecibo } from './recibo-print';
+import { downloadReciboPdf } from './recibo-print';
 import { cn } from '@/lib/utils';
 
 function today() {
@@ -226,7 +226,7 @@ export function PesoEnCamionPage() {
   }
 
   function imprimir() {
-    printRecibo({
+    void downloadReciboPdf({
       guia,
       fecha,
       proveedor,

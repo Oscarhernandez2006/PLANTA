@@ -34,6 +34,7 @@ const areaLabels: Record<string, string> = {
   operario_desposte: 'Desposte',
   despacho: 'Despacho',
   calidad: 'Calidad',
+  desarrollador: 'Desarrollador',
 };
 
 const COLLAPSE_KEY = 'frigo_sidebar_collapsed';
