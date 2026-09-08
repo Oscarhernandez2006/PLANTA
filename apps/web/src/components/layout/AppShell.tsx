@@ -12,6 +12,8 @@ import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
 import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
 import { OrdenDespachoFrioIcon } from '@/components/icons/OrdenDespachoFrioIcon';
 import { OrdenDesposteIcon } from '@/components/icons/OrdenDesposteIcon';
+import { RotuladoDesposteIcon } from '@/components/icons/RotuladoDesposteIcon';
+import { RotuladoAcondicionamientoIcon } from '@/components/icons/RotuladoAcondicionamientoIcon';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { useAuth } from '@/features/auth/auth-context';
 import { useDevice } from '@/features/device/device-context';
@@ -31,6 +33,8 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/insensibilizacion', label: 'Insensibilización', icon: InsensibilizacionIcon },
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
+      { to: '/rotulado-desposte', label: 'Rotulado Desposte', icon: RotuladoDesposteIcon },
+      { to: '/rotulado-acondicionamiento', label: 'Rotulado Acondicionamiento', icon: RotuladoAcondicionamientoIcon },
       { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
       { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
     ],

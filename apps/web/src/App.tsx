@@ -16,6 +16,7 @@ import { CanalFriaPage } from './features/canal-fria/CanalFriaPage';
 import { CanalCalientePage } from './features/canal-caliente/CanalCalientePage';
 import { PesoEnCamionPage } from './features/peso-en-camion/PesoEnCamionPage';
 import { PesoEnPiePage } from './features/peso-en-pie/PesoEnPiePage';
+import { RotuladoPage } from './features/rotulado/RotuladoPage';
 import { InsensibilizacionPage } from './features/insensibilizacion/InsensibilizacionPage';
 import { PielesPage } from './features/pieles/PielesPage';
 import { SubproductosPage } from './features/subproductos/SubproductosPage';
@@ -35,6 +36,14 @@ const router = createBrowserRouter([
       { path: 'canal-caliente', element: <CanalCalientePage /> },
       { path: 'peso-en-camion', element: <PesoEnCamionPage /> },
       { path: 'peso-en-pie', element: <PesoEnPiePage /> },
+      {
+        path: 'rotulado-desposte',
+        element: <RotuladoPage stage="desposte" />,
+      },
+      {
+        path: 'rotulado-acondicionamiento',
+        element: <RotuladoPage stage="acondicionamiento" />,
+      },
       { path: 'insensibilizacion', element: <InsensibilizacionPage /> },
       { path: 'pieles', element: <PielesPage /> },
       { path: 'subproductos', element: <SubproductosPage /> },
