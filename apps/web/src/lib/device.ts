@@ -11,10 +11,19 @@ export interface LocalDeviceInfo {
   primaryMac: string | null;
 }
 
+export interface ScaleReadResult {
+  ok: boolean;
+  value: number | null;
+  port: string | null;
+  baudRate: number | null;
+  error: string | null;
+}
+
 /** Puente expuesto por la app de escritorio (Electron) vía preload. */
 interface FrigoDesktopBridge {
   getDeviceInfo: () => Promise<LocalDeviceInfo>;
   openKeyboard?: () => Promise<{ ok: boolean }>;
+  readScale?: (options?: { port?: string; timeoutMs?: number }) => Promise<ScaleReadResult>;
 }
 declare global {
   interface Window {
@@ -61,6 +70,20 @@ export async function getLocalDeviceInfo(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export async function readScale(options?: { port?: string; timeoutMs?: number }): Promise<ScaleReadResult> {
+  if (window.frigoDesktop?.readScale) {
+    return window.frigoDesktop.readScale(options);
+  }
+
+  return {
+    ok: false,
+    value: null,
+    port: null,
+    baudRate: null,
+    error: 'not_supported',
+  };
 }
 
 export interface DeviceValidation {

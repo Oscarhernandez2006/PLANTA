@@ -12,6 +12,7 @@ allowBuilds:
   esbuild: set this to true or false
   prisma: set this to true or false
   core-js: set this to true or false
+  '@serialport/bindings-cpp': set this to true or false
 
 onlyBuiltDependencies:
   - "@prisma/client"
@@ -20,4 +21,3 @@ onlyBuiltDependencies:
   - esbuild
   - electron
   - electron-builder
-

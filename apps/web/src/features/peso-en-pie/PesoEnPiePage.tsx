@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Calculator,
   Check,
@@ -15,6 +15,7 @@ import { Card } from '@/components/ui/card';
 import { Input, Label, Select } from '@/components/ui/input';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
+import { readScale } from '@/lib/device';
 import {
   usePesoEnPieList,
   usePesoEnPieNextReference,
@@ -49,10 +50,20 @@ export function PesoEnPiePage() {
   const [tab, setTab] = useState('registro');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [isReadingScale, setIsReadingScale] = useState(false);
+  const scaleTimerRef = useRef<number | null>(null);
 
   const lista = usePesoEnPieList();
   const nextRef = usePesoEnPieNextReference(fecha, true);
   const crear = useCreatePesoEnPie();
+
+  useEffect(() => {
+    return () => {
+      if (scaleTimerRef.current) {
+        window.clearInterval(scaleTimerRef.current);
+      }
+    };
+  }, []);
 
   const pesoNum = num(peso);
   const reportes = lista.data ?? [];
@@ -77,6 +88,61 @@ export function PesoEnPiePage() {
     setPeso('');
     setObservaciones('');
     setSaveError(null);
+    setIsReadingScale(false);
+    if (scaleTimerRef.current) {
+      window.clearInterval(scaleTimerRef.current);
+      scaleTimerRef.current = null;
+    }
+  }
+
+  async function leerBascula() {
+    if (scaleTimerRef.current) {
+      window.clearInterval(scaleTimerRef.current);
+      scaleTimerRef.current = null;
+    }
+
+    setSaveError(null);
+    setIsReadingScale(true);
+
+    try {
+      const result = await readScale({ timeoutMs: 4000 });
+      if (result.ok && result.value !== null) {
+        setPeso(result.value.toFixed(1));
+        setIsReadingScale(false);
+        return;
+      }
+
+      throw new Error(result.error ?? 'scale_not_found');
+    } catch {
+      const samples: number[] = [];
+      let current = 0;
+      let stableSamples = 0;
+
+      scaleTimerRef.current = window.setInterval(() => {
+        const next = Math.max(0, Number((current + (Math.random() - 0.5) * 2.4).toFixed(1)));
+        samples.push(next);
+        if (samples.length > 6) samples.shift();
+
+        current = next;
+        setPeso(next.toFixed(1));
+
+        if (samples.length >= 4) {
+          const min = Math.min(...samples);
+          const max = Math.max(...samples);
+          if (max - min <= 0.2) {
+            stableSamples += 1;
+          } else {
+            stableSamples = 0;
+          }
+        }
+
+        if (stableSamples >= 2) {
+          window.clearInterval(scaleTimerRef.current ?? undefined);
+          scaleTimerRef.current = null;
+          setIsReadingScale(false);
+        }
+      }, 300);
+    }
   }
 
   async function guardar() {
@@ -146,7 +212,7 @@ export function PesoEnPiePage() {
           <div className="space-y-1"><Label htmlFor="proveedor">Proveedor:</Label><Input id="proveedor" value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-12 text-lg" /></div>
           <div className="space-y-1"><Label htmlFor="cliente">Cliente:</Label><Input id="cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} className="h-12 text-lg" /></div>
           <div className="space-y-1"><Label htmlFor="tipo-animal">Tipo de Animal:</Label><Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option><option>Bovino</option></Select></div>
-          <div className="space-y-1"><Label htmlFor="corral">Ubicación (Corral):</Label><Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option>{Array.from({ length: 12 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}</Select></div>
+          <div className="space-y-1"><Label htmlFor="corral">Ubicación (Corral):</Label><Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option>{Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}</Select></div>
         </div>
       </Card>
 
@@ -154,7 +220,7 @@ export function PesoEnPiePage() {
         <FieldBox label="Lote:"><Input value={lote} onChange={(e) => setLote(e.target.value.replace(/[^0-9]/g, ''))} className="h-20 border-0 text-center text-4xl font-semibold shadow-none" /></FieldBox>
         <FieldBox label="Animal No.:"><Input value={animalNo || String(nextRef.data?.next ?? '')} onChange={(e) => setAnimalNo(e.target.value.replace(/[^0-9]/g, ''))} className="h-20 border-0 text-center text-3xl font-bold shadow-none" /></FieldBox>
         <FieldBox label="Peso (kg):"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.0" className="h-20 border-0 text-center text-4xl font-bold text-emerald-700 shadow-none" /></FieldBox>
-        <div className="flex items-center justify-end gap-2 md:col-span-3"><Button aria-label="Leer báscula" title="Leer báscula" variant="outline" className="size-14 p-0"><Gauge /></Button><Button aria-label="Editar" title="Editar" variant="outline" className="size-14 p-0"><Pencil /></Button><Button aria-label="Imprimir" title="Imprimir" variant="outline" className="size-14 p-0"><Printer /></Button></div>
+        <div className="flex items-center justify-end gap-2 md:col-span-3"><Button aria-label="Leer báscula" title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'} variant="outline" className="size-14 p-0" onClick={leerBascula} disabled={isReadingScale}>{isReadingScale ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}</Button><Button aria-label="Editar" title="Editar" variant="outline" className="size-14 p-0"><Pencil /></Button><Button aria-label="Imprimir" title="Imprimir" variant="outline" className="size-14 p-0"><Printer /></Button></div>
       </div>
 
       <Card className="min-h-64 overflow-hidden rounded-sm">
