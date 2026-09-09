@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -13,6 +14,7 @@ import { CurrentUser } from '../../common/auth/current-user.decorator';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
+import { UpdateAnimalCountDto } from './dto/update-animal-count.dto';
 import { OrdenBeneficioService } from './orden-beneficio.service';
 
 @UseGuards(JwtAuthGuard)
@@ -44,6 +46,15 @@ export class OrdenBeneficioController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.findOne(user, id);
+  }
+
+  @Patch(':id/count')
+  updateCount(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAnimalCountDto,
+  ) {
+    return this.service.updateCount(user, id, dto.animalCount);
   }
 
   @Delete(':id')

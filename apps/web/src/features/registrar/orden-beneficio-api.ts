@@ -21,6 +21,7 @@ export interface OrdenBeneficio {
   date: string;
   cliente: string;
   guias: string[];
+  animalesDisponibles: number;
   animalCount: number;
   observaciones: string | null;
   status: OrdenBeneficioStatus;
@@ -72,6 +73,22 @@ export function useDeleteOrdenBeneficio() {
   return useMutation({
     mutationFn: async (id: string) =>
       (await api.delete(`/orden-beneficio/${id}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
+      qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
+    },
+  });
+}
+
+export function useUpdateOrdenBeneficioCount() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { id: string; animalCount: number }) =>
+      (
+        await api.patch<OrdenBeneficio>(`/orden-beneficio/${input.id}/count`, {
+          animalCount: input.animalCount,
+        })
+      ).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
       qc.invalidateQueries({ queryKey: ['insensibilizacion'] });

@@ -33,6 +33,7 @@ export class OrdenBeneficioService {
       date: r.date.toISOString().slice(0, 10),
       cliente: r.cliente,
       guias: r.guias,
+      animalesDisponibles: r.animalesDisponibles,
       animalCount: r.animalCount,
       observaciones: r.observaciones,
       status: r.status,
@@ -127,36 +128,126 @@ export class OrdenBeneficioService {
     const cliente = dto.cliente.trim();
     if (!cliente) throw new BadRequestException('Cliente requerido.');
 
-    const { porCliente, enPiePorGuia } = await this.aggregate(ctx, date);
-    const entry = porCliente.get(cliente);
-    if (!entry) {
+    const built = await this.buildForCliente(ctx, date, cliente);
+    if (built.error === 'sin-camion') {
       throw new BadRequestException(
         'El cliente no tiene registros en Peso en Camión para la fecha.',
       );
     }
-
-    const guias = [...entry.guias].sort();
-    const animalCount = guias.reduce(
-      (sum, g) => sum + (enPiePorGuia.get(g) ?? 0),
-      0,
-    );
-    if (animalCount <= 0) {
+    if (built.animalesDisponibles <= 0) {
       throw new BadRequestException(
         'El cliente no tiene animales validados en Peso en Pie.',
       );
     }
 
+    const rec = await this.persist(ctx, str, date, {
+      cliente: built.cliente,
+      guias: built.guias,
+      animalesDisponibles: built.animalesDisponibles,
+      observaciones: dto.observaciones?.trim() || null,
+      throwIfExists: true,
+    });
+    return this.toDto(rec!);
+  }
+
+  /**
+   * Crea automáticamente la Orden de Beneficio del cliente (al cerrar una guía
+   * en Peso en Camión). No falla si aún no hay animales o si ya existe: solo
+   * devuelve null en esos casos.
+   */
+  async ensureForCliente(
+    ctx: AuthContext,
+    clienteRaw: string | null | undefined,
+    dateStr?: string,
+  ) {
+    const cliente = clienteRaw?.trim();
+    if (!cliente) return null;
+    const { str, date } = dateOnly(dateStr);
+    const built = await this.buildForCliente(ctx, date, cliente);
+    if (built.error || built.animalesDisponibles <= 0) return null;
+    try {
+      const rec = await this.persist(ctx, str, date, {
+        cliente: built.cliente,
+        guias: built.guias,
+        animalesDisponibles: built.animalesDisponibles,
+        observaciones: null,
+        throwIfExists: false,
+      });
+      return rec ? this.toDto(rec) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** Ajusta cuántos animales se van a sacrificar (≤ disponibles en Peso en Pie). */
+  async updateCount(ctx: AuthContext, id: string, animalCount: number) {
+    const rec = await this.prisma.ordenBeneficio.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+    });
+    if (!rec) throw new NotFoundException('Orden de Beneficio no encontrada.');
+    if (rec.status !== OrdenBeneficioStatus.pendiente) {
+      throw new BadRequestException(
+        'Solo se puede cambiar la cantidad de una orden pendiente.',
+      );
+    }
+    if (animalCount > rec.animalesDisponibles) {
+      throw new BadRequestException(
+        `Máximo ${rec.animalesDisponibles} animales disponibles en Peso en Pie.`,
+      );
+    }
+    const updated = await this.prisma.ordenBeneficio.update({
+      where: { id },
+      data: { animalCount },
+    });
+    return this.toDto(updated);
+  }
+
+  /** Calcula guías y animales disponibles del cliente en la fecha. */
+  private async buildForCliente(
+    ctx: AuthContext,
+    date: Date,
+    clienteRaw: string,
+  ) {
+    const cliente = clienteRaw.trim();
+    const { porCliente, enPiePorGuia } = await this.aggregate(ctx, date);
+    const entry = porCliente.get(cliente);
+    if (!entry) {
+      return { cliente, guias: [] as string[], animalesDisponibles: 0, error: 'sin-camion' as const };
+    }
+    const guias = [...entry.guias].sort();
+    const animalesDisponibles = guias.reduce(
+      (sum, g) => sum + (enPiePorGuia.get(g) ?? 0),
+      0,
+    );
+    return { cliente, guias, animalesDisponibles, error: null };
+  }
+
+  private async persist(
+    ctx: AuthContext,
+    str: string,
+    date: Date,
+    data: {
+      cliente: string;
+      guias: string[];
+      animalesDisponibles: number;
+      observaciones: string | null;
+      throwIfExists: boolean;
+    },
+  ): Promise<OrdenBeneficio | null> {
     return this.prisma.$transaction(async (tx) => {
       // Serializa la numeración de referencia por planta y día.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:${str}:ob`}))`;
 
       const existing = await tx.ordenBeneficio.findFirst({
-        where: { plantId: ctx.plantId, date, cliente, deletedAt: null },
+        where: { plantId: ctx.plantId, date, cliente: data.cliente, deletedAt: null },
       });
       if (existing) {
-        throw new BadRequestException(
-          'Ya existe una Orden de Beneficio para este cliente hoy.',
-        );
+        if (data.throwIfExists) {
+          throw new BadRequestException(
+            'Ya existe una Orden de Beneficio para este cliente hoy.',
+          );
+        }
+        return null;
       }
 
       const agg = await tx.ordenBeneficio.aggregate({
@@ -165,19 +256,19 @@ export class OrdenBeneficioService {
       });
       const reference = (agg._max.reference ?? 0) + 1;
 
-      const rec = await tx.ordenBeneficio.create({
+      return tx.ordenBeneficio.create({
         data: {
           plantId: ctx.plantId,
           reference,
           date,
-          cliente,
-          guias,
-          animalCount,
-          observaciones: dto.observaciones?.trim() || null,
+          cliente: data.cliente,
+          guias: data.guias,
+          animalesDisponibles: data.animalesDisponibles,
+          animalCount: data.animalesDisponibles,
+          observaciones: data.observaciones,
           createdById: ctx.userId,
         },
       });
-      return this.toDto(rec);
     });
   }
 

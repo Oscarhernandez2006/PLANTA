@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import {
+  Check,
   CheckCircle2,
   Inbox,
   LoaderCircle,
@@ -20,6 +21,7 @@ import {
   useOrdenBeneficioList,
   useCreateOrdenBeneficio,
   useDeleteOrdenBeneficio,
+  useUpdateOrdenBeneficioCount,
   type OrdenBeneficio,
   type OrdenBeneficioCandidate,
   type OrdenBeneficioStatus,
@@ -57,8 +59,8 @@ export function OrdenBeneficioPage() {
               Orden de Beneficio
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Clientes del día con animales validados en Peso en Pie. Al crear la
-              orden pasa a Insensibilización.
+              Al cerrar una guía en Peso en Camión se genera la orden del cliente.
+              Ajusta cuántos animales sacrificar y pasa a Insensibilización.
             </p>
           </div>
         </div>
@@ -89,7 +91,7 @@ export function OrdenBeneficioPage() {
         {ordenes.isLoading ? (
           <Loading />
         ) : !list.length ? (
-          <Empty text="Aún no se han creado órdenes hoy. Usa “+ Nueva orden”." />
+          <Empty text="Aún no hay órdenes hoy. Cierra una guía en Peso en Camión o usa “+ Nueva orden”." />
         ) : (
           <div className="overflow-auto">
             <Table>
@@ -98,7 +100,8 @@ export function OrdenBeneficioPage() {
                   <TH className="w-12">N.º</TH>
                   <TH>Cliente</TH>
                   <TH>Guías</TH>
-                  <TH className="text-center">Animales</TH>
+                  <TH className="text-center">Disponibles</TH>
+                  <TH className="text-center">A sacrificar</TH>
                   <TH>Estado</TH>
                   <TH className="w-12" />
                 </TR>
@@ -267,8 +270,9 @@ function OrderRow({
       <TD className="text-muted-foreground">
         {o.guias.length ? o.guias.join(', ') : '—'}
       </TD>
-      <TD className="text-center tabular-nums">
-        {o.insensibilizados}/{o.animalCount}
+      <TD className="text-center tabular-nums">{o.animalesDisponibles}</TD>
+      <TD className="text-center">
+        <SacrificarCell o={o} />
       </TD>
       <TD>
         <Badge tone={meta.tone}>{meta.label}</Badge>
@@ -287,6 +291,60 @@ function OrderRow({
         )}
       </TD>
     </TR>
+  );
+}
+
+/** Cantidad a sacrificar: editable mientras la orden esté pendiente. */
+function SacrificarCell({ o }: { o: OrdenBeneficio }) {
+  const actualizar = useUpdateOrdenBeneficioCount();
+  const [value, setValue] = useState(String(o.animalCount));
+
+  if (o.status !== 'pendiente') {
+    return (
+      <span className="tabular-nums">
+        {o.insensibilizados}/{o.animalCount}
+      </span>
+    );
+  }
+
+  const parsed = Number(value);
+  const invalid =
+    !Number.isInteger(parsed) ||
+    parsed < 1 ||
+    parsed > o.animalesDisponibles;
+  const changed = parsed !== o.animalCount;
+
+  return (
+    <div className="flex items-center justify-center gap-1.5">
+      <input
+        type="number"
+        min={1}
+        max={o.animalesDisponibles}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        className="h-8 w-16 rounded-md border border-border bg-background px-2 text-center text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring"
+      />
+      <Button
+        size="icon"
+        variant="outline"
+        className="size-8"
+        disabled={invalid || !changed || actualizar.isPending}
+        onClick={() =>
+          actualizar.mutate({ id: o.id, animalCount: parsed })
+        }
+        title={
+          invalid
+            ? `Debe estar entre 1 y ${o.animalesDisponibles}`
+            : 'Guardar cantidad'
+        }
+      >
+        {actualizar.isPending ? (
+          <LoaderCircle className="size-4 animate-spin" />
+        ) : (
+          <Check className="size-4" />
+        )}
+      </Button>
+    </div>
   );
 }
 

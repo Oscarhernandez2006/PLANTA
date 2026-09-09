@@ -762,6 +762,7 @@ model OrdenBeneficio {
   date          DateTime             @db.Date
   cliente       String
   guias         String[]
+  animalesDisponibles Int             @default(0) @map("animales_disponibles")
   animalCount   Int                  @map("animal_count")
   observaciones String?
   status        OrdenBeneficioStatus @default(pendiente)
