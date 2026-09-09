@@ -681,11 +681,22 @@ model PesoEnPie {
   reference      Int
   date           DateTime            @db.Date
   guia           String?
+  procedencia    String?
+  proveedor      String?
+  cliente        String?
+  placa          String?
+  conductor      String?
   corral         String?
+  tipoAnimal     String?             @map("tipo_animal")
+  lote           String?
+  animalNo       String?             @map("animal_no")
   animalCount    Int                 @map("animal_count")
   tipoPesaje     PesoEnPieTipoPesaje @default(promediado) @map("tipo_pesaje")
   pesoTotalKg    Decimal?            @map("peso_total_kg") @db.Decimal(12, 2)
   pesoPromedioKg Decimal?            @map("peso_promedio_kg") @db.Decimal(12, 2)
+  cantidad       Int?
+  entrada        Decimal?            @db.Decimal(12, 2)
+  salida         Decimal?            @db.Decimal(12, 2)
   observaciones  String?
   status         PesoEnPieStatus     @default(pendiente)
   createdById    String              @map("created_by") @db.Uuid
