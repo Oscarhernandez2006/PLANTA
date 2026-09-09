@@ -675,6 +675,12 @@ enum InsensibilizacionStatus {
   completada
 }
 
+enum OrdenBeneficioStatus {
+  pendiente
+  en_insensibilizacion
+  procesado
+}
+
 model PesoEnPie {
   id             String              @id @default(uuid()) @db.Uuid
   plantId        String              @map("plant_id") @db.Uuid
@@ -742,4 +748,47 @@ model InsensibilizacionEvento {
   @@unique([insensibilizacionId, sequence])
   @@index([insensibilizacionId])
   @@map("insensibilizacion_evento")
+}
+
+// ===================== ORDEN DE BENEFICIO =================================
+// Agrupa, por cliente y día, los animales validados en Peso en Pie (báscula en
+// pie) cuyas guías coinciden con las registradas en Peso en Camión (báscula en
+// camión). Al crearse alimenta el módulo de Insensibilización.
+
+model OrdenBeneficio {
+  id            String               @id @default(uuid()) @db.Uuid
+  plantId       String               @map("plant_id") @db.Uuid
+  reference     Int
+  date          DateTime             @db.Date
+  cliente       String
+  guias         String[]
+  animalCount   Int                  @map("animal_count")
+  observaciones String?
+  status        OrdenBeneficioStatus @default(pendiente)
+  createdById   String               @map("created_by") @db.Uuid
+  createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt     DateTime?            @map("deleted_at") @db.Timestamptz(6)
+
+  eventos OrdenBeneficioEvento[]
+
+  @@unique([plantId, date, reference])
+  @@unique([plantId, date, cliente])
+  @@index([plantId, status])
+  @@map("orden_beneficio")
+}
+
+model OrdenBeneficioEvento {
+  id               String   @id @default(uuid()) @db.Uuid
+  ordenBeneficioId String   @map("orden_beneficio_id") @db.Uuid
+  sequence         Int
+  stunnedAt        DateTime @default(now()) @map("stunned_at") @db.Timestamptz(6)
+  operatorId       String   @map("operator_id") @db.Uuid
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ordenBeneficio OrdenBeneficio @relation(fields: [ordenBeneficioId], references: [id])
+
+  @@unique([ordenBeneficioId, sequence])
+  @@index([ordenBeneficioId])
+  @@map("orden_beneficio_evento")
 }

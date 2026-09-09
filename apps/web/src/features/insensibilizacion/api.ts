@@ -1,17 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { PesoEnPieStatus, TipoPesaje } from '../peso-en-pie/api';
+import type { OrdenBeneficioStatus } from '../registrar/orden-beneficio-api';
 
 export interface InsOrder {
   id: string;
   reference: number;
   date: string;
-  guia: string | null;
-  corral: string | null;
+  cliente: string;
+  guias: string[];
   animalCount: number;
-  tipoPesaje: TipoPesaje;
-  pesoPromedioKg: number | null;
-  status: PesoEnPieStatus;
+  status: OrdenBeneficioStatus;
   insensibilizados: number;
 }
 
@@ -23,7 +21,6 @@ export interface InsEvento {
 }
 
 export interface InsDetail extends InsOrder {
-  insensibilizacionStatus: 'en_proceso' | 'completada' | null;
   eventos: InsEvento[];
 }
 
@@ -52,7 +49,7 @@ export function useStunNext() {
     onSuccess: (data) => {
       qc.setQueryData(['insensibilizacion', 'detail', data.id], data);
       qc.invalidateQueries({ queryKey: ['insensibilizacion', 'pendientes'] });
-      qc.invalidateQueries({ queryKey: ['peso-en-pie'] });
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
     },
   });
 }
@@ -65,7 +62,7 @@ export function useUndoLast() {
     onSuccess: (data) => {
       qc.setQueryData(['insensibilizacion', 'detail', data.id], data);
       qc.invalidateQueries({ queryKey: ['insensibilizacion', 'pendientes'] });
-      qc.invalidateQueries({ queryKey: ['peso-en-pie'] });
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
     },
   });
 }

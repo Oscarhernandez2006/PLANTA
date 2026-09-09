@@ -59,7 +59,7 @@ export function InsensibilizacionPage() {
             Insensibilización
           </h1>
           <p className="text-sm text-muted-foreground">
-            Procesa las órdenes provenientes de Peso en Pie.
+            Procesa las órdenes provenientes de Orden de Beneficio.
           </p>
         </div>
       </div>
@@ -77,7 +77,7 @@ export function InsensibilizacionPage() {
           ) : !orders.length ? (
             <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
               <Inbox className="size-8" />
-              No hay órdenes pendientes. Registra un reporte en Peso en Pie.
+              No hay órdenes pendientes. Crea una en Orden de Beneficio.
             </div>
           ) : (
             <ul className="flex-1 divide-y divide-border overflow-auto">
@@ -109,8 +109,8 @@ export function InsensibilizacionPage() {
                     Orden N.º {d.reference} · {d.date}
                   </div>
                   <div className="text-lg font-semibold text-foreground">
-                    {d.guia ? `Guía ${d.guia}` : 'Sin guía'}
-                    {d.corral ? ` · Corral ${d.corral}` : ''}
+                    {d.cliente}
+                    {d.guias.length ? ` · ${d.guias.join(', ')}` : ''}
                   </div>
                 </div>
                 {completo && (
@@ -237,15 +237,14 @@ function OrderRow({
       >
         <div className="flex items-center justify-between">
           <span className="font-semibold text-foreground">
-            N.º {order.reference}
-            {order.guia ? ` · ${order.guia}` : ''}
+            N.º {order.reference} · {order.cliente}
           </span>
           <span className="text-xs tabular-nums text-muted-foreground">
             {order.insensibilizados}/{order.animalCount}
           </span>
         </div>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          {order.corral ? `Corral ${order.corral}` : 'Sin corral'} ·{' '}
+          {order.guias.length ? order.guias.join(', ') : 'Sin guía'} ·{' '}
           {order.animalCount} animales
         </div>
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
