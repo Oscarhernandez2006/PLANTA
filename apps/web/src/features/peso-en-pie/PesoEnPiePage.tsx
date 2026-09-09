@@ -514,31 +514,41 @@ function GuiasCamionList({
   }
 
   return (
-    <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-3">
-      {guias.map((guia) => (
-        <button
-          key={guia.id}
-          type="button"
-          onClick={() => onSelect(guia)}
-          className="rounded-md border border-border bg-card p-3 text-left transition-colors hover:border-primary hover:bg-accent"
-        >
-          <div className="flex items-center justify-between gap-2">
-            <span className="font-semibold">
-              Guía {guia.guia ?? `Ref. ${guia.reference}`}
-            </span>
-            <span className="text-xs text-muted-foreground">{guia.date}</span>
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-x-3 gap-y-1 text-sm text-muted-foreground">
-            <span>Placa: {guia.placa ?? '—'}</span>
-            <span>Animales: {guia.cantidad ?? '—'}</span>
-            <span>Entrada: {guia.entrada ?? '—'} kg</span>
-            <span>Salida: {guia.salida ?? '—'} kg</span>
-          </div>
-          <div className="mt-2 text-xs font-medium text-primary">
-            Clic para asignar animales
-          </div>
-        </button>
-      ))}
+    <div className="max-h-[36vh] overflow-auto">
+      <Table>
+        <THead>
+          <TR>
+            <TH>Guía</TH>
+            <TH>Fecha</TH>
+            <TH>Placa</TH>
+            <TH className="text-right">Animales</TH>
+            <TH className="text-right">Entrada (kg)</TH>
+            <TH className="text-right">Salida (kg)</TH>
+            <TH className="text-right">Acción</TH>
+          </TR>
+        </THead>
+        <TBody>
+          {guias.map((guia) => (
+            <TR
+              key={guia.id}
+              className="cursor-pointer"
+              onClick={() => onSelect(guia)}
+            >
+              <TD className="font-semibold">
+                {guia.guia ?? `Ref. ${guia.reference}`}
+              </TD>
+              <TD className="text-muted-foreground">{guia.date}</TD>
+              <TD>{guia.placa ?? '—'}</TD>
+              <TD className="text-right tabular-nums">{guia.cantidad ?? '—'}</TD>
+              <TD className="text-right tabular-nums">{guia.entrada ?? '—'}</TD>
+              <TD className="text-right tabular-nums">{guia.salida ?? '—'}</TD>
+              <TD className="text-right text-sm font-medium text-primary">
+                Asignar animales
+              </TD>
+            </TR>
+          ))}
+        </TBody>
+      </Table>
     </div>
   );
 }
