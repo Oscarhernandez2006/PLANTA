@@ -6,7 +6,6 @@ import {
   Inbox,
   LoaderCircle,
   Lock,
-  Pencil,
   Printer,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -334,15 +333,6 @@ export function PesoEnPiePage() {
             <Eraser className="size-5" />
           </Button>
           <span className="mx-1 h-8 w-px bg-border" />
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-11"
-            title="Editar registro seleccionado"
-            disabled
-          >
-            <Pencil className="size-5" />
-          </Button>
           <Button
             variant="outline"
             size="icon"
