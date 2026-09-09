@@ -1,17 +1,24 @@
-import { useMemo, useState } from 'react';
-import { Save, Eraser, Hash, Inbox, LoaderCircle } from 'lucide-react';
+import { useState } from 'react';
+import {
+  Calculator,
+  Check,
+  ClipboardCheck,
+  Eraser,
+  Gauge,
+  Inbox,
+  LoaderCircle,
+  Pencil,
+  Printer,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Label, Select } from '@/components/ui/input';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
-import { cn } from '@/lib/utils';
 import {
   usePesoEnPieList,
   usePesoEnPieNextReference,
   useCreatePesoEnPie,
-  type PesoEnPieStatus,
-  type TipoPesaje,
 } from './api';
 
 function today() {
@@ -21,33 +28,25 @@ function num(s: string) {
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : 0;
 }
-function kg(n: number | null) {
-  if (n == null) return '—';
-  return n.toLocaleString('es-CO', {
+function kg(n: number | null | undefined) {
+  return (n ?? 0).toLocaleString('es-CO', {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
 }
 
-const statusLabel: Record<PesoEnPieStatus, string> = {
-  pendiente: 'Pendiente',
-  en_insensibilizacion: 'En insensibilización',
-  procesado: 'Procesado',
-};
-const statusTone: Record<PesoEnPieStatus, string> = {
-  pendiente: 'bg-amber-100 text-amber-700',
-  en_insensibilizacion: 'bg-sky-100 text-sky-700',
-  procesado: 'bg-emerald-100 text-emerald-700',
-};
-
 export function PesoEnPiePage() {
   const [fecha, setFecha] = useState(today());
   const [guia, setGuia] = useState('');
+  const [proveedor, setProveedor] = useState('');
+  const [cliente, setCliente] = useState('');
+  const [tipoAnimal, setTipoAnimal] = useState('');
   const [corral, setCorral] = useState('');
-  const [cantidad, setCantidad] = useState('');
-  const [tipoPesaje, setTipoPesaje] = useState<TipoPesaje>('promediado');
-  const [pesoTotal, setPesoTotal] = useState('');
+  const [lote, setLote] = useState('0');
+  const [animalNo, setAnimalNo] = useState('');
+  const [peso, setPeso] = useState('');
   const [observaciones, setObservaciones] = useState('');
+  const [tab, setTab] = useState('registro');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -55,22 +54,28 @@ export function PesoEnPiePage() {
   const nextRef = usePesoEnPieNextReference(fecha, true);
   const crear = useCreatePesoEnPie();
 
-  const cantNum = num(cantidad);
-  const totalNum = num(pesoTotal);
-  const promedio = useMemo(
-    () => (cantNum > 0 && totalNum > 0 ? totalNum / cantNum : 0),
-    [cantNum, totalNum],
-  );
+  const pesoNum = num(peso);
+  const reportes = lista.data ?? [];
+  const totalAnimales = reportes.reduce((total, reporte) => total + reporte.animalCount, 0);
+  const totalKg = reportes.reduce((total, reporte) => total + (reporte.pesoTotalKg ?? 0), 0);
+  const tabs: TabItem[] = [
+    { value: 'registro', label: `Total: ${totalAnimales} (${kg(totalKg)} kg)` },
+    { value: 'observaciones', label: 'Observaciones' },
+    { value: 'guias', label: `Guías Abiertas: ${reportes.length}` },
+  ];
 
-  const canSave = cantNum >= 1 && !crear.isPending;
+  const canSave = pesoNum > 0 && !crear.isPending;
 
   function limpiar() {
     setGuia('');
+    setProveedor('');
+    setCliente('');
+    setTipoAnimal('');
     setCorral('');
-    setCantidad('');
-    setPesoTotal('');
+    setLote('0');
+    setAnimalNo('');
+    setPeso('');
     setObservaciones('');
-    setTipoPesaje('promediado');
     setSaveError(null);
   }
 
@@ -82,13 +87,21 @@ export function PesoEnPiePage() {
         date: fecha,
         guia: guia.trim() || undefined,
         corral: corral.trim() || undefined,
-        animalCount: cantNum,
-        tipoPesaje,
-        pesoTotalKg: totalNum > 0 ? totalNum : undefined,
-        observaciones: observaciones.trim() || undefined,
+        animalCount: 1,
+        tipoPesaje: 'individual',
+        pesoTotalKg: pesoNum,
+        observaciones:
+          [
+            proveedor && `Proveedor: ${proveedor.trim()}`,
+            cliente && `Cliente: ${cliente.trim()}`,
+            tipoAnimal && `Animal: ${tipoAnimal}`,
+            lote && `Lote: ${lote.trim()}`,
+            animalNo && `Animal No.: ${animalNo.trim()}`,
+            observaciones.trim(),
+          ].filter(Boolean).join(' | ') || undefined,
       });
       limpiar();
-      setNotice(`Reporte N.º ${created.reference} guardado.`);
+      setNotice(`Animal N.º ${created.reference} guardado.`);
       window.setTimeout(() => setNotice(null), 3500);
     } catch {
       setSaveError('No se pudo guardar el reporte.');
@@ -96,36 +109,24 @@ export function PesoEnPiePage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
-      {/* Encabezado */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <PesoEnPieIcon className="size-9 text-foreground" />
-          <div>
-            <h1 className="text-xl font-semibold text-foreground">
-              Peso en Pie
-            </h1>
-            <p className="text-sm text-muted-foreground">
-              Reporte de animales que ingresan a la planta.
-            </p>
+    <div className="flex flex-1 flex-col gap-3 p-3 md:p-5">
+      <div className="flex flex-wrap items-start gap-2">
+        <PesoEnPieIcon className="size-14 rounded-sm border border-border p-1 text-foreground" />
+        <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[auto_minmax(220px,1fr)_auto_auto] sm:items-center">
+          <label className="text-lg font-semibold" htmlFor="fecha">Fecha:</label>
+          <Input id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="h-12 max-w-56 text-lg" />
+          <Label className="text-lg" htmlFor="guia">Guía de Movilización:</Label>
+          <div className="flex gap-2">
+            <Input id="guia" value={guia} onChange={(e) => setGuia(e.target.value)} className="h-12 min-w-40 text-lg" />
+            <Button aria-label="Guardar registro" title="Guardar registro" onClick={guardar} disabled={!canSave} className="size-12 shrink-0 p-0">
+              {crear.isPending ? <LoaderCircle className="animate-spin" /> : <Check className="size-8" />}
+            </Button>
+            <Button aria-label="Limpiar formulario" title="Limpiar formulario" variant="outline" onClick={limpiar} disabled={crear.isPending} className="size-12 shrink-0 p-0"><Eraser className="size-7" /></Button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            onClick={limpiar}
-            disabled={crear.isPending}
-          >
-            <Eraser /> Limpiar
-          </Button>
-          <Button onClick={guardar} disabled={!canSave}>
-            {crear.isPending ? (
-              <LoaderCircle className="animate-spin" />
-            ) : (
-              <Save />
-            )}
-            Guardar
-          </Button>
+        <div className="flex items-center gap-2 sm:ml-auto">
+          <Button aria-label="Calcular" title="Calcular" variant="outline" className="size-12 p-0"><Calculator /></Button>
+          <Button aria-label="Auditar" title="Auditar" variant="outline" className="size-12 p-0"><ClipboardCheck /></Button>
         </div>
       </div>
 
@@ -140,148 +141,39 @@ export function PesoEnPiePage() {
         </div>
       )}
 
-      {/* Formulario */}
-      <Card className="p-6">
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-1.5">
-            <Label htmlFor="fecha">Fecha</Label>
-            <Input
-              id="fecha"
-              type="date"
-              value={fecha}
-              onChange={(e) => setFecha(e.target.value)}
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="ref">Referencia</Label>
-            <div className="flex h-9 items-center gap-2 rounded-md border border-input bg-muted/40 px-3 text-sm font-semibold">
-              <Hash className="size-4 text-muted-foreground" />
-              {nextRef.data?.next ?? '—'}
-            </div>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="guia">Guía de movilidad</Label>
-            <Input
-              id="guia"
-              value={guia}
-              onChange={(e) => setGuia(e.target.value)}
-              placeholder="N.º de guía"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="corral">Corral</Label>
-            <Input
-              id="corral"
-              value={corral}
-              onChange={(e) => setCorral(e.target.value)}
-              placeholder="Corral asignado"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="cantidad">N.º de animales</Label>
-            <Input
-              id="cantidad"
-              inputMode="numeric"
-              value={cantidad}
-              onChange={(e) =>
-                setCantidad(e.target.value.replace(/[^0-9]/g, ''))
-              }
-              placeholder="0"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="tipo">Tipo de pesaje</Label>
-            <Select
-              id="tipo"
-              value={tipoPesaje}
-              onChange={(e) => setTipoPesaje(e.target.value as TipoPesaje)}
-            >
-              <option value="promediado">Promediado (peso total)</option>
-              <option value="individual">Individual (por animal)</option>
-            </Select>
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="total">Peso total (kg)</Label>
-            <Input
-              id="total"
-              inputMode="decimal"
-              value={pesoTotal}
-              onChange={(e) =>
-                setPesoTotal(e.target.value.replace(/[^0-9.]/g, ''))
-              }
-              placeholder="0.0"
-            />
-          </div>
-          <div className="space-y-1.5">
-            <Label>Peso promedio (kg/animal)</Label>
-            <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-semibold text-emerald-700">
-              {kg(promedio || null)}
-            </div>
-          </div>
-          <div className="space-y-1.5 md:col-span-3">
-            <Label htmlFor="obs">Observaciones</Label>
-            <Input
-              id="obs"
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              placeholder="Opcional"
-            />
-          </div>
+      <Card className="overflow-hidden rounded-sm border-2">
+        <div className="grid gap-3 p-3 md:grid-cols-2">
+          <div className="space-y-1"><Label htmlFor="proveedor">Proveedor:</Label><Input id="proveedor" value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-12 text-lg" /></div>
+          <div className="space-y-1"><Label htmlFor="cliente">Cliente:</Label><Input id="cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} className="h-12 text-lg" /></div>
+          <div className="space-y-1"><Label htmlFor="tipo-animal">Tipo de Animal:</Label><Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option><option>Bovino</option></Select></div>
+          <div className="space-y-1"><Label htmlFor="corral">Ubicación (Corral):</Label><Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option>{Array.from({ length: 12 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}</Select></div>
         </div>
       </Card>
 
-      {/* Reportes recientes */}
-      <Card className="overflow-hidden">
-        <div className="border-b border-border px-6 py-3 text-sm font-semibold">
-          Reportes recientes
-        </div>
-        {lista.isLoading ? (
+      <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.2fr]">
+        <FieldBox label="Lote:"><Input value={lote} onChange={(e) => setLote(e.target.value.replace(/[^0-9]/g, ''))} className="h-20 border-0 text-center text-4xl font-semibold shadow-none" /></FieldBox>
+        <FieldBox label="Animal No.:"><Input value={animalNo || String(nextRef.data?.next ?? '')} onChange={(e) => setAnimalNo(e.target.value.replace(/[^0-9]/g, ''))} className="h-20 border-0 text-center text-3xl font-bold shadow-none" /></FieldBox>
+        <FieldBox label="Peso (kg):"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.0" className="h-20 border-0 text-center text-4xl font-bold text-emerald-700 shadow-none" /></FieldBox>
+        <div className="flex items-center justify-end gap-2 md:col-span-3"><Button aria-label="Leer báscula" title="Leer báscula" variant="outline" className="size-14 p-0"><Gauge /></Button><Button aria-label="Editar" title="Editar" variant="outline" className="size-14 p-0"><Pencil /></Button><Button aria-label="Imprimir" title="Imprimir" variant="outline" className="size-14 p-0"><Printer /></Button></div>
+      </div>
+
+      <Card className="min-h-64 overflow-hidden rounded-sm">
+        <Tabs tabs={tabs} value={tab} onChange={setTab} className="bg-muted/40" />
+        {tab === 'observaciones' ? <div className="p-4"><Input aria-label="Observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} placeholder="Observaciones" className="h-32 items-start py-3" /></div> : tab === 'guias' ? <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">{reportes.map((r) => <div key={r.id} className="rounded-md border border-border p-3"><div className="font-semibold">Guía {r.guia ?? 'sin número'}</div><div className="text-sm text-muted-foreground">{r.date} · {kg(r.pesoTotalKg)} kg</div></div>)}</div> : null}
+        {tab === 'registro' && lista.isLoading ? (
           <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" /> Cargando…
           </div>
-        ) : !lista.data?.length ? (
+        ) : tab === 'registro' && !reportes.length ? (
           <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-            <Inbox className="size-8" />
-            Aún no hay reportes registrados.
+            <Inbox className="size-8" /> Aún no hay animales registrados.
           </div>
-        ) : (
-          <Table>
-            <THead>
-              <TR>
-                <TH>Ref.</TH>
-                <TH>Fecha</TH>
-                <TH>Guía</TH>
-                <TH>Corral</TH>
-                <TH className="text-right">Animales</TH>
-                <TH className="text-right">Prom. kg</TH>
-                <TH>Estado</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {lista.data.map((r) => (
-                <TR key={r.id}>
-                  <TD className="font-semibold">{r.reference}</TD>
-                  <TD>{r.date}</TD>
-                  <TD>{r.guia ?? '—'}</TD>
-                  <TD>{r.corral ?? '—'}</TD>
-                  <TD className="text-right">{r.animalCount}</TD>
-                  <TD className="text-right">{kg(r.pesoPromedioKg)}</TD>
-                  <TD>
-                    <span
-                      className={cn(
-                        'rounded-full px-2 py-0.5 text-xs font-medium',
-                        statusTone[r.status],
-                      )}
-                    >
-                      {statusLabel[r.status]}
-                    </span>
-                  </TD>
-                </TR>
-              ))}
-            </TBody>
-          </Table>
-        )}
+        ) : tab === 'registro' ? <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">{reportes.map((r) => <div key={r.id} className="rounded-md border border-border p-3"><div className="text-lg font-bold">Animal N.º {r.reference}</div><div className="text-sm text-muted-foreground">{r.date} · {kg(r.pesoTotalKg)} kg</div></div>)}</div> : null}
       </Card>
     </div>
   );
+}
+
+function FieldBox({ label, children }: { label: string; children: React.ReactNode }) {
+  return <div className="relative rounded-sm border-2 border-border bg-card pt-2"><span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">{label}</span>{children}</div>;
 }
