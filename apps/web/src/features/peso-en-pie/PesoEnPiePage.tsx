@@ -12,6 +12,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Label, Select } from '@/components/ui/input';
+import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
 import { readScale } from '@/lib/device';
@@ -452,7 +453,34 @@ export function PesoEnPiePage() {
           <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
             <Inbox className="size-8" /> Aún no hay animales registrados para esta guía.
           </div>
-        ) : tab === 'registro' ? <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">{reportesGuia.map((r) => <div key={r.id} className="rounded-md border border-border p-3"><div className="text-lg font-bold">Animal N.º {r.reference}</div><div className="text-sm text-muted-foreground">{r.date} · {kg(r.pesoTotalKg)} kg</div></div>)}</div> : null}
+        ) : tab === 'registro' ? (
+          <div className="max-h-[36vh] overflow-auto">
+            <Table>
+              <THead>
+                <TR>
+                  <TH>Animal</TH>
+                  <TH>Tipo</TH>
+                  <TH>Corral</TH>
+                  <TH>Fecha</TH>
+                  <TH className="text-right">Peso (kg)</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {reportesGuia.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="font-semibold tabular-nums">N.º {r.reference}</TD>
+                    <TD>{r.tipoAnimal ?? '—'}</TD>
+                    <TD>{r.corral ? `Corral ${r.corral}` : '—'}</TD>
+                    <TD className="text-muted-foreground">{r.date}</TD>
+                    <TD className="text-right font-semibold tabular-nums">
+                      {kg(r.pesoTotalKg)}
+                    </TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </div>
+        ) : null}
       </Card>
     </div>
   );
