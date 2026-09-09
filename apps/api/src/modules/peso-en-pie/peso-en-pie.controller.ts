@@ -36,6 +36,15 @@ export class PesoEnPieController {
     return this.service.findAll(user, query.status);
   }
 
+  @Patch('close-guide')
+  closeGuide(
+    @CurrentUser() user: AuthContext,
+    @Query('date') date: string,
+    @Query('guia') guia: string,
+  ) {
+    return this.service.closeGuide(user, date, guia);
+  }
+
   @Get(':id')
   findOne(
     @CurrentUser() user: AuthContext,

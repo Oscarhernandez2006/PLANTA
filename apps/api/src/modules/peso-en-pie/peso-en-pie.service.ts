@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   PesoEnPie,
   PesoEnPieStatus,
@@ -88,6 +88,21 @@ export class PesoEnPieService {
   async create(ctx: AuthContext, dto: SavePesoEnPieDto) {
     const { str, date } = dateOnly(dto.date);
     return this.prisma.$transaction(async (tx) => {
+      if (dto.guia?.trim()) {
+        const closedGuide = await tx.pesoEnPie.findFirst({
+          where: {
+            plantId: ctx.plantId,
+            date,
+            guia: dto.guia.trim(),
+            status: PesoEnPieStatus.en_insensibilizacion,
+            deletedAt: null,
+          },
+          select: { id: true },
+        });
+        if (closedGuide) {
+          throw new BadRequestException('El proceso de esta guía ya está cerrado.');
+        }
+      }
       // Serializa la numeración de referencia por planta y día.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:${str}:pep`}))`;
       const agg = await tx.pesoEnPie.aggregate({
@@ -132,6 +147,29 @@ export class PesoEnPieService {
       take: 200,
     });
     return rows.map((r) => this.toDto(r));
+  }
+
+  async closeGuide(ctx: AuthContext, dateStr: string, guia: string) {
+    const { date } = dateOnly(dateStr);
+    const normalizedGuia = guia.trim();
+    if (!normalizedGuia) throw new NotFoundException('Guía no encontrada.');
+
+    const result = await this.prisma.pesoEnPie.updateMany({
+      where: {
+        plantId: ctx.plantId,
+        date,
+        guia: normalizedGuia,
+        deletedAt: null,
+        status: PesoEnPieStatus.pendiente,
+      },
+      data: { status: PesoEnPieStatus.en_insensibilizacion },
+    });
+
+    if (!result.count) {
+      throw new NotFoundException('No hay animales pendientes para cerrar.');
+    }
+
+    return { closed: result.count };
   }
 
   async findOne(ctx: AuthContext, id: string) {

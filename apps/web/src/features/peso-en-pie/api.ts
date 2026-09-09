@@ -90,3 +90,19 @@ export function useCreatePesoEnPie() {
     },
   });
 }
+
+export function useClosePesoEnPieGuide() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ date, guia }: { date: string; guia: string }) =>
+      (
+        await api.patch<{ closed: number }>('/peso-en-pie/close-guide', null, {
+          params: { date, guia },
+        })
+      ).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['peso-en-pie'] });
+      qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
+    },
+  });
+}
