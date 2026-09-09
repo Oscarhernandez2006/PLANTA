@@ -1,12 +1,19 @@
+import { ModulePage } from '@/components/layout/ModulePage';
+import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
+
 export function OrdenBeneficioPage() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <h1 className="text-2xl font-semibold text-foreground">
-        Orden de Beneficio
-      </h1>
-      <p className="max-w-md text-muted-foreground">
-        Módulo en construcción. Aquí se registrarán las órdenes de beneficio.
-      </p>
-    </div>
+    <ModulePage
+      icon={OrdenBeneficioIcon}
+      title="Orden de Beneficio"
+      subtitle="Módulo en construcción. Aquí se registrarán las órdenes de beneficio."
+    >
+      <div className="flex min-h-[280px] items-center justify-center px-6 py-12 text-center">
+        <p className="max-w-lg text-sm text-muted-foreground">
+          Esta vista debe mantener la misma estructura visual del resto de la
+          aplicación para la administración y el manejo de ordenes.
+        </p>
+      </div>
+    </ModulePage>
   );
 }

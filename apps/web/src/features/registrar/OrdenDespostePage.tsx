@@ -1,12 +1,19 @@
+import { ModulePage } from '@/components/layout/ModulePage';
+import { OrdenDesposteIcon } from '@/components/icons/OrdenDesposteIcon';
+
 export function OrdenDespostePage() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <h1 className="text-2xl font-semibold text-foreground">
-        Orden de Desposte
-      </h1>
-      <p className="max-w-md text-muted-foreground">
-        Módulo en construcción. Aquí se registrarán las órdenes de desposte.
-      </p>
-    </div>
+    <ModulePage
+      icon={OrdenDesposteIcon}
+      title="Orden de Desposte"
+      subtitle="Módulo en construcción. Aquí se registrarán las órdenes de desposte."
+    >
+      <div className="flex min-h-[280px] items-center justify-center px-6 py-12 text-center">
+        <p className="max-w-lg text-sm text-muted-foreground">
+          Las pantallas de administración seguirán el mismo bloque visual de
+          encabezado, contenido y acciones institucionales.
+        </p>
+      </div>
+    </ModulePage>
   );
 }

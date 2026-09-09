@@ -1,10 +1,19 @@
+import { ModulePage } from '@/components/layout/ModulePage';
+import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
+
 export function SubproductosPage() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <h1 className="text-2xl font-semibold text-foreground">Subproductos</h1>
-      <p className="max-w-md text-muted-foreground">
-        Módulo en construcción. Aquí se registrará el manejo de subproductos.
-      </p>
-    </div>
+    <ModulePage
+      icon={SubproductosIcon}
+      title="Subproductos"
+      subtitle="Módulo en construcción. Aquí se registrará el manejo de subproductos."
+    >
+      <div className="flex min-h-[280px] items-center justify-center px-6 py-12 text-center">
+        <p className="max-w-lg text-sm text-muted-foreground">
+          El módulo de subproductos conservará el mismo estándar visual y de
+          flujo que los demás módulos del sistema.
+        </p>
+      </div>
+    </ModulePage>
   );
 }

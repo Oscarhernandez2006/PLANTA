@@ -1,10 +1,19 @@
+import { ModulePage } from '@/components/layout/ModulePage';
+import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
+
 export function CanalCalientePage() {
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
-      <h1 className="text-2xl font-semibold text-foreground">Canal Caliente</h1>
-      <p className="max-w-md text-muted-foreground">
-        Módulo en construcción. Aquí se registrará el canal en caliente.
-      </p>
-    </div>
+    <ModulePage
+      icon={CanalCalienteIcon}
+      title="Canal Caliente"
+      subtitle="Módulo en construcción. Aquí se registrará el canal en caliente."
+    >
+      <div className="flex min-h-[280px] items-center justify-center px-6 py-12 text-center">
+        <p className="max-w-lg text-sm text-muted-foreground">
+          El flujo de canal caliente se integrará con la misma estructura de
+          registro, KPI y listado que el resto de módulos.
+        </p>
+      </div>
+    </ModulePage>
   );
 }

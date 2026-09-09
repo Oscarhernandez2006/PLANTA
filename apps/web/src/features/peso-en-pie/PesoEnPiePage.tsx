@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Calculator,
   Check,
-  ClipboardCheck,
   Eraser,
   Gauge,
   Inbox,
   LoaderCircle,
+  Lock,
   Pencil,
   Printer,
 } from 'lucide-react';
@@ -14,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Label, Select } from '@/components/ui/input';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
+import { KeyboardField } from '@/components/keyboard/KeyboardField';
+import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
 import { readScale } from '@/lib/device';
 import {
@@ -37,6 +38,7 @@ function kg(n: number | null | undefined) {
 }
 
 export function PesoEnPiePage() {
+  const keyboard = useKeyboard();
   const [fecha, setFecha] = useState(today());
   const [guia, setGuia] = useState('');
   const [proveedor, setProveedor] = useState('');
@@ -56,6 +58,22 @@ export function PesoEnPiePage() {
   const lista = usePesoEnPieList();
   const nextRef = usePesoEnPieNextReference(fecha, true);
   const crear = useCreatePesoEnPie();
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem('frigo:last-peso-camion');
+      if (!raw || peso) return;
+
+      const saved = JSON.parse(raw) as { neto?: number; cantidad?: number } | null;
+      const total = Number(saved?.neto ?? 0);
+      const cantidad = Number(saved?.cantidad ?? 0);
+      if (!Number.isFinite(total) || !Number.isFinite(cantidad) || cantidad <= 0) return;
+
+      setPeso((total / cantidad).toFixed(1));
+    } catch {
+      // Ignora almacenamiento no válido.
+    }
+  }, [peso]);
 
   useEffect(() => {
     return () => {
@@ -175,24 +193,70 @@ export function PesoEnPiePage() {
   }
 
   return (
-    <div className="flex flex-1 flex-col gap-3 p-3 md:p-5">
-      <div className="flex flex-wrap items-start gap-2">
-        <PesoEnPieIcon className="size-14 rounded-sm border border-border p-1 text-foreground" />
-        <div className="grid min-w-0 flex-1 gap-2 sm:grid-cols-[auto_minmax(220px,1fr)_auto_auto] sm:items-center">
-          <label className="text-lg font-semibold" htmlFor="fecha">Fecha:</label>
-          <Input id="fecha" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} className="h-12 max-w-56 text-lg" />
-          <Label className="text-lg" htmlFor="guia">Guía de Movilización:</Label>
-          <div className="flex gap-2">
-            <Input id="guia" value={guia} onChange={(e) => setGuia(e.target.value)} className="h-12 min-w-40 text-lg" />
-            <Button aria-label="Guardar registro" title="Guardar registro" onClick={guardar} disabled={!canSave} className="size-12 shrink-0 p-0">
-              {crear.isPending ? <LoaderCircle className="animate-spin" /> : <Check className="size-8" />}
-            </Button>
-            <Button aria-label="Limpiar formulario" title="Limpiar formulario" variant="outline" onClick={limpiar} disabled={crear.isPending} className="size-12 shrink-0 p-0"><Eraser className="size-7" /></Button>
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <PesoEnPieIcon className="size-9" />
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">Peso En Pie</h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Registro individual de animales y peso en pie.
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-2 sm:ml-auto">
-          <Button aria-label="Calcular" title="Calcular" variant="outline" className="size-12 p-0"><Calculator /></Button>
-          <Button aria-label="Auditar" title="Auditar" variant="outline" className="size-12 p-0"><ClipboardCheck /></Button>
+
+        <div className="flex items-center gap-1.5">
+          <Button
+            size="lg"
+            className="h-11 px-5"
+            title="Guardar registro"
+            onClick={guardar}
+            disabled={!canSave}
+          >
+            {crear.isPending ? (
+              <LoaderCircle className="size-5 animate-spin" />
+            ) : (
+              <Check className="size-5" />
+            )}
+            Guardar
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-11"
+            title="Limpiar formulario"
+            onClick={limpiar}
+            disabled={crear.isPending}
+          >
+            <Eraser className="size-5" />
+          </Button>
+          <span className="mx-1 h-8 w-px bg-border" />
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-11"
+            title="Editar registro seleccionado"
+            disabled
+          >
+            <Pencil className="size-5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-11"
+            title="Imprimir registro"
+          >
+            <Printer className="size-5" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-11"
+            title="Bloquear registro"
+            disabled
+          >
+            <Lock className="size-5" />
+          </Button>
         </div>
       </div>
 
@@ -207,8 +271,34 @@ export function PesoEnPiePage() {
         </div>
       )}
 
-      <Card className="overflow-hidden rounded-sm border-2">
-        <div className="grid gap-3 p-3 md:grid-cols-2">
+      <Card className="p-6">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr]">
+          <div className="space-y-1.5">
+            <Label htmlFor="fecha">Fecha</Label>
+            <Input
+              id="fecha"
+              type="date"
+              className="h-11"
+              value={fecha}
+              onChange={(e) => setFecha(e.target.value)}
+            />
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="guia">Guía de movilización</Label>
+            <KeyboardField>
+              <Input
+                id="guia"
+                value={guia}
+                onChange={(e) => setGuia(e.target.value)}
+                className="h-11"
+                placeholder="Escribí el número de guía…"
+                onDoubleClick={keyboard.open}
+              />
+            </KeyboardField>
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 p-0 md:grid-cols-2">
           <div className="space-y-1"><Label htmlFor="proveedor">Proveedor:</Label><Input id="proveedor" value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-12 text-lg" /></div>
           <div className="space-y-1"><Label htmlFor="cliente">Cliente:</Label><Input id="cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} className="h-12 text-lg" /></div>
           <div className="space-y-1"><Label htmlFor="tipo-animal">Tipo de Animal:</Label><Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option><option>Bovino</option></Select></div>

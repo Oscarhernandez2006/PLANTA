@@ -117,6 +117,18 @@ export function PesoEnCamionPage() {
   const cantNum = num(cantidad);
   const prom = cantNum > 0 ? neto / cantNum : 0;
 
+  useEffect(() => {
+    const payload = {
+      date: fecha,
+      guia: guia.trim(),
+      neto,
+      cantidad: cantNum,
+      updatedAt: Date.now(),
+    };
+
+    window.localStorage.setItem('frigo:last-peso-camion', JSON.stringify(payload));
+  }, [fecha, guia, neto, cantNum]);
+
   // Al editar cualquier campo, el guardado deja de estar vigente.
   useEffect(() => {
     setSaved(false);
