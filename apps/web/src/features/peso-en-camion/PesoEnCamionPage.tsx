@@ -13,6 +13,8 @@ import {
   Sigma,
   Inbox,
   LoaderCircle,
+  RefreshCw,
+  Dices,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -34,6 +36,7 @@ import {
   useCreatePesoCamion,
   useUpdatePesoCamion,
   useClosePesoCamion,
+  getNextTempGuia,
   type PesoCamionGuia,
   type SavePesoCamionInput,
 } from './api';
@@ -51,7 +54,7 @@ function kg(n: number) {
   });
 }
 
-const fieldClass = 'h-11 pr-11';
+const fieldClass = 'h-10 pr-11';
 const areaClass = cn(
   'flex min-h-[64px] w-full rounded-md border border-input bg-card px-3 py-2 pr-11 text-sm shadow-sm transition-colors',
   'placeholder:text-muted-foreground resize-none',
@@ -199,6 +202,23 @@ export function PesoEnCamionPage() {
 
   async function guardar() {
     setSaveError(null);
+
+    // Todos los campos son obligatorios salvo Observaciones/Detalles.
+    const faltantes: string[] = [];
+    if (!guia.trim()) faltantes.push('Guía de movilización');
+    if (!procedencia.trim()) faltantes.push('Procedencia');
+    if (!proveedor.trim()) faltantes.push('Proveedor');
+    if (!cliente.trim()) faltantes.push('Cliente');
+    if (!placa.trim()) faltantes.push('Placa');
+    if (!conductor.trim()) faltantes.push('Conductor');
+    if (!cantidad.trim()) faltantes.push('Cant.');
+    if (!entrada.trim()) faltantes.push('Entrada');
+    if (!salida.trim()) faltantes.push('Salida');
+    if (faltantes.length > 0) {
+      setSaveError(`Faltan campos obligatorios: ${faltantes.join(', ')}.`);
+      return;
+    }
+
     try {
       let ref: number;
       if (editingId) {
@@ -246,6 +266,15 @@ export function PesoEnCamionPage() {
   // El lápiz carga la guía seleccionada en el formulario para editarla.
   function editar() {
     if (selectedGuia) loadGuia(selectedGuia);
+  }
+
+  // Genera un consecutivo de guía temporal (TEMP-000001) para camiones sin guía.
+  async function guiaTemporal() {
+    try {
+      setGuia(await getNextTempGuia());
+    } catch {
+      setSaveError('No se pudo generar la guía temporal.');
+    }
   }
 
   // Clic en fila: selecciona; si ya estaba seleccionada, deselecciona.
@@ -338,7 +367,7 @@ export function PesoEnCamionPage() {
   const saving = createGuia.isPending || updateGuia.isPending;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Encabezado + barra de acciones */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
@@ -407,6 +436,18 @@ export function PesoEnCamionPage() {
           >
             <Lock className="size-5" />
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-11"
+            title="Refrescar guías abiertas"
+            onClick={() => abiertas.refetch()}
+            disabled={abiertas.isFetching}
+          >
+            <RefreshCw
+              className={cn('size-5', abiertas.isFetching && 'animate-spin')}
+            />
+          </Button>
         </div>
       </div>
 
@@ -436,9 +477,9 @@ export function PesoEnCamionPage() {
       )}
 
       {/* Datos de la guía */}
-      <Card className="p-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr]">
-          <div className="space-y-1.5">
+      <Card className="p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
+          <div className="space-y-1">
             <Label htmlFor="fecha">Fecha</Label>
             <Input
               id="fecha"
@@ -448,12 +489,25 @@ export function PesoEnCamionPage() {
               onChange={(e) => setFecha(e.target.value)}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <Label htmlFor="guia">Guía de movilización</Label>
-            <KeyboardField>
+            <KeyboardField
+              extra={
+                <button
+                  type="button"
+                  aria-label="Generar guía temporal"
+                  title="Generar guía temporal (TEMP-…)"
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={guiaTemporal}
+                  className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                >
+                  <Dices className="size-5" />
+                </button>
+              }
+            >
               <Input
                 id="guia"
-                className={cn(fieldClass, savedText)}
+                className={cn(fieldClass, 'pr-[4.75rem]', savedText)}
                 placeholder="Escribí el número de guía…"
                 value={guia}
                 onChange={(e) => setGuia(e.target.value)}
@@ -463,45 +517,44 @@ export function PesoEnCamionPage() {
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
             <Label htmlFor="procedencia">Procedencia</Label>
-            <textarea
+            <Input
               id="procedencia"
-              className={cn(areaClass, 'cursor-pointer pr-3', savedText)}
+              className={cn('h-10 cursor-pointer', savedText)}
               readOnly
-              placeholder="Tocá para seleccionar la procedencia…"
+              placeholder="Tocá para seleccionar…"
               value={procedencia}
               onClick={() => setProcModalOpen(true)}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <Label htmlFor="proveedor">Proveedor</Label>
-            <textarea
+            <Input
               id="proveedor"
-              className={cn(areaClass, 'cursor-pointer pr-3', savedText)}
+              className={cn('h-10 cursor-pointer', savedText)}
               readOnly
-              placeholder="Tocá para seleccionar el proveedor…"
+              placeholder="Tocá para seleccionar…"
               value={proveedor}
               onClick={() => setProvModalOpen(true)}
             />
           </div>
+          <div className="space-y-1">
+            <Label htmlFor="cliente">Cliente</Label>
+            <Input
+              id="cliente"
+              className={cn('h-10 cursor-pointer', savedText)}
+              readOnly
+              placeholder="Tocá para seleccionar…"
+              value={cliente}
+              onClick={() => setCliModalOpen(true)}
+            />
+          </div>
         </div>
 
-        <div className="mt-4 space-y-1.5">
-          <Label htmlFor="cliente">Cliente</Label>
-          <textarea
-            id="cliente"
-            className={cn(areaClass, 'cursor-pointer pr-3', savedText)}
-            readOnly
-            placeholder="Tocá para seleccionar el cliente…"
-            value={cliente}
-            onClick={() => setCliModalOpen(true)}
-          />
-        </div>
-
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div className="space-y-1.5">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
             <Label htmlFor="placa">Placa</Label>
             <KeyboardField>
               <Input
@@ -514,13 +567,13 @@ export function PesoEnCamionPage() {
               />
             </KeyboardField>
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1 sm:col-span-2">
             <Label htmlFor="conductor">Conductor</Label>
             <Input
               id="conductor"
-              className={cn(fieldClass, 'cursor-pointer', savedText)}
+              className={cn('h-10 cursor-pointer', savedText)}
               readOnly
-              placeholder="Doble clic para seleccionar el conductor…"
+              placeholder="Doble clic para seleccionar…"
               value={conductor}
               onDoubleClick={() => setCondModalOpen(true)}
             />
@@ -572,7 +625,8 @@ export function PesoEnCamionPage() {
         </div>
 
         {tab === 'guias' ? (
-          <Table>
+          <div className="max-h-[26vh] overflow-auto">
+            <Table>
             <THead>
               <TR>
                 <TH className="w-24">Ref.</TH>
@@ -615,7 +669,8 @@ export function PesoEnCamionPage() {
                 ))
               )}
             </TBody>
-          </Table>
+            </Table>
+          </div>
         ) : (
           <div className="p-4">
             <KeyboardField align="top">
@@ -686,7 +741,7 @@ function StatCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="p-4">
+    <Card className="p-3">
       <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
         <Icon className="size-3.5" />
         {label}
@@ -720,7 +775,7 @@ function StatInput({
         onChange={(e) => onChange(e.target.value)}
         onDoubleClick={onKeyboard}
         className={cn(
-          'mt-2 w-full bg-transparent text-3xl font-semibold tabular-nums outline-none placeholder:text-muted-foreground/40',
+          'mt-1 w-full bg-transparent text-2xl font-semibold tabular-nums outline-none placeholder:text-muted-foreground/40',
           tone,
         )}
       />
@@ -741,7 +796,7 @@ function StatValue({
 }) {
   return (
     <StatCard icon={icon} label={label}>
-      <p className={cn('mt-2 text-3xl font-semibold tabular-nums', tone)}>
+      <p className={cn('mt-1 text-2xl font-semibold tabular-nums', tone)}>
         {value}
       </p>
     </StatCard>

@@ -203,6 +203,11 @@ export function usePesoCamionNextReference(date: string, enabled: boolean) {
   });
 }
 
+/** Obtiene el próximo consecutivo de guía temporal (TEMP-000001). */
+export async function getNextTempGuia() {
+  return (await api.get<{ next: string }>('/peso-camion/next-temp')).data.next;
+}
+
 export function useCreatePesoCamion() {
   const qc = useQueryClient();
   return useMutation({

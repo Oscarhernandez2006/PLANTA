@@ -29,6 +29,11 @@ export class PesoCamionController {
     return this.service.nextReference(user, date);
   }
 
+  @Get('next-temp')
+  nextTempGuia(@CurrentUser() user: AuthContext) {
+    return this.service.nextTempGuia(user);
+  }
+
   @Post()
   create(@CurrentUser() user: AuthContext, @Body() dto: SavePesoCamionDto) {
     return this.service.create(user, dto);

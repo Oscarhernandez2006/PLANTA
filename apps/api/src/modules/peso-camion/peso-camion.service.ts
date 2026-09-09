@@ -42,6 +42,23 @@ export class PesoCamionService {
     return { next: (agg._max.reference ?? 0) + 1 };
   }
 
+  /** Próximo consecutivo de guía temporal (TEMP-000001) para la planta. */
+  async nextTempGuia(ctx: AuthContext) {
+    const rows = await this.prisma.pesoCamion.findMany({
+      where: {
+        plantId: ctx.plantId,
+        guia: { startsWith: 'TEMP-' },
+      },
+      select: { guia: true },
+    });
+    let max = 0;
+    for (const r of rows) {
+      const n = parseInt((r.guia ?? '').replace('TEMP-', ''), 10);
+      if (Number.isFinite(n) && n > max) max = n;
+    }
+    return { next: `TEMP-${String(max + 1).padStart(6, '0')}` };
+  }
+
   private fields(dto: SavePesoCamionDto) {
     return {
       guia: dto.guia ?? null,
