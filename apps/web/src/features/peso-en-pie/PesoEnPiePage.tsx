@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import {
-  Check,
+  Save,
   Eraser,
   Gauge,
   Inbox,
@@ -8,11 +8,16 @@ import {
   Lock,
   Pencil,
   Printer,
+  Hash,
+  Layers,
+  Scale,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Label, Select } from '@/components/ui/input';
+import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
+import { StatInput } from '@/components/ui/stat';
 import { KeyboardField } from '@/components/keyboard/KeyboardField';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
@@ -193,7 +198,8 @@ export function PesoEnPiePage() {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
+      {/* Encabezado + barra de acciones */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <PesoEnPieIcon className="size-9" />
@@ -216,7 +222,7 @@ export function PesoEnPiePage() {
             {crear.isPending ? (
               <LoaderCircle className="size-5 animate-spin" />
             ) : (
-              <Check className="size-5" />
+              <Save className="size-5" />
             )}
             Guardar
           </Button>
@@ -224,7 +230,7 @@ export function PesoEnPiePage() {
             variant="outline"
             size="icon"
             className="size-11"
-            title="Limpiar formulario"
+            title="Nuevo / limpiar"
             onClick={limpiar}
             disabled={crear.isPending}
           >
@@ -252,7 +258,7 @@ export function PesoEnPiePage() {
             variant="outline"
             size="icon"
             className="size-11"
-            title="Bloquear registro"
+            title="Cerrar registro"
             disabled
           >
             <Lock className="size-5" />
@@ -260,76 +266,214 @@ export function PesoEnPiePage() {
         </div>
       </div>
 
-      {notice && (
-        <div className="rounded-md bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-          {notice}
-        </div>
-      )}
+      {/* Avisos */}
       {saveError && (
-        <div className="rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
           {saveError}
         </div>
       )}
+      {notice && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+          <Save className="size-4" />
+          {notice}
+        </div>
+      )}
 
-      <Card className="p-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_1fr]">
-          <div className="space-y-1.5">
+      {/* Datos del registro */}
+      <Card className="p-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
+          <div className="space-y-1">
             <Label htmlFor="fecha">Fecha</Label>
             <Input
               id="fecha"
               type="date"
-              className="h-11"
+              className="h-10"
               value={fecha}
               onChange={(e) => setFecha(e.target.value)}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             <Label htmlFor="guia">Guía de movilización</Label>
             <KeyboardField>
               <Input
                 id="guia"
+                className="h-10 pr-11"
+                placeholder="Escribí el número de guía…"
                 value={guia}
                 onChange={(e) => setGuia(e.target.value)}
-                className="h-11"
-                placeholder="Escribí el número de guía…"
                 onDoubleClick={keyboard.open}
               />
             </KeyboardField>
           </div>
         </div>
 
-        <div className="mt-4 grid gap-3 p-0 md:grid-cols-2">
-          <div className="space-y-1"><Label htmlFor="proveedor">Proveedor:</Label><Input id="proveedor" value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-12 text-lg" /></div>
-          <div className="space-y-1"><Label htmlFor="cliente">Cliente:</Label><Input id="cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} className="h-12 text-lg" /></div>
-          <div className="space-y-1"><Label htmlFor="tipo-animal">Tipo de Animal:</Label><Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option><option>Bovino</option></Select></div>
-          <div className="space-y-1"><Label htmlFor="corral">Ubicación (Corral):</Label><Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option>{Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}</Select></div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="proveedor">Proveedor</Label>
+            <KeyboardField>
+              <Input
+                id="proveedor"
+                className="h-10 pr-11"
+                value={proveedor}
+                onChange={(e) => setProveedor(e.target.value)}
+                onDoubleClick={keyboard.open}
+              />
+            </KeyboardField>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="cliente">Cliente</Label>
+            <KeyboardField>
+              <Input
+                id="cliente"
+                className="h-10 pr-11"
+                value={cliente}
+                onChange={(e) => setCliente(e.target.value)}
+                onDoubleClick={keyboard.open}
+              />
+            </KeyboardField>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="tipo-animal">Tipo de animal</Label>
+            <Select
+              id="tipo-animal"
+              className="h-10"
+              value={tipoAnimal}
+              onChange={(e) => setTipoAnimal(e.target.value)}
+            >
+              <option value="">Seleccione…</option>
+              <option>Bovino</option>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="corral">Ubicación (corral)</Label>
+            <Select
+              id="corral"
+              className="h-10"
+              value={corral}
+              onChange={(e) => setCorral(e.target.value)}
+            >
+              <option value="">Seleccione…</option>
+              {Array.from({ length: 26 }, (_, i) => (
+                <option key={i} value={String(i + 1)}>
+                  Corral {i + 1}
+                </option>
+              ))}
+            </Select>
+          </div>
         </div>
       </Card>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_1fr_1.2fr]">
-        <FieldBox label="Lote:"><Input value={lote} onChange={(e) => setLote(e.target.value.replace(/[^0-9]/g, ''))} className="h-20 border-0 text-center text-4xl font-semibold shadow-none" /></FieldBox>
-        <FieldBox label="Animal No.:"><Input value={animalNo || String(nextRef.data?.next ?? '')} onChange={(e) => setAnimalNo(e.target.value.replace(/[^0-9]/g, ''))} className="h-20 border-0 text-center text-3xl font-bold shadow-none" /></FieldBox>
-        <FieldBox label="Peso (kg):"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.0" className="h-20 border-0 text-center text-4xl font-bold text-emerald-700 shadow-none" /></FieldBox>
-        <div className="flex items-center justify-end gap-2 md:col-span-3"><Button aria-label="Leer báscula" title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'} variant="outline" className="size-14 p-0" onClick={leerBascula} disabled={isReadingScale}>{isReadingScale ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}</Button><Button aria-label="Editar" title="Editar" variant="outline" className="size-14 p-0"><Pencil /></Button><Button aria-label="Imprimir" title="Imprimir" variant="outline" className="size-14 p-0"><Printer /></Button></div>
+      {/* Totales */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+        <StatInput
+          icon={Layers}
+          label="Lote"
+          value={lote}
+          onChange={(v) => setLote(v.replace(/[^0-9]/g, ''))}
+          onKeyboard={keyboard.open}
+        />
+        <StatInput
+          icon={Hash}
+          label="Animal N.º"
+          value={animalNo}
+          placeholder={String(nextRef.data?.next ?? '0')}
+          onChange={(v) => setAnimalNo(v.replace(/[^0-9]/g, ''))}
+          onKeyboard={keyboard.open}
+        />
+        <StatInput
+          icon={Scale}
+          label="Peso (kg)"
+          tone="text-emerald-600"
+          value={peso}
+          onChange={(v) => setPeso(v.replace(/[^0-9.]/g, ''))}
+          onKeyboard={keyboard.open}
+          action={
+            <button
+              type="button"
+              title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'}
+              onClick={leerBascula}
+              disabled={isReadingScale}
+              className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:opacity-50"
+            >
+              {isReadingScale ? (
+                <LoaderCircle className="size-5 animate-spin" />
+              ) : (
+                <Gauge className="size-5" />
+              )}
+            </button>
+          }
+        />
       </div>
 
-      <Card className="min-h-64 overflow-hidden rounded-sm">
-        <Tabs tabs={tabs} value={tab} onChange={setTab} className="bg-muted/40" />
-        {tab === 'observaciones' ? <div className="p-4"><Input aria-label="Observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} placeholder="Observaciones" className="h-32 items-start py-3" /></div> : tab === 'guias' ? <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">{reportes.map((r) => <div key={r.id} className="rounded-md border border-border p-3"><div className="font-semibold">Guía {r.guia ?? 'sin número'}</div><div className="text-sm text-muted-foreground">{r.date} · {kg(r.pesoTotalKg)} kg</div></div>)}</div> : null}
-        {tab === 'registro' && lista.isLoading ? (
-          <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-            <LoaderCircle className="size-4 animate-spin" /> Cargando…
+      {/* Registros / Observaciones */}
+      <Card className="overflow-hidden">
+        <div className="px-4 pt-2">
+          <Tabs tabs={tabs} value={tab} onChange={setTab} />
+        </div>
+
+        {tab === 'observaciones' ? (
+          <div className="p-4">
+            <KeyboardField align="top">
+              <textarea
+                className="flex min-h-[120px] w-full rounded-md border border-input bg-card px-3 py-2 pr-11 text-sm shadow-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                placeholder="Observaciones…"
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+                onDoubleClick={keyboard.open}
+              />
+            </KeyboardField>
           </div>
-        ) : tab === 'registro' && !reportes.length ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-            <Inbox className="size-8" /> Aún no hay animales registrados.
+        ) : (
+          <div className="max-h-[26vh] overflow-auto">
+            <Table>
+              <THead>
+                <TR>
+                  <TH className="w-24">Animal</TH>
+                  <TH>Guía</TH>
+                  <TH>Corral</TH>
+                  <TH className="text-right">Peso (kg)</TH>
+                  <TH>Fecha</TH>
+                </TR>
+              </THead>
+              <TBody>
+                {lista.isLoading ? (
+                  <TR className="hover:bg-transparent">
+                    <TD colSpan={5} className="py-10 text-center text-muted-foreground">
+                      <LoaderCircle className="mx-auto size-5 animate-spin" />
+                    </TD>
+                  </TR>
+                ) : reportes.length === 0 ? (
+                  <TR className="hover:bg-transparent">
+                    <TD colSpan={5} className="py-12">
+                      <div className="flex flex-col items-center gap-2 text-center text-muted-foreground">
+                        <Inbox className="size-8" />
+                        <p className="text-sm font-medium">
+                          Aún no hay animales registrados
+                        </p>
+                      </div>
+                    </TD>
+                  </TR>
+                ) : (
+                  reportes.map((r) => (
+                    <TR key={r.id}>
+                      <TD className="font-medium tabular-nums">{r.reference}</TD>
+                      <TD>{r.guia ?? '—'}</TD>
+                      <TD>{r.corral ?? '—'}</TD>
+                      <TD className="text-right tabular-nums">
+                        {kg(r.pesoTotalKg)}
+                      </TD>
+                      <TD>{r.date}</TD>
+                    </TR>
+                  ))
+                )}
+              </TBody>
+            </Table>
           </div>
-        ) : tab === 'registro' ? <div className="grid gap-2 p-4 sm:grid-cols-2 lg:grid-cols-4">{reportes.map((r) => <div key={r.id} className="rounded-md border border-border p-3"><div className="text-lg font-bold">Animal N.º {r.reference}</div><div className="text-sm text-muted-foreground">{r.date} · {kg(r.pesoTotalKg)} kg</div></div>)}</div> : null}
+        )}
       </Card>
     </div>
   );
-}
-
-function FieldBox({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="relative rounded-sm border-2 border-border bg-card pt-2"><span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">{label}</span>{children}</div>;
 }

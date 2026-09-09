@@ -21,6 +21,7 @@ import { Card } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
+import { StatValue, StatInput } from '@/components/ui/stat';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { KeyboardField } from '@/components/keyboard/KeyboardField';
 import { PesoEnCamionIcon } from '@/components/icons/PesoEnCamionIcon';
@@ -726,80 +727,6 @@ export function PesoEnCamionPage() {
         }}
       />
     </div>
-  );
-}
-
-type IconType = React.ComponentType<{ className?: string }>;
-
-function StatCard({
-  icon: Icon,
-  label,
-  children,
-}: {
-  icon: IconType;
-  label: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <Card className="p-3">
-      <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-        <Icon className="size-3.5" />
-        {label}
-      </div>
-      {children}
-    </Card>
-  );
-}
-
-function StatInput({
-  icon,
-  label,
-  value,
-  onChange,
-  onKeyboard,
-  tone,
-}: {
-  icon: IconType;
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  onKeyboard: () => void;
-  tone?: string;
-}) {
-  return (
-    <StatCard icon={icon} label={label}>
-      <input
-        inputMode="decimal"
-        placeholder="0"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onDoubleClick={onKeyboard}
-        className={cn(
-          'mt-1 w-full bg-transparent text-2xl font-semibold tabular-nums outline-none placeholder:text-muted-foreground/40',
-          tone,
-        )}
-      />
-    </StatCard>
-  );
-}
-
-function StatValue({
-  icon,
-  label,
-  value,
-  tone,
-}: {
-  icon: IconType;
-  label: string;
-  value: string;
-  tone?: string;
-}) {
-  return (
-    <StatCard icon={icon} label={label}>
-      <p className={cn('mt-1 text-2xl font-semibold tabular-nums', tone)}>
-        {value}
-      </p>
-    </StatCard>
   );
 }
 
