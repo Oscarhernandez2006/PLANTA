@@ -12,11 +12,22 @@ export interface PesoEnPie {
   reference: number;
   date: string;
   guia: string | null;
+  procedencia: string | null;
+  proveedor: string | null;
+  cliente: string | null;
+  placa: string | null;
+  conductor: string | null;
   corral: string | null;
+  tipoAnimal: string | null;
+  lote: string | null;
+  animalNo: string | null;
   animalCount: number;
   tipoPesaje: TipoPesaje;
   pesoTotalKg: number | null;
   pesoPromedioKg: number | null;
+  cantidad: number | null;
+  entrada: number | null;
+  salida: number | null;
   observaciones: string | null;
   status: PesoEnPieStatus;
 }
@@ -24,11 +35,22 @@ export interface PesoEnPie {
 export interface SavePesoEnPieInput {
   date?: string;
   guia?: string;
+  procedencia?: string;
+  proveedor?: string;
+  cliente?: string;
+  placa?: string;
+  conductor?: string;
   corral?: string;
+  tipoAnimal?: string;
+  lote?: string;
+  animalNo?: string;
   animalCount: number;
   tipoPesaje?: TipoPesaje;
   pesoTotalKg?: number;
   pesoPromedioKg?: number;
+  cantidad?: number;
+  entrada?: number;
+  salida?: number;
   observaciones?: string;
 }
 

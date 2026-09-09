@@ -41,8 +41,11 @@ export function PesoEnPiePage() {
   const keyboard = useKeyboard();
   const [fecha, setFecha] = useState(today());
   const [guia, setGuia] = useState('');
+  const [procedencia, setProcedencia] = useState('');
   const [proveedor, setProveedor] = useState('');
   const [cliente, setCliente] = useState('');
+  const [placa, setPlaca] = useState('');
+  const [conductor, setConductor] = useState('');
   const [tipoAnimal, setTipoAnimal] = useState('');
   const [corral, setCorral] = useState('');
   const [lote, setLote] = useState('0');
@@ -97,8 +100,11 @@ export function PesoEnPiePage() {
 
   function limpiar() {
     setGuia('');
+    setProcedencia('');
     setProveedor('');
     setCliente('');
+    setPlaca('');
+    setConductor('');
     setTipoAnimal('');
     setCorral('');
     setLote('0');
@@ -170,19 +176,19 @@ export function PesoEnPiePage() {
       const created = await crear.mutateAsync({
         date: fecha,
         guia: guia.trim() || undefined,
+        procedencia: procedencia.trim() || undefined,
+        proveedor: proveedor.trim() || undefined,
+        cliente: cliente.trim() || undefined,
+        placa: placa.trim() || undefined,
+        conductor: conductor.trim() || undefined,
         corral: corral.trim() || undefined,
+        tipoAnimal: tipoAnimal.trim() || undefined,
+        lote: lote.trim() || undefined,
+        animalNo: animalNo.trim() || undefined,
         animalCount: 1,
         tipoPesaje: 'individual',
         pesoTotalKg: pesoNum,
-        observaciones:
-          [
-            proveedor && `Proveedor: ${proveedor.trim()}`,
-            cliente && `Cliente: ${cliente.trim()}`,
-            tipoAnimal && `Animal: ${tipoAnimal}`,
-            lote && `Lote: ${lote.trim()}`,
-            animalNo && `Animal No.: ${animalNo.trim()}`,
-            observaciones.trim(),
-          ].filter(Boolean).join(' | ') || undefined,
+        observaciones: observaciones.trim() || undefined,
       });
       limpiar();
       setNotice(`Animal N.º ${created.reference} guardado.`);
@@ -299,8 +305,11 @@ export function PesoEnPiePage() {
         </div>
 
         <div className="mt-4 grid gap-3 p-0 md:grid-cols-2">
+          <div className="space-y-1"><Label htmlFor="procedencia">Procedencia:</Label><Input id="procedencia" value={procedencia} onChange={(e) => setProcedencia(e.target.value)} className="h-12 text-lg" /></div>
           <div className="space-y-1"><Label htmlFor="proveedor">Proveedor:</Label><Input id="proveedor" value={proveedor} onChange={(e) => setProveedor(e.target.value)} className="h-12 text-lg" /></div>
           <div className="space-y-1"><Label htmlFor="cliente">Cliente:</Label><Input id="cliente" value={cliente} onChange={(e) => setCliente(e.target.value)} className="h-12 text-lg" /></div>
+          <div className="space-y-1"><Label htmlFor="placa">Placa:</Label><Input id="placa" value={placa} onChange={(e) => setPlaca(e.target.value)} className="h-12 text-lg" /></div>
+          <div className="space-y-1"><Label htmlFor="conductor">Conductor:</Label><Input id="conductor" value={conductor} onChange={(e) => setConductor(e.target.value)} className="h-12 text-lg" /></div>
           <div className="space-y-1"><Label htmlFor="tipo-animal">Tipo de Animal:</Label><Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option><option>Bovino</option></Select></div>
           <div className="space-y-1"><Label htmlFor="corral">Ubicación (Corral):</Label><Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-12 text-lg"><option value="">Seleccione...</option>{Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}</Select></div>
         </div>
