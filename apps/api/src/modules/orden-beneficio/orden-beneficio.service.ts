@@ -3,7 +3,11 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { OrdenBeneficio, OrdenBeneficioStatus } from '@prisma/client';
+import {
+  OrdenBeneficio,
+  OrdenBeneficioStatus,
+  PesoEnPieStatus,
+} from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { CreateOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
@@ -57,7 +61,13 @@ export class OrdenBeneficioService {
         select: { cliente: true, guia: true },
       }),
       this.prisma.pesoEnPie.findMany({
-        where: { plantId: ctx.plantId, date, deletedAt: null },
+        where: {
+          plantId: ctx.plantId,
+          date,
+          deletedAt: null,
+          // Solo guías ya cerradas (pasan a insensibilización o más).
+          status: { not: PesoEnPieStatus.pendiente },
+        },
         select: { guia: true, animalCount: true, corral: true },
       }),
       this.prisma.ordenBeneficio.findMany({
@@ -113,18 +123,22 @@ export class OrdenBeneficioService {
 
     const list: Candidate[] = [];
     for (const [cliente, guias] of porCliente) {
-      const guiasDetalle: GuiaDetalle[] = [...guias].sort().map((guia) => {
-        const animalesEnPie = enPiePorGuia.get(guia) ?? 0;
-        const asignados = asignadoPorGuia.get(guia) ?? 0;
-        const corrales = [...(corralesPorGuia.get(guia) ?? [])].sort();
-        return {
-          guia,
-          corrales,
-          animalesEnPie,
-          asignados,
-          disponibles: Math.max(0, animalesEnPie - asignados),
-        };
-      });
+      const guiasDetalle: GuiaDetalle[] = [...guias]
+        .filter((guia) => enPiePorGuia.has(guia))
+        .sort()
+        .map((guia) => {
+          const animalesEnPie = enPiePorGuia.get(guia) ?? 0;
+          const asignados = asignadoPorGuia.get(guia) ?? 0;
+          const corrales = [...(corralesPorGuia.get(guia) ?? [])].sort();
+          return {
+            guia,
+            corrales,
+            animalesEnPie,
+            asignados,
+            disponibles: Math.max(0, animalesEnPie - asignados),
+          };
+        });
+      if (!guiasDetalle.length) continue;
       const totalDisponibles = guiasDetalle.reduce(
         (sum, g) => sum + g.disponibles,
         0,

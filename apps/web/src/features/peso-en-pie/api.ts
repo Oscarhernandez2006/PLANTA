@@ -96,7 +96,7 @@ export function useClosePesoEnPieGuide() {
   return useMutation({
     mutationFn: async ({ date, guia }: { date: string; guia: string }) =>
       (
-        await api.patch<{ closed: number }>('/peso-en-pie/close-guide', null, {
+        await api.patch<{ closed: number }>('/peso-en-pie/close-guide', {}, {
           params: { date, guia },
         })
       ).data,
