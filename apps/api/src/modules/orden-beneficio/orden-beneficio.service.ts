@@ -137,7 +137,9 @@ export class OrdenBeneficioService {
             asignados,
             disponibles: Math.max(0, animalesEnPie - asignados),
           };
-        });
+        })
+        // Oculta las guías cuyos animales ya se asignaron todos a lotes.
+        .filter((g) => g.disponibles > 0);
       if (!guiasDetalle.length) continue;
       const totalDisponibles = guiasDetalle.reduce(
         (sum, g) => sum + g.disponibles,
