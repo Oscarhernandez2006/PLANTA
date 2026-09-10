@@ -320,10 +320,10 @@ function IndividualView({
   );
 }
 
-function WeighPanel({ animal }: { animal: PielAnimal }) {
-  const [peso, setPeso] = useState('0.0');
+// Lee la báscula del equipo (con simulación de respaldo si no hay báscula).
+function useBascula(initial = '0.0') {
+  const [peso, setPeso] = useState(initial);
   const [leyendo, setLeyendo] = useState(false);
-  const registrar = useRegistrarPiel();
   const timerRef = useRef<number | null>(null);
 
   useEffect(
@@ -332,9 +332,6 @@ function WeighPanel({ animal }: { animal: PielAnimal }) {
     },
     [],
   );
-
-  const valor = Number(peso.replace(',', '.'));
-  const valido = peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
 
   async function leerBascula() {
     if (timerRef.current) {
@@ -377,6 +374,71 @@ function WeighPanel({ animal }: { animal: PielAnimal }) {
     }
   }
 
+  return { peso, setPeso, leyendo, leerBascula };
+}
+
+function BasculaField({
+  label = 'Peso (kg):',
+  peso,
+  setPeso,
+  leyendo,
+  onLeer,
+  onEnter,
+}: {
+  label?: string;
+  peso: string;
+  setPeso: (v: string) => void;
+  leyendo: boolean;
+  onLeer: () => void;
+  onEnter?: () => void;
+}) {
+  return (
+    <div className="flex items-end gap-3">
+      <div className="relative flex-1 rounded-sm border-2 border-border bg-card pt-2">
+        <span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">
+          {label}
+        </span>
+        <Input
+          value={peso}
+          onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') onEnter?.();
+          }}
+          inputMode="decimal"
+          placeholder="0.0"
+          className="h-14 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none"
+        />
+      </div>
+      <Button
+        aria-label="Leer báscula"
+        title={leyendo ? 'Leyendo báscula…' : 'Leer báscula'}
+        variant="outline"
+        className="size-12 p-0"
+        onClick={onLeer}
+        disabled={leyendo}
+      >
+        {leyendo ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}
+      </Button>
+      <Button
+        aria-label="Imprimir"
+        title="Imprimir"
+        variant="outline"
+        className="size-12 p-0"
+        onClick={() => window.print()}
+      >
+        <Printer />
+      </Button>
+    </div>
+  );
+}
+
+function WeighPanel({ animal }: { animal: PielAnimal }) {
+  const { peso, setPeso, leyendo, leerBascula } = useBascula('0.0');
+  const registrar = useRegistrarPiel();
+
+  const valor = Number(peso.replace(',', '.'));
+  const valido = peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
+
   function guardar() {
     if (!valido || registrar.isPending) return;
     registrar.mutate({ eventoId: animal.eventoId, pesoKg: valor });
@@ -392,46 +454,13 @@ function WeighPanel({ animal }: { animal: PielAnimal }) {
           cayó {hora(animal.stunnedAt)}
         </span>
       </div>
-      <div className="flex items-end gap-3">
-        <div className="relative flex-1 rounded-sm border-2 border-border bg-card pt-2">
-          <span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">
-            Peso (kg):
-          </span>
-          <Input
-            value={peso}
-            onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') guardar();
-            }}
-            inputMode="decimal"
-            placeholder="0.0"
-            className="h-14 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none"
-          />
-        </div>
-        <Button
-          aria-label="Leer báscula"
-          title={leyendo ? 'Leyendo báscula…' : 'Leer báscula'}
-          variant="outline"
-          className="size-12 p-0"
-          onClick={leerBascula}
-          disabled={leyendo}
-        >
-          {leyendo ? (
-            <LoaderCircle className="size-6 animate-spin" />
-          ) : (
-            <Gauge />
-          )}
-        </Button>
-        <Button
-          aria-label="Imprimir"
-          title="Imprimir"
-          variant="outline"
-          className="size-12 p-0"
-          onClick={() => window.print()}
-        >
-          <Printer />
-        </Button>
-      </div>
+      <BasculaField
+        peso={peso}
+        setPeso={setPeso}
+        leyendo={leyendo}
+        onLeer={leerBascula}
+        onEnter={guardar}
+      />
       <div className="mt-4 flex justify-end">
         <Button
           size="lg"
@@ -459,16 +488,16 @@ function LoteView({
   pendientes: PielAnimal[];
   pesados: PielAnimal[];
 }) {
-  const [total, setTotal] = useState('');
+  const { peso, setPeso, leyendo, leerBascula } = useBascula('0.0');
   const registrar = useRegistrarPielLote();
-  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setTotal('');
+    setPeso('0.0');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendientes.length]);
 
-  const valor = Number(total.replace(',', '.'));
-  const valido = total.trim() !== '' && Number.isFinite(valor) && valor > 0;
+  const valor = Number(peso.replace(',', '.'));
+  const valido = peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
   const porAnimal =
     valido && pendientes.length
       ? (valor / pendientes.length).toFixed(2)
@@ -490,51 +519,40 @@ function LoteView({
           de este lote ya fueron pesadas.
         </div>
       ) : (
-        <div className="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-end sm:justify-between">
-          <div className="space-y-1 text-sm text-muted-foreground">
-            <div>
-              <span className="text-2xl font-bold tabular-nums text-foreground">
-                {pendientes.length}
-              </span>{' '}
-              animales caídos sin pesar
-            </div>
-            {porAnimal && (
-              <div>
-                Se repartirá en partes iguales:{' '}
-                <span className="font-semibold text-foreground">
-                  {porAnimal} kg
-                </span>{' '}
-                por animal.
-              </div>
-            )}
+        <div className="border-b border-border bg-muted/20 px-5 py-6">
+          <div className="mb-4 text-sm text-muted-foreground">
+            <span className="text-2xl font-bold tabular-nums text-foreground">
+              {pendientes.length}
+            </span>{' '}
+            animales caídos sin pesar
           </div>
-          <div className="flex items-end gap-2">
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-              Peso total del lote (kg)
-              <Input
-                ref={inputRef}
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                value={total}
-                onChange={(e) => setTotal(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') guardar();
-                }}
-                className="h-11 w-44 text-lg"
-                placeholder="0.00"
-              />
-            </label>
+          <BasculaField
+            label="Peso total del lote (kg):"
+            peso={peso}
+            setPeso={setPeso}
+            leyendo={leyendo}
+            onLeer={leerBascula}
+            onEnter={guardar}
+          />
+          {porAnimal && (
+            <div className="mt-3 text-sm text-muted-foreground">
+              Se repartirá en partes iguales:{' '}
+              <span className="font-semibold text-foreground">
+                {porAnimal} kg
+              </span>{' '}
+              por animal.
+            </div>
+          )}
+          <div className="mt-4 flex justify-end">
             <Button
               size="lg"
               onClick={guardar}
               disabled={!valido || registrar.isPending}
             >
               {registrar.isPending ? (
-                <LoaderCircle className="size-4 animate-spin" />
+                <LoaderCircle className="size-5 animate-spin" />
               ) : (
-                <Scale className="size-4" />
+                <Scale className="size-5" />
               )}
               Guardar lote
             </Button>
