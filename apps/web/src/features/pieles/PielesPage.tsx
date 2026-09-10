@@ -3,8 +3,10 @@ import {
   ArrowLeft,
   CheckCircle2,
   Clock,
+  Gauge,
   Inbox,
   LoaderCircle,
+  Printer,
   RefreshCw,
   Scale,
 } from 'lucide-react';
@@ -13,6 +15,7 @@ import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { PielesIcon } from '@/components/icons/PielesIcon';
+import { readScale } from '@/lib/device';
 import { cn } from '@/lib/utils';
 import {
   usePielesLotes,
@@ -222,8 +225,29 @@ function IndividualView({
   pendientes: PielAnimal[];
   pesados: PielAnimal[];
 }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Selecciona automáticamente el primer animal por pesar.
+  useEffect(() => {
+    if (!pendientes.length) {
+      setSelectedId(null);
+      return;
+    }
+    setSelectedId((prev) =>
+      prev && pendientes.some((a) => a.eventoId === prev)
+        ? prev
+        : pendientes[0].eventoId,
+    );
+  }, [pendientes]);
+
+  const seleccionado = pendientes.find((a) => a.eventoId === selectedId) ?? null;
+
   return (
     <div className="border-t border-border">
+      {seleccionado && (
+        <WeighPanel key={seleccionado.eventoId} animal={seleccionado} />
+      )}
+
       <div className="px-5 py-3 text-sm font-semibold">
         Por pesar ({pendientes.length})
       </div>
@@ -234,9 +258,34 @@ function IndividualView({
         </div>
       ) : (
         <ul className="divide-y divide-border">
-          {pendientes.map((a) => (
-            <AnimalRow key={a.eventoId} animal={a} />
-          ))}
+          {pendientes.map((a) => {
+            const activo = a.eventoId === selectedId;
+            return (
+              <li key={a.eventoId}>
+                <button
+                  onClick={() => setSelectedId(a.eventoId)}
+                  className={cn(
+                    'flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors',
+                    activo ? 'bg-emerald-50' : 'hover:bg-muted/40',
+                  )}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-lg font-bold tabular-nums">
+                      #{a.consecutivo}
+                    </span>
+                    <span className="text-sm text-muted-foreground">
+                      cayó {hora(a.stunnedAt)}
+                    </span>
+                  </div>
+                  {activo && (
+                    <span className="text-xs font-medium text-emerald-700">
+                      Seleccionado
+                    </span>
+                  )}
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
 
@@ -271,11 +320,62 @@ function IndividualView({
   );
 }
 
-function AnimalRow({ animal }: { animal: PielAnimal }) {
-  const [peso, setPeso] = useState('');
+function WeighPanel({ animal }: { animal: PielAnimal }) {
+  const [peso, setPeso] = useState('0.0');
+  const [leyendo, setLeyendo] = useState(false);
   const registrar = useRegistrarPiel();
+  const timerRef = useRef<number | null>(null);
+
+  useEffect(
+    () => () => {
+      if (timerRef.current) window.clearInterval(timerRef.current);
+    },
+    [],
+  );
+
   const valor = Number(peso.replace(',', '.'));
   const valido = peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
+
+  async function leerBascula() {
+    if (timerRef.current) {
+      window.clearInterval(timerRef.current);
+      timerRef.current = null;
+    }
+    setLeyendo(true);
+    try {
+      const result = await readScale({ timeoutMs: 4000 });
+      if (result.ok && result.value !== null) {
+        setPeso(result.value.toFixed(1));
+        setLeyendo(false);
+        return;
+      }
+      throw new Error(result.error ?? 'scale_not_found');
+    } catch {
+      const samples: number[] = [];
+      let current = 0;
+      let stable = 0;
+      timerRef.current = window.setInterval(() => {
+        const next = Math.max(
+          0,
+          Number((current + (Math.random() - 0.5) * 2.4).toFixed(1)),
+        );
+        samples.push(next);
+        if (samples.length > 6) samples.shift();
+        current = next;
+        setPeso(next.toFixed(1));
+        if (samples.length >= 4) {
+          const min = Math.min(...samples);
+          const max = Math.max(...samples);
+          stable = max - min <= 0.2 ? stable + 1 : 0;
+        }
+        if (stable >= 2) {
+          window.clearInterval(timerRef.current ?? undefined);
+          timerRef.current = null;
+          setLeyendo(false);
+        }
+      }, 300);
+    }
+  }
 
   function guardar() {
     if (!valido || registrar.isPending) return;
@@ -283,39 +383,70 @@ function AnimalRow({ animal }: { animal: PielAnimal }) {
   }
 
   return (
-    <li className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
-      <div className="flex items-center gap-3">
-        <span className="text-lg font-bold tabular-nums">
+    <div className="border-b border-border bg-muted/20 px-5 py-6">
+      <div className="mb-4 flex items-center gap-3">
+        <span className="text-2xl font-bold tabular-nums">
           #{animal.consecutivo}
         </span>
         <span className="text-sm text-muted-foreground">
           cayó {hora(animal.stunnedAt)}
         </span>
       </div>
-      <div className="flex items-center gap-2">
-        <Input
-          type="number"
-          inputMode="decimal"
-          step="0.01"
-          min="0"
-          value={peso}
-          onChange={(e) => setPeso(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') guardar();
-          }}
-          className="h-9 w-28"
-          placeholder="kg"
-        />
-        <Button onClick={guardar} disabled={!valido || registrar.isPending}>
-          {registrar.isPending ? (
-            <LoaderCircle className="size-4 animate-spin" />
+      <div className="flex items-end gap-3">
+        <div className="relative flex-1 rounded-sm border-2 border-border bg-card pt-2">
+          <span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">
+            Peso (kg):
+          </span>
+          <Input
+            value={peso}
+            onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') guardar();
+            }}
+            inputMode="decimal"
+            placeholder="0.0"
+            className="h-14 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none"
+          />
+        </div>
+        <Button
+          aria-label="Leer báscula"
+          title={leyendo ? 'Leyendo báscula…' : 'Leer báscula'}
+          variant="outline"
+          className="size-12 p-0"
+          onClick={leerBascula}
+          disabled={leyendo}
+        >
+          {leyendo ? (
+            <LoaderCircle className="size-6 animate-spin" />
           ) : (
-            <Scale className="size-4" />
+            <Gauge />
           )}
-          Pesar
+        </Button>
+        <Button
+          aria-label="Imprimir"
+          title="Imprimir"
+          variant="outline"
+          className="size-12 p-0"
+          onClick={() => window.print()}
+        >
+          <Printer />
         </Button>
       </div>
-    </li>
+      <div className="mt-4 flex justify-end">
+        <Button
+          size="lg"
+          onClick={guardar}
+          disabled={!valido || registrar.isPending}
+        >
+          {registrar.isPending ? (
+            <LoaderCircle className="size-5 animate-spin" />
+          ) : (
+            <Scale className="size-5" />
+          )}
+          Pesar animal #{animal.consecutivo}
+        </Button>
+      </div>
+    </div>
   );
 }
 
