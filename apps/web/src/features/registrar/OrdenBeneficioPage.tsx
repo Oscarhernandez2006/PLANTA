@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input, Select } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
 import { cn } from '@/lib/utils';
@@ -28,6 +29,21 @@ function today() {
   return new Date().toISOString().slice(0, 10);
 }
 
+const MESES = [
+  'Enero',
+  'Febrero',
+  'Marzo',
+  'Abril',
+  'Mayo',
+  'Junio',
+  'Julio',
+  'Agosto',
+  'Septiembre',
+  'Octubre',
+  'Noviembre',
+  'Diciembre',
+];
+
 const statusMeta: Record<
   OrdenBeneficioStatus,
   { label: string; tone: 'neutral' | 'info' | 'success' }
@@ -38,14 +54,34 @@ const statusMeta: Record<
 };
 
 export function OrdenBeneficioPage() {
-  const [date] = useState(today());
-  const ordenes = useOrdenBeneficioList(date);
-  const candidates = useOrdenBeneficioCandidates(date);
+  const todayStr = today();
+  const [from, setFrom] = useState(todayStr);
+  const [to, setTo] = useState(todayStr);
+  // Candidatos (para crear lote) siempre son del día actual.
+  const candidates = useOrdenBeneficioCandidates(todayStr);
+  const ordenes = useOrdenBeneficioList(from, to);
   const eliminar = useDeleteOrdenBeneficio();
 
   const list = ordenes.data ?? [];
   const cands = candidates.data ?? [];
   const refrescando = ordenes.isFetching || candidates.isFetching;
+  const esHoy = from === todayStr && to === todayStr;
+
+  // Selecciona un mes completo (del año de la fecha "Desde").
+  function seleccionarMes(mesStr: string) {
+    if (!mesStr) return;
+    const year = Number((from || todayStr).slice(0, 4));
+    const mm = Number(mesStr);
+    const ultimo = new Date(year, mm, 0).getDate();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    setFrom(`${year}-${pad(mm)}-01`);
+    setTo(`${year}-${pad(mm)}-${pad(ultimo)}`);
+  }
+
+  const mesActual = from.slice(5, 7) === to.slice(5, 7) &&
+    from.slice(0, 4) === to.slice(0, 4)
+    ? String(Number(from.slice(5, 7)))
+    : '';
 
   return (
     <div className="space-y-6">
@@ -65,7 +101,7 @@ export function OrdenBeneficioPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge tone="info">{date}</Badge>
+          <Badge tone="info">{todayStr}</Badge>
           <Button
             variant="outline"
             size="sm"
@@ -96,7 +132,7 @@ export function OrdenBeneficioPage() {
               <ClienteCard
                 key={c.cliente}
                 c={c}
-                date={date}
+                date={todayStr}
                 onCreated={() => {
                   candidates.refetch();
                   ordenes.refetch();
@@ -107,15 +143,72 @@ export function OrdenBeneficioPage() {
         )}
       </Card>
 
-      {/* Lotes creados hoy */}
+      {/* Lotes de beneficio con filtro por mes / rango de fechas */}
       <Card className="flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
-          <OrdenBeneficioIcon className="size-4" /> Lotes de beneficio
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-semibold">
+            <OrdenBeneficioIcon className="size-4" /> Lotes de beneficio
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              Mes
+              <Select
+                value={mesActual}
+                onChange={(e) => seleccionarMes(e.target.value)}
+                className="h-8 w-36"
+              >
+                <option value="">Todos</option>
+                {MESES.map((m, i) => (
+                  <option key={m} value={i + 1}>
+                    {m}
+                  </option>
+                ))}
+              </Select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              Fecha inicio
+              <Input
+                type="date"
+                value={from}
+                max={to}
+                onChange={(e) => setFrom(e.target.value)}
+                className="h-8 w-40"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              Fecha final
+              <Input
+                type="date"
+                value={to}
+                min={from}
+                onChange={(e) => setTo(e.target.value)}
+                className="h-8 w-40"
+              />
+            </label>
+            {!esHoy && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setFrom(todayStr);
+                  setTo(todayStr);
+                }}
+              >
+                Hoy
+              </Button>
+            )}
+          </div>
         </div>
         {ordenes.isLoading ? (
           <Loading />
         ) : !list.length ? (
-          <Empty text="Aún no hay lotes hoy. Crea uno desde una guía de arriba." />
+          <Empty
+            text={
+              esHoy
+                ? 'Aún no hay lotes hoy. Crea uno desde una guía de arriba.'
+                : 'No hay lotes en el rango seleccionado.'
+            }
+          />
         ) : (
           <div className="overflow-auto">
             <Table>
@@ -124,6 +217,7 @@ export function OrdenBeneficioPage() {
                   <TH className="w-16">Lote N.º</TH>
                   <TH>Cliente</TH>
                   <TH>Guía</TH>
+                  <TH>Fecha</TH>
                   <TH className="text-center">Animales</TH>
                   <TH>Estado</TH>
                   <TH className="w-12" />
@@ -294,6 +388,7 @@ function OrderRow({
       <TD className="text-muted-foreground">
         {o.guias.length ? o.guias.join(', ') : '—'}
       </TD>
+      <TD className="tabular-nums text-muted-foreground">{o.date}</TD>
       <TD className="text-center tabular-nums">
         {o.insensibilizados}/{o.animalCount}
       </TD>

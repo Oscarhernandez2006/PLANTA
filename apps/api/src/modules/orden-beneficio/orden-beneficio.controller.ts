@@ -26,8 +26,13 @@ export class OrdenBeneficioController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: AuthContext, @Query('date') date?: string) {
-    return this.service.findAll(user, date);
+  findAll(
+    @CurrentUser() user: AuthContext,
+    @Query('date') date?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    return this.service.findAll(user, { date, from, to });
   }
 
   @Post()

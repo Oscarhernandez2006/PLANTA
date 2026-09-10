@@ -229,13 +229,23 @@ export class OrdenBeneficioService {
     });
   }
 
-  async findAll(ctx: AuthContext, dateStr?: string) {
+  async findAll(
+    ctx: AuthContext,
+    opts: { date?: string; from?: string; to?: string } = {},
+  ) {
     const where = { plantId: ctx.plantId, deletedAt: null } as {
       plantId: string;
       deletedAt: null;
-      date?: Date;
+      date?: Date | { gte: Date; lte: Date };
     };
-    if (dateStr) where.date = dateOnly(dateStr).date;
+    if (opts.from && opts.to) {
+      where.date = {
+        gte: dateOnly(opts.from).date,
+        lte: dateOnly(opts.to).date,
+      };
+    } else if (opts.date) {
+      where.date = dateOnly(opts.date).date;
+    }
 
     const rows = await this.prisma.ordenBeneficio.findMany({
       where,

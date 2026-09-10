@@ -48,13 +48,13 @@ export function useOrdenBeneficioCandidates(date: string = today()) {
   });
 }
 
-export function useOrdenBeneficioList(date: string = today()) {
+export function useOrdenBeneficioList(from: string = today(), to: string = from) {
   return useQuery({
-    queryKey: ['orden-beneficio', 'list', date],
+    queryKey: ['orden-beneficio', 'list', from, to],
     queryFn: async () =>
       (
         await api.get<OrdenBeneficio[]>('/orden-beneficio', {
-          params: { date },
+          params: { from, to },
         })
       ).data,
   });
