@@ -3,7 +3,6 @@ import {
   Inbox,
   LoaderCircle,
   Undo2,
-  Zap,
   CheckCircle2,
   Clock,
 } from 'lucide-react';
@@ -47,7 +46,6 @@ export function InsensibilizacionPage() {
   const done = d?.insensibilizados ?? 0;
   const total = d?.animalCount ?? 0;
   const completo = d?.status === 'procesado';
-  const pct = total > 0 ? Math.round((done / total) * 100) : 0;
 
   return (
     <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
@@ -120,52 +118,72 @@ export function InsensibilizacionPage() {
                 )}
               </div>
 
-              {/* Contador grande */}
-              <div className="flex flex-col items-center gap-4 px-6 py-8">
-                <div className="text-center">
-                  <div className="text-6xl font-bold tabular-nums text-foreground">
-                    {done}
-                    <span className="text-3xl text-muted-foreground">
-                      {' '}
-                      / {total}
-                    </span>
+              {/* Recuadros por animal con su consecutivo global del día */}
+              <div className="flex flex-col gap-4 px-6 py-8">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm text-muted-foreground">
+                    <span className="text-2xl font-bold tabular-nums text-foreground">
+                      {done}
+                    </span>{' '}
+                    / {total} insensibilizados
                   </div>
-                  <div className="mt-1 text-sm text-muted-foreground">
-                    animales insensibilizados
-                  </div>
-                </div>
-
-                {/* Barra de progreso */}
-                <div className="h-3 w-full max-w-md overflow-hidden rounded-full bg-muted">
-                  <div
-                    className="h-full rounded-full bg-emerald-500 transition-all"
-                    style={{ width: `${pct}%` }}
-                  />
-                </div>
-
-                {/* Acciones */}
-                <div className="flex items-center gap-3">
                   <Button
                     variant="outline"
-                    size="lg"
+                    size="sm"
                     onClick={() => selectedId && undo.mutate(selectedId)}
                     disabled={done === 0 || undo.isPending || stun.isPending}
                   >
                     <Undo2 /> Deshacer
                   </Button>
-                  <Button
-                    size="lg"
-                    className="h-16 min-w-56 bg-emerald-600 text-lg hover:bg-emerald-700"
-                    onClick={() => selectedId && stun.mutate(selectedId)}
-                    disabled={completo || stun.isPending}
-                  >
-                    {stun.isPending ? (
-                      <LoaderCircle className="size-5 animate-spin" />
-                    ) : (
-                      <Zap className="size-5" />
-                    )}
-                    {completo ? 'Completado' : 'Insensibilizar (+1)'}
-                  </Button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+                  {Array.from({ length: total }).map((_, i) => {
+                    const consecutivo = (d.consecutivoBase ?? 0) + i + 1;
+                    const marked = i < done;
+                    const isNext = i === done;
+                    const isLastMarked = i === done - 1;
+                    const busy = stun.isPending || undo.isPending;
+                    return (
+                      <button
+                        key={consecutivo}
+                        disabled={busy || (!isNext && !isLastMarked)}
+                        onClick={() => {
+                          if (!selectedId) return;
+                          if (isNext) stun.mutate(selectedId);
+                          else if (isLastMarked) undo.mutate(selectedId);
+                        }}
+                        title={
+                          marked
+                            ? isLastMarked
+                              ? 'Clic para deshacer'
+                              : 'Insensibilizado'
+                            : isNext
+                              ? 'Clic para insensibilizar'
+                              : 'Pendiente'
+                        }
+                        className={cn(
+                          'flex aspect-square items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
+                          marked &&
+                            'border-emerald-600 bg-emerald-600 text-white',
+                          isNext &&
+                            'border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300 hover:bg-emerald-100',
+                          !marked &&
+                            !isNext &&
+                            'border-border bg-muted/40 text-muted-foreground',
+                          !busy &&
+                            (isNext || isLastMarked) &&
+                            'cursor-pointer',
+                        )}
+                      >
+                        {marked ? (
+                          <CheckCircle2 className="size-7" />
+                        ) : (
+                          consecutivo
+                        )}
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -192,7 +210,7 @@ export function InsensibilizacionPage() {
                         {[...d.eventos].reverse().map((e) => (
                           <TR key={e.sequence}>
                             <TD className="font-semibold tabular-nums">
-                              {e.sequence}
+                              {(d.consecutivoBase ?? 0) + e.sequence}
                             </TD>
                             <TD className="tabular-nums">
                               {hora(e.stunnedAt)}

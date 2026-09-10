@@ -9,6 +9,7 @@ export interface InsOrder {
   cliente: string;
   guias: string[];
   animalCount: number;
+  consecutivoBase: number;
   status: OrdenBeneficioStatus;
   insensibilizados: number;
 }

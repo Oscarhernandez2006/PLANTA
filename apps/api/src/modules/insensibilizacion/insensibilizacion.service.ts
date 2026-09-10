@@ -11,6 +11,29 @@ import type { AuthContext } from '../../common/auth/auth-context';
 export class InsensibilizacionService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Base del consecutivo global por día: para cada orden devuelve cuántos
+   * animales acumulan las órdenes previas del mismo día (ordenadas por
+   * referencia). Así N.º 1 empieza en 1, y la siguiente continúa la serie.
+   */
+  private async consecutivoBases(plantId: string, dates: Date[]) {
+    const base = new Map<string, number>();
+    if (!dates.length) return base;
+    const all = await this.prisma.ordenBeneficio.findMany({
+      where: { plantId, deletedAt: null, date: { in: dates } },
+      orderBy: [{ date: 'asc' }, { reference: 'asc' }],
+      select: { id: true, date: true, animalCount: true },
+    });
+    const running = new Map<string, number>();
+    for (const o of all) {
+      const key = o.date.toISOString().slice(0, 10);
+      const acc = running.get(key) ?? 0;
+      base.set(o.id, acc);
+      running.set(key, acc + o.animalCount);
+    }
+    return base;
+  }
+
   /** Órdenes de beneficio pendientes o en proceso de insensibilización. */
   async pendientes(ctx: AuthContext) {
     const rows = await this.prisma.ordenBeneficio.findMany({
@@ -28,6 +51,10 @@ export class InsensibilizacionService {
       include: { _count: { select: { eventos: true } } },
       take: 200,
     });
+    const bases = await this.consecutivoBases(
+      ctx.plantId,
+      [...new Set(rows.map((r) => r.date.getTime()))].map((t) => new Date(t)),
+    );
     return rows.map((r) => ({
       id: r.id,
       reference: r.reference,
@@ -35,6 +62,7 @@ export class InsensibilizacionService {
       cliente: r.cliente,
       guias: r.guias,
       animalCount: r.animalCount,
+      consecutivoBase: bases.get(r.id) ?? 0,
       status: r.status,
       insensibilizados: r._count.eventos,
     }));
@@ -47,6 +75,8 @@ export class InsensibilizacionService {
       include: { eventos: { orderBy: { sequence: 'asc' } } },
     });
     if (!ob) throw new NotFoundException('Orden de Beneficio no encontrada.');
+
+    const bases = await this.consecutivoBases(ctx.plantId, [ob.date]);
 
     const operatorIds = [...new Set(ob.eventos.map((e) => e.operatorId))];
     const users = operatorIds.length
@@ -64,6 +94,7 @@ export class InsensibilizacionService {
       cliente: ob.cliente,
       guias: ob.guias,
       animalCount: ob.animalCount,
+      consecutivoBase: bases.get(ob.id) ?? 0,
       status: ob.status,
       insensibilizados: ob.eventos.length,
       eventos: ob.eventos.map((e) => ({
