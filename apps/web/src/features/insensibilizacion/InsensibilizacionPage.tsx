@@ -160,12 +160,14 @@ export function InsensibilizacionPage() {
                       <button
                         key={consecutivo}
                         disabled={busy || !isNext}
-                        onClick={() => {
+                        onDoubleClick={() => {
                           if (!selectedId) return;
                           if (isNext) stun.mutate(selectedId);
                         }}
                         title={
-                          isNext ? 'Clic para insensibilizar' : 'Pendiente'
+                          isNext
+                            ? 'Doble clic para insensibilizar'
+                            : 'Pendiente'
                         }
                         className={cn(
                           'flex aspect-square items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
