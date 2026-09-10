@@ -275,10 +275,9 @@ export class OrdenBeneficioService {
         'Solo se puede eliminar una orden pendiente (sin insensibilización).',
       );
     }
-    await this.prisma.ordenBeneficio.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
+    // Borrado físico: al ser pendiente no tiene eventos y así libera su
+    // referencia para que el próximo lote reinicie la numeración del día.
+    await this.prisma.ordenBeneficio.delete({ where: { id } });
     return { ok: true };
   }
 }
