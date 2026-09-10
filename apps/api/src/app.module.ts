@@ -16,6 +16,7 @@ import { OrdenBeneficioModule } from './modules/orden-beneficio/orden-beneficio.
 import { PielesModule } from './modules/pieles/pieles.module';
 import { ProcedenciaModule } from './modules/procedencia/procedencia.module';
 import { ProveedorModule } from './modules/proveedor/proveedor.module';
+import { SubproductosModule } from './modules/subproductos/subproductos.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
 
 @Module({
@@ -39,6 +40,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
     PielesModule,
     ProcedenciaModule,
     ProveedorModule,
+    SubproductosModule,
     SupplierModule,
   ],
   controllers: [HealthController],

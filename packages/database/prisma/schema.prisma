@@ -790,6 +790,14 @@ model OrdenBeneficioEvento {
   pieladoAt      DateTime? @map("pielado_at") @db.Timestamptz(6)
   pielOperatorId String?   @map("piel_operator_id") @db.Uuid
 
+  // Peso de subproductos por animal (módulo Subproductos): vísceras blancas y rojas.
+  pesoViscBlancasKg     Decimal?  @map("peso_visc_blancas_kg") @db.Decimal(12, 2)
+  viscBlancasAt         DateTime? @map("visc_blancas_at") @db.Timestamptz(6)
+  viscBlancasOperatorId String?   @map("visc_blancas_operator_id") @db.Uuid
+  pesoViscRojasKg       Decimal?  @map("peso_visc_rojas_kg") @db.Decimal(12, 2)
+  viscRojasAt           DateTime? @map("visc_rojas_at") @db.Timestamptz(6)
+  viscRojasOperatorId   String?   @map("visc_rojas_operator_id") @db.Uuid
+
   ordenBeneficio OrdenBeneficio @relation(fields: [ordenBeneficioId], references: [id])
 
   @@unique([ordenBeneficioId, sequence])
