@@ -13,6 +13,7 @@ import { PesoCamionModule } from './modules/peso-camion/peso-camion.module';
 import { PesoEnPieModule } from './modules/peso-en-pie/peso-en-pie.module';
 import { InsensibilizacionModule } from './modules/insensibilizacion/insensibilizacion.module';
 import { OrdenBeneficioModule } from './modules/orden-beneficio/orden-beneficio.module';
+import { PielesModule } from './modules/pieles/pieles.module';
 import { ProcedenciaModule } from './modules/procedencia/procedencia.module';
 import { ProveedorModule } from './modules/proveedor/proveedor.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
@@ -35,6 +36,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
     PesoEnPieModule,
     InsensibilizacionModule,
     OrdenBeneficioModule,
+    PielesModule,
     ProcedenciaModule,
     ProveedorModule,
     SupplierModule,
