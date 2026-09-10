@@ -158,17 +158,11 @@ function ClienteCard({
 }) {
   return (
     <div className="rounded-lg border border-border">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
-        <div className="flex items-center gap-2">
-          <Users className="size-4 text-muted-foreground" />
-          <span className="font-semibold">{c.cliente}</span>
-        </div>
-        <Badge tone="neutral">{c.totalDisponibles} disponibles</Badge>
-      </div>
       <Table>
         <THead>
           <TR>
             <TH>Guía</TH>
+            <TH>Cliente</TH>
             <TH className="text-center">En pie</TH>
             <TH className="text-center">Asignados</TH>
             <TH className="text-center">Disponibles</TH>
@@ -188,7 +182,7 @@ function ClienteCard({
             ))
           ) : (
             <TR>
-              <TD className="text-muted-foreground" colSpan={5}>
+              <TD className="text-muted-foreground" colSpan={6}>
                 Sin guías registradas.
               </TD>
             </TR>
@@ -221,6 +215,7 @@ function GuiaLoteRow({
   return (
     <TR>
       <TD className="font-medium">{g.guia}</TD>
+      <TD className="font-medium">{cliente}</TD>
       <TD className="text-center tabular-nums">{g.animalesEnPie}</TD>
       <TD className="text-center tabular-nums text-muted-foreground">
         {g.asignados}
