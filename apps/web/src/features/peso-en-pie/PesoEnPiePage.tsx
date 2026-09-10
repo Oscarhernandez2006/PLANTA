@@ -101,6 +101,19 @@ export function PesoEnPiePage() {
     (total, reporte) => total + (reporte.pesoTotalKg ?? 0),
     0,
   );
+  // Corral del primer animal registrado en la guía: se usa como valor por
+  // defecto para los siguientes animales (editable).
+  const corralGuia =
+    reportesGuia
+      .slice()
+      .sort((a, b) => a.reference - b.reference)
+      .map((reporte) => reporte.corral?.trim())
+      .find((valor): valor is string => Boolean(valor)) ?? '';
+
+  useEffect(() => {
+    if (corralGuia && !corral) setCorral(corralGuia);
+  }, [corralGuia, corral]);
+
   const tabs: TabItem[] = [
     { value: 'registro', label: 'Registro de animales' },
     { value: 'observaciones', label: 'Observaciones' },
@@ -161,6 +174,7 @@ export function PesoEnPiePage() {
     setCantidad(guiaCamion.cantidad == null ? '' : String(guiaCamion.cantidad));
     setEntrada(guiaCamion.entrada == null ? '' : String(guiaCamion.entrada));
     setSalida(guiaCamion.salida == null ? '' : String(guiaCamion.salida));
+    setCorral('');
     setProcessClosed(false);
     setTab('registro');
     setNotice(`Guía ${guiaCamion.guia ?? guiaCamion.reference} cargada para asignar animales.`);
