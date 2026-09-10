@@ -60,7 +60,7 @@ export function TH({
   return (
     <th
       className={cn(
-        'h-8 px-4 text-left align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground',
+        'h-7 px-4 text-left align-middle text-xs font-semibold uppercase tracking-wide text-muted-foreground',
         className,
       )}
       {...props}
@@ -73,6 +73,6 @@ export function TD({
   ...props
 }: React.TdHTMLAttributes<HTMLTableCellElement>) {
   return (
-    <td className={cn('px-4 py-1.5 align-middle', className)} {...props} />
+    <td className={cn('px-4 py-1 align-middle', className)} {...props} />
   );
 }

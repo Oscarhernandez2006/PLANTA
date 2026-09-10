@@ -482,7 +482,7 @@ export function PesoEnPiePage() {
         </div>
       )}
 
-      <Card className="min-h-64 overflow-hidden rounded-sm">
+      <Card className="overflow-hidden rounded-sm">
         <Tabs tabs={tabs} value={tab} onChange={setTab} className="bg-muted/40" />
         {tab === 'observaciones' ? <div className="p-4"><Input aria-label="Observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} placeholder="Observaciones" className="h-32 items-start py-3" /></div> : tab === 'guias' ? <GuiasCamionList guias={guiasCamion.data ?? []} loading={guiasCamion.isLoading} onSelect={seleccionarGuia} /> : null}
         {tab === 'registro' && lista.isLoading ? (
