@@ -385,7 +385,7 @@ export function PesoEnPiePage() {
       )}
 
       <Card className="p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[180px_1fr]">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
           <div className="space-y-1">
             <Label htmlFor="fecha">Fecha</Label>
             <Input
@@ -408,14 +408,50 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="mt-3 grid gap-2.5 p-0 md:grid-cols-2">
-          <div className="space-y-1"><Label htmlFor="procedencia">Procedencia:</Label><Input id="procedencia" value={procedencia} readOnly className="h-9 bg-muted/40" /></div>
-          <div className="space-y-1"><Label htmlFor="proveedor">Proveedor:</Label><Input id="proveedor" value={proveedor} readOnly className="h-9 bg-muted/40" /></div>
-          <div className="space-y-1"><Label htmlFor="cliente">Cliente:</Label><Input id="cliente" value={cliente} readOnly className="h-9 bg-muted/40" /></div>
-          <div className="space-y-1"><Label htmlFor="placa">Placa:</Label><Input id="placa" value={placa} readOnly className="h-9 bg-muted/40" /></div>
-          <div className="space-y-1"><Label htmlFor="conductor">Conductor:</Label><Input id="conductor" value={conductor} readOnly className="h-9 bg-muted/40" /></div>
-          <div className="space-y-1"><Label htmlFor="tipo-animal">Tipo de Animal:</Label><Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-9"><option value="">Seleccione...</option><option value="MACHO">MACHO</option><option value="HEMBRA">HEMBRA</option><option value="BUFALO">BUFALO</option><option value="BUFALA">BUFALA</option></Select></div>
-          <div className="space-y-1"><Label htmlFor="corral">Ubicación (Corral):</Label><Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-9"><option value="">Seleccione...</option>{Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}</Select></div>
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor="procedencia">Procedencia</Label>
+            <Input id="procedencia" value={procedencia} readOnly className="h-9 bg-muted/40" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="proveedor">Proveedor</Label>
+            <Input id="proveedor" value={proveedor} readOnly className="h-9 bg-muted/40" />
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="cliente">Cliente</Label>
+            <Input id="cliente" value={cliente} readOnly className="h-9 bg-muted/40" />
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <Label htmlFor="placa">Placa</Label>
+            <Input id="placa" value={placa} readOnly className="h-9 bg-muted/40" />
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="conductor">Conductor</Label>
+            <Input id="conductor" value={conductor} readOnly className="h-9 bg-muted/40" />
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="tipo-animal">Tipo de Animal</Label>
+            <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-9">
+              <option value="">Seleccione...</option>
+              <option value="MACHO">MACHO</option>
+              <option value="HEMBRA">HEMBRA</option>
+              <option value="BUFALO">BUFALO</option>
+              <option value="BUFALA">BUFALA</option>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="corral">Ubicación (Corral)</Label>
+            <Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-9">
+              <option value="">Seleccione...</option>
+              {Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}
+            </Select>
+          </div>
         </div>
       </Card>
 
