@@ -6,6 +6,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { RegistrarPielDto } from './dto/registrar-piel.dto';
+import { RegistrarLoteDto } from './dto/registrar-lote.dto';
 
 function today() {
   return new Date();
@@ -142,5 +143,129 @@ export class PielesService {
       },
     });
     return { ok: true };
+  }
+
+  /** Lotes (órdenes) del día que ya tienen animales caídos. */
+  async lotes(ctx: AuthContext, dateStr?: string) {
+    const date = dateOnly(dateStr);
+    const ordenes = await this.prisma.ordenBeneficio.findMany({
+      where: {
+        plantId: ctx.plantId,
+        deletedAt: null,
+        date,
+        eventos: { some: {} },
+      },
+      orderBy: [{ reference: 'asc' }],
+      include: { eventos: { select: { pesoPielKg: true } } },
+    });
+    const bases = await this.consecutivoBases(ctx.plantId, [date]);
+    return ordenes.map((o) => ({
+      ordenBeneficioId: o.id,
+      reference: o.reference,
+      cliente: o.cliente,
+      guias: o.guias,
+      date: o.date.toISOString().slice(0, 10),
+      consecutivoBase: bases.get(o.id) ?? 0,
+      animalCount: o.animalCount,
+      caidos: o.eventos.length,
+      pesados: o.eventos.filter((e) => e.pesoPielKg != null).length,
+    }));
+  }
+
+  /** Detalle de un lote con sus animales caídos y su estado de pesaje. */
+  async loteDetail(ctx: AuthContext, ordenBeneficioId: string) {
+    const o = await this.prisma.ordenBeneficio.findFirst({
+      where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+      include: { eventos: { orderBy: { sequence: 'asc' } } },
+    });
+    if (!o) throw new NotFoundException('Lote no encontrado.');
+
+    const bases = await this.consecutivoBases(ctx.plantId, [o.date]);
+    const base = bases.get(o.id) ?? 0;
+
+    const operatorIds = [
+      ...new Set(
+        o.eventos.map((e) => e.pielOperatorId).filter((x): x is string => !!x),
+      ),
+    ];
+    const users = operatorIds.length
+      ? await this.prisma.appUser.findMany({
+          where: { id: { in: operatorIds } },
+          select: { id: true, fullName: true },
+        })
+      : [];
+    const nameById = new Map(users.map((u) => [u.id, u.fullName]));
+
+    return {
+      ordenBeneficioId: o.id,
+      reference: o.reference,
+      cliente: o.cliente,
+      guias: o.guias,
+      date: o.date.toISOString().slice(0, 10),
+      consecutivoBase: base,
+      animalCount: o.animalCount,
+      caidos: o.eventos.length,
+      pesados: o.eventos.filter((e) => e.pesoPielKg != null).length,
+      animales: o.eventos.map((e) => ({
+        eventoId: e.id,
+        sequence: e.sequence,
+        consecutivo: base + e.sequence,
+        stunnedAt: e.stunnedAt.toISOString(),
+        pesado: e.pesoPielKg != null,
+        pesoKg: e.pesoPielKg != null ? Number(e.pesoPielKg) : null,
+        pieladoAt: e.pieladoAt?.toISOString() ?? null,
+        operatorName: e.pielOperatorId
+          ? (nameById.get(e.pielOperatorId) ?? '—')
+          : null,
+      })),
+    };
+  }
+
+  /**
+   * Registra el peso de TODO el lote: reparte el total en partes iguales entre
+   * los animales caídos que aún no tienen peso.
+   */
+  async registrarLote(ctx: AuthContext, dto: RegistrarLoteDto) {
+    const o = await this.prisma.ordenBeneficio.findFirst({
+      where: {
+        id: dto.ordenBeneficioId,
+        plantId: ctx.plantId,
+        deletedAt: null,
+      },
+      select: { id: true },
+    });
+    if (!o) throw new NotFoundException('Lote no encontrado.');
+
+    const evts = await this.prisma.ordenBeneficioEvento.findMany({
+      where: { ordenBeneficioId: o.id, pesoPielKg: null },
+      orderBy: { sequence: 'asc' },
+      select: { id: true },
+    });
+    if (!evts.length) {
+      throw new BadRequestException(
+        'No hay animales caídos sin pesar en este lote.',
+      );
+    }
+
+    const n = evts.length;
+    const per = Math.floor((dto.pesoTotalKg / n) * 100) / 100;
+    const now = new Date();
+    await this.prisma.$transaction(
+      evts.map((e, i) =>
+        this.prisma.ordenBeneficioEvento.update({
+          where: { id: e.id },
+          data: {
+            // El último absorbe el redondeo para que la suma sea exacta.
+            pesoPielKg:
+              i === n - 1
+                ? Number((dto.pesoTotalKg - per * (n - 1)).toFixed(2))
+                : per,
+            pieladoAt: now,
+            pielOperatorId: ctx.userId,
+          },
+        }),
+      ),
+    );
+    return { ok: true, count: n };
   }
 }

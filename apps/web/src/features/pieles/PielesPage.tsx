@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
+  CheckCircle2,
   Clock,
   Inbox,
   LoaderCircle,
@@ -10,14 +12,15 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { PielesIcon } from '@/components/icons/PielesIcon';
 import { cn } from '@/lib/utils';
 import {
-  usePielesPendientes,
-  usePielesPesados,
+  usePielesLotes,
+  usePielLoteDetail,
   useRegistrarPiel,
-  type PielPendiente,
+  useRegistrarPielLote,
+  type PielAnimal,
+  type PielLoteDetail,
 } from './api';
 
 function today() {
@@ -34,20 +37,12 @@ function hora(iso: string | null) {
 }
 
 export function PielesPage() {
-  const pendientes = usePielesPendientes();
-  const pesados = usePielesPesados();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const lotes = usePielesLotes();
+  const detail = usePielLoteDetail(selectedId);
 
-  const cola = useMemo(
-    () =>
-      [...(pendientes.data ?? [])].sort(
-        (a, b) => a.consecutivo - b.consecutivo,
-      ),
-    [pendientes.data],
-  );
-  const actual = cola[0] ?? null;
-  const enCola = cola.slice(1);
-  const pesadosList = pesados.data ?? [];
-  const refrescando = pendientes.isFetching || pesados.isFetching;
+  const lista = lotes.data ?? [];
+  const refrescando = lotes.isFetching || detail.isFetching;
 
   return (
     <div className="space-y-6">
@@ -58,8 +53,8 @@ export function PielesPage() {
           <div>
             <h1 className="text-2xl font-semibold tracking-tight">Pieles</h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Cada animal caído en Insensibilización aparece aquí para tomar el
-              peso de su piel, en el orden en que cayó.
+              Elige un lote para tomar el peso de las pieles de los animales ya
+              beneficiados: uno por uno o todo el lote.
             </p>
           </div>
         </div>
@@ -69,8 +64,8 @@ export function PielesPage() {
             variant="outline"
             size="sm"
             onClick={() => {
-              pendientes.refetch();
-              pesados.refetch();
+              lotes.refetch();
+              if (selectedId) detail.refetch();
             }}
             disabled={refrescando}
           >
@@ -80,187 +75,369 @@ export function PielesPage() {
         </div>
       </div>
 
-      {/* Animal por pesar */}
-      <Card className="flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
-          <Scale className="size-4" /> Animal por pesar
-        </div>
-        {pendientes.isLoading ? (
-          <Loading />
-        ) : !actual ? (
-          <Empty text="No hay animales caídos por pesar. En cuanto se insensibilice un animal, aparecerá aquí." />
-        ) : (
-          <PesarActual actual={actual} pendientesCount={cola.length} />
-        )}
-      </Card>
-
-      {/* En cola */}
-      {enCola.length > 0 && (
+      {!selectedId ? (
         <Card className="flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
-            <Clock className="size-4" /> En cola ({enCola.length})
+            <PielesIcon className="size-4" /> Lotes con animales beneficiados
           </div>
-          <div className="overflow-auto">
-            <Table>
-              <THead>
-                <TR>
-                  <TH className="w-20">Consec.</TH>
-                  <TH>Cliente</TH>
-                  <TH>Guía</TH>
-                  <TH>Cayó</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {enCola.map((p) => (
-                  <TR key={p.eventoId}>
-                    <TD className="font-semibold tabular-nums">
-                      {p.consecutivo}
-                    </TD>
-                    <TD className="font-medium">{p.cliente}</TD>
-                    <TD className="text-muted-foreground">
-                      {p.guias.length ? p.guias.join(', ') : '—'}
-                    </TD>
-                    <TD className="tabular-nums text-muted-foreground">
-                      {hora(p.stunnedAt)}
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </div>
+          {lotes.isLoading ? (
+            <Loading />
+          ) : !lista.length ? (
+            <Empty text="Aún no hay animales caídos. En cuanto se insensibilice un animal, su lote aparecerá aquí." />
+          ) : (
+            <ul className="divide-y divide-border">
+              {lista.map((l) => {
+                const pct = l.caidos
+                  ? Math.round((l.pesados / l.caidos) * 100)
+                  : 0;
+                const completo = l.pesados === l.caidos;
+                return (
+                  <li key={l.ordenBeneficioId}>
+                    <button
+                      onClick={() => setSelectedId(l.ordenBeneficioId)}
+                      className="flex w-full flex-col gap-2 px-5 py-4 text-left transition-colors hover:bg-muted/40"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="font-semibold">
+                          N.º {l.reference} · {l.cliente}
+                          {completo && (
+                            <CheckCircle2 className="ml-2 inline size-4 text-emerald-600" />
+                          )}
+                        </div>
+                        <span className="text-sm tabular-nums text-muted-foreground">
+                          {l.pesados}/{l.caidos} pesados
+                        </span>
+                      </div>
+                      <div className="text-xs text-muted-foreground">
+                        {l.guias.length ? l.guias.join(', ') : '—'} · {l.caidos}{' '}
+                        caídos de {l.animalCount}
+                      </div>
+                      <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                        <div
+                          className="h-full rounded-full bg-emerald-500 transition-all"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </Card>
-      )}
-
-      {/* Pesados hoy */}
-      <Card className="flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
-          <PielesIcon className="size-4" /> Pieles pesadas hoy
-        </div>
-        {pesados.isLoading ? (
+      ) : detail.isLoading || !detail.data ? (
+        <Card>
           <Loading />
-        ) : !pesadosList.length ? (
-          <Empty text="Aún no se ha pesado ninguna piel hoy." />
-        ) : (
-          <div className="overflow-auto">
-            <Table>
-              <THead>
-                <TR>
-                  <TH className="w-20">Consec.</TH>
-                  <TH>Cliente</TH>
-                  <TH>Guía</TH>
-                  <TH className="text-right">Peso (kg)</TH>
-                  <TH>Hora</TH>
-                  <TH>Operario</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {pesadosList.map((p) => (
-                  <TR key={p.eventoId}>
-                    <TD className="font-semibold tabular-nums">
-                      {p.consecutivo}
-                    </TD>
-                    <TD className="font-medium">{p.cliente}</TD>
-                    <TD className="text-muted-foreground">
-                      {p.guias.length ? p.guias.join(', ') : '—'}
-                    </TD>
-                    <TD className="text-right font-semibold tabular-nums">
-                      {p.pesoKg.toFixed(2)}
-                    </TD>
-                    <TD className="tabular-nums text-muted-foreground">
-                      {hora(p.pieladoAt)}
-                    </TD>
-                    <TD className="text-muted-foreground">{p.operatorName}</TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </div>
-        )}
-      </Card>
+        </Card>
+      ) : (
+        <LoteDetalle data={detail.data} onBack={() => setSelectedId(null)} />
+      )}
     </div>
   );
 }
 
-function PesarActual({
-  actual,
-  pendientesCount,
+function LoteDetalle({
+  data,
+  onBack,
 }: {
-  actual: PielPendiente;
-  pendientesCount: number;
+  data: PielLoteDetail;
+  onBack: () => void;
 }) {
+  const [modo, setModo] = useState<'individual' | 'lote'>('individual');
+  const pendientes = data.animales.filter((a) => !a.pesado);
+  const pesados = data.animales.filter((a) => a.pesado);
+
+  return (
+    <Card className="flex flex-col overflow-hidden">
+      {/* Cabecera del lote */}
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-5 py-4">
+        <div className="flex items-center gap-3">
+          <Button variant="outline" size="sm" onClick={onBack}>
+            <ArrowLeft className="size-4" /> Cambiar lote
+          </Button>
+          <div>
+            <div className="text-xs text-muted-foreground">
+              Lote N.º {data.reference} · {data.date}
+            </div>
+            <div className="text-lg font-semibold">
+              {data.cliente}
+              {data.guias.length ? (
+                <span className="text-muted-foreground">
+                  {' '}
+                  · {data.guias.join(', ')}
+                </span>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        <span className="text-sm tabular-nums text-muted-foreground">
+          {data.pesados}/{data.caidos} pesados
+        </span>
+      </div>
+
+      {/* Switch de modo */}
+      <div className="flex items-center gap-3 px-5 py-4">
+        <span className="text-sm font-medium text-muted-foreground">
+          Toma de peso:
+        </span>
+        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
+          <button
+            onClick={() => setModo('individual')}
+            className={cn(
+              'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+              modo === 'individual'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            Individual
+          </button>
+          <button
+            onClick={() => setModo('lote')}
+            className={cn(
+              'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
+              modo === 'lote'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            Todo el lote
+          </button>
+        </div>
+      </div>
+
+      {modo === 'individual' ? (
+        <IndividualView pendientes={pendientes} pesados={pesados} />
+      ) : (
+        <LoteView data={data} pendientes={pendientes} pesados={pesados} />
+      )}
+    </Card>
+  );
+}
+
+function IndividualView({
+  pendientes,
+  pesados,
+}: {
+  pendientes: PielAnimal[];
+  pesados: PielAnimal[];
+}) {
+  return (
+    <div className="border-t border-border">
+      <div className="px-5 py-3 text-sm font-semibold">
+        Por pesar ({pendientes.length})
+      </div>
+      {!pendientes.length ? (
+        <div className="flex items-center justify-center gap-2 px-5 pb-6 text-sm text-muted-foreground">
+          <CheckCircle2 className="size-4 text-emerald-600" /> Todas las pieles
+          de este lote ya fueron pesadas.
+        </div>
+      ) : (
+        <ul className="divide-y divide-border">
+          {pendientes.map((a) => (
+            <AnimalRow key={a.eventoId} animal={a} />
+          ))}
+        </ul>
+      )}
+
+      {pesados.length > 0 && (
+        <>
+          <div className="border-t border-border px-5 py-3 text-sm font-semibold">
+            Pesados ({pesados.length})
+          </div>
+          <ul className="divide-y divide-border">
+            {pesados.map((a) => (
+              <li
+                key={a.eventoId}
+                className="flex items-center justify-between gap-3 px-5 py-3 text-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold tabular-nums">
+                    #{a.consecutivo}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {hora(a.pieladoAt)} · {a.operatorName ?? '—'}
+                  </span>
+                </div>
+                <span className="font-semibold tabular-nums">
+                  {a.pesoKg?.toFixed(2)} kg
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </div>
+  );
+}
+
+function AnimalRow({ animal }: { animal: PielAnimal }) {
   const [peso, setPeso] = useState('');
   const registrar = useRegistrarPiel();
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // Al pasar al siguiente animal, limpia el campo y reenfoca.
-  useEffect(() => {
-    setPeso('');
-    inputRef.current?.focus();
-  }, [actual.eventoId]);
-
   const valor = Number(peso.replace(',', '.'));
   const valido = peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
 
   function guardar() {
     if (!valido || registrar.isPending) return;
-    registrar.mutate({ eventoId: actual.eventoId, pesoKg: valor });
+    registrar.mutate({ eventoId: animal.eventoId, pesoKg: valor });
   }
 
   return (
-    <div className="flex flex-col gap-6 px-6 py-6 sm:flex-row sm:items-end sm:justify-between">
-      <div className="space-y-1">
-        <div className="text-sm text-muted-foreground">
-          Consecutivo del día
-        </div>
-        <div className="text-4xl font-bold tabular-nums text-foreground">
-          #{actual.consecutivo}
-        </div>
-        <div className="pt-1 text-lg font-semibold">
-          {actual.cliente}
-          {actual.guias.length ? (
-            <span className="text-muted-foreground">
-              {' '}
-              · {actual.guias.join(', ')}
-            </span>
-          ) : null}
-        </div>
-        <div className="text-sm text-muted-foreground">
-          Cayó a las {hora(actual.stunnedAt)} · {pendientesCount} por pesar
-        </div>
+    <li className="flex flex-wrap items-center justify-between gap-3 px-5 py-3">
+      <div className="flex items-center gap-3">
+        <span className="text-lg font-bold tabular-nums">
+          #{animal.consecutivo}
+        </span>
+        <span className="text-sm text-muted-foreground">
+          cayó {hora(animal.stunnedAt)}
+        </span>
       </div>
-
-      <div className="flex items-end gap-2">
-        <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-          Peso de la piel (kg)
-          <Input
-            ref={inputRef}
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0"
-            autoFocus
-            value={peso}
-            onChange={(e) => setPeso(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') guardar();
-            }}
-            className="h-11 w-40 text-lg"
-            placeholder="0.00"
-          />
-        </label>
-        <Button
-          size="lg"
-          onClick={guardar}
-          disabled={!valido || registrar.isPending}
-        >
+      <div className="flex items-center gap-2">
+        <Input
+          type="number"
+          inputMode="decimal"
+          step="0.01"
+          min="0"
+          value={peso}
+          onChange={(e) => setPeso(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') guardar();
+          }}
+          className="h-9 w-28"
+          placeholder="kg"
+        />
+        <Button onClick={guardar} disabled={!valido || registrar.isPending}>
           {registrar.isPending ? (
             <LoaderCircle className="size-4 animate-spin" />
           ) : (
             <Scale className="size-4" />
           )}
-          Guardar peso
+          Pesar
         </Button>
       </div>
+    </li>
+  );
+}
+
+function LoteView({
+  data,
+  pendientes,
+  pesados,
+}: {
+  data: PielLoteDetail;
+  pendientes: PielAnimal[];
+  pesados: PielAnimal[];
+}) {
+  const [total, setTotal] = useState('');
+  const registrar = useRegistrarPielLote();
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setTotal('');
+  }, [pendientes.length]);
+
+  const valor = Number(total.replace(',', '.'));
+  const valido = total.trim() !== '' && Number.isFinite(valor) && valor > 0;
+  const porAnimal =
+    valido && pendientes.length
+      ? (valor / pendientes.length).toFixed(2)
+      : null;
+
+  function guardar() {
+    if (!valido || !pendientes.length || registrar.isPending) return;
+    registrar.mutate({
+      ordenBeneficioId: data.ordenBeneficioId,
+      pesoTotalKg: valor,
+    });
+  }
+
+  return (
+    <div className="border-t border-border">
+      {!pendientes.length ? (
+        <div className="flex items-center justify-center gap-2 px-5 py-6 text-sm text-muted-foreground">
+          <CheckCircle2 className="size-4 text-emerald-600" /> Todas las pieles
+          de este lote ya fueron pesadas.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4 px-5 py-6 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <div>
+              <span className="text-2xl font-bold tabular-nums text-foreground">
+                {pendientes.length}
+              </span>{' '}
+              animales caídos sin pesar
+            </div>
+            {porAnimal && (
+              <div>
+                Se repartirá en partes iguales:{' '}
+                <span className="font-semibold text-foreground">
+                  {porAnimal} kg
+                </span>{' '}
+                por animal.
+              </div>
+            )}
+          </div>
+          <div className="flex items-end gap-2">
+            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
+              Peso total del lote (kg)
+              <Input
+                ref={inputRef}
+                type="number"
+                inputMode="decimal"
+                step="0.01"
+                min="0"
+                value={total}
+                onChange={(e) => setTotal(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') guardar();
+                }}
+                className="h-11 w-44 text-lg"
+                placeholder="0.00"
+              />
+            </label>
+            <Button
+              size="lg"
+              onClick={guardar}
+              disabled={!valido || registrar.isPending}
+            >
+              {registrar.isPending ? (
+                <LoaderCircle className="size-4 animate-spin" />
+              ) : (
+                <Scale className="size-4" />
+              )}
+              Guardar lote
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {pesados.length > 0 && (
+        <>
+          <div className="border-t border-border px-5 py-3 text-sm font-semibold">
+            <Clock className="mr-1.5 inline size-4" /> Pesados ({pesados.length})
+          </div>
+          <ul className="divide-y divide-border">
+            {pesados.map((a) => (
+              <li
+                key={a.eventoId}
+                className="flex items-center justify-between gap-3 px-5 py-3 text-sm"
+              >
+                <div className="flex items-center gap-3">
+                  <span className="font-semibold tabular-nums">
+                    #{a.consecutivo}
+                  </span>
+                  <span className="text-muted-foreground">
+                    {hora(a.pieladoAt)} · {a.operatorName ?? '—'}
+                  </span>
+                </div>
+                <span className="font-semibold tabular-nums">
+                  {a.pesoKg?.toFixed(2)} kg
+                </span>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </div>
   );
 }
