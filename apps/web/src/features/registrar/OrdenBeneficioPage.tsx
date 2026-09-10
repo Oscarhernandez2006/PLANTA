@@ -10,7 +10,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Dialog } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
 import { cn } from '@/lib/utils';
@@ -40,11 +39,13 @@ const statusMeta: Record<
 
 export function OrdenBeneficioPage() {
   const [date] = useState(today());
-  const [modalOpen, setModalOpen] = useState(false);
   const ordenes = useOrdenBeneficioList(date);
+  const candidates = useOrdenBeneficioCandidates(date);
   const eliminar = useDeleteOrdenBeneficio();
 
   const list = ordenes.data ?? [];
+  const cands = candidates.data ?? [];
+  const refrescando = ordenes.isFetching || candidates.isFetching;
 
   return (
     <div className="space-y-6">
@@ -57,8 +58,9 @@ export function OrdenBeneficioPage() {
               Orden de Beneficio
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Crea lotes eligiendo una guía y cuántos animales incluir. Cada lote
-              lleva su consecutivo y pasa a Insensibilización.
+              Guías con animales cargados desde Peso en Pie. Elige una guía y
+              cuántos animales incluir; cada lote lleva su consecutivo y pasa a
+              Insensibilización.
             </p>
           </div>
         </div>
@@ -67,19 +69,43 @@ export function OrdenBeneficioPage() {
           <Button
             variant="outline"
             size="sm"
-            onClick={() => ordenes.refetch()}
-            disabled={ordenes.isFetching}
+            onClick={() => {
+              ordenes.refetch();
+              candidates.refetch();
+            }}
+            disabled={refrescando}
           >
-            <RefreshCw
-              className={cn('size-4', ordenes.isFetching && 'animate-spin')}
-            />
+            <RefreshCw className={cn('size-4', refrescando && 'animate-spin')} />
             Actualizar
-          </Button>
-          <Button size="sm" onClick={() => setModalOpen(true)}>
-            <Plus className="size-4" /> Nuevo lote
           </Button>
         </div>
       </div>
+
+      {/* Guías con animales cargados (listas para crear lote) */}
+      <Card className="flex flex-col overflow-hidden">
+        <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
+          <Users className="size-4" /> Guías con animales cargados
+        </div>
+        {candidates.isLoading ? (
+          <Loading />
+        ) : !cands.length ? (
+          <Empty text="Aún no hay guías con animales. Carga los animales y cierra la guía en Peso en Pie para verla aquí." />
+        ) : (
+          <div className="space-y-3 p-4">
+            {cands.map((c) => (
+              <ClienteCard
+                key={c.cliente}
+                c={c}
+                date={date}
+                onCreated={() => {
+                  candidates.refetch();
+                  ordenes.refetch();
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </Card>
 
       {/* Lotes creados hoy */}
       <Card className="flex flex-col overflow-hidden">
@@ -89,7 +115,7 @@ export function OrdenBeneficioPage() {
         {ordenes.isLoading ? (
           <Loading />
         ) : !list.length ? (
-          <Empty text="Aún no hay lotes hoy. Usa “+ Nuevo lote” para crear uno." />
+          <Empty text="Aún no hay lotes hoy. Crea uno desde una guía de arriba." />
         ) : (
           <div className="overflow-auto">
             <Table>
@@ -117,53 +143,7 @@ export function OrdenBeneficioPage() {
           </div>
         )}
       </Card>
-
-      <NuevoLoteDialog
-        open={modalOpen}
-        onClose={() => setModalOpen(false)}
-        date={date}
-      />
     </div>
-  );
-}
-
-function NuevoLoteDialog({
-  open,
-  onClose,
-  date,
-}: {
-  open: boolean;
-  onClose: () => void;
-  date: string;
-}) {
-  const candidates = useOrdenBeneficioCandidates(date);
-  const cands = candidates.data ?? [];
-
-  return (
-    <Dialog
-      open={open}
-      onClose={onClose}
-      title="Nuevo lote de beneficio"
-      description="Elige una guía y cuántos de sus animales incluir en el lote."
-      className="max-w-3xl"
-    >
-      {candidates.isLoading ? (
-        <Loading />
-      ) : !cands.length ? (
-        <Empty text="No hay clientes en Peso en Camión para hoy." />
-      ) : (
-        <div className="max-h-[60vh] space-y-3 overflow-auto pr-1">
-          {cands.map((c) => (
-            <ClienteCard
-              key={c.cliente}
-              c={c}
-              date={date}
-              onCreated={() => candidates.refetch()}
-            />
-          ))}
-        </div>
-      )}
-    </Dialog>
   );
 }
 
