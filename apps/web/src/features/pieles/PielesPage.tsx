@@ -259,77 +259,88 @@ function IndividualView({
   const seleccionado = pendientes.find((a) => a.eventoId === selectedId) ?? null;
 
   return (
-    <div className="border-t border-border">
-      <WeighPanel key={seleccionado?.eventoId ?? 'none'} animal={seleccionado} />
-
-      <div className="px-5 py-3 text-sm font-semibold">
-        Por pesar ({pendientes.length})
-      </div>
-      {!pendientes.length ? (
-        <div className="flex items-center justify-center gap-2 px-5 pb-6 text-sm text-muted-foreground">
-          <CheckCircle2 className="size-4 text-emerald-600" /> Todas las pieles
-          de este lote ya fueron pesadas.
+    <div className="grid border-t border-border md:grid-cols-2">
+      {/* Izquierda: animales del lote */}
+      <div className="md:border-r md:border-border">
+        <div className="px-5 py-3 text-sm font-semibold">
+          Por pesar ({pendientes.length})
         </div>
-      ) : (
-        <ul className="divide-y divide-border">
-          {pendientes.map((a) => {
-            const activo = a.eventoId === selectedId;
-            return (
-              <li key={a.eventoId}>
-                <button
-                  onClick={() => setSelectedId(a.eventoId)}
-                  className={cn(
-                    'flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors',
-                    activo ? 'bg-emerald-50' : 'hover:bg-muted/40',
-                  )}
+        {!pendientes.length ? (
+          <div className="flex items-center justify-center gap-2 px-5 pb-6 text-sm text-muted-foreground">
+            <CheckCircle2 className="size-4 text-emerald-600" /> Todas las
+            pieles de este lote ya fueron pesadas.
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {pendientes.map((a) => {
+              const activo = a.eventoId === selectedId;
+              return (
+                <li key={a.eventoId}>
+                  <button
+                    onClick={() => setSelectedId(a.eventoId)}
+                    className={cn(
+                      'flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors',
+                      activo
+                        ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-300'
+                        : 'hover:bg-muted/40',
+                    )}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-lg font-bold tabular-nums">
+                        #{a.consecutivo}
+                      </span>
+                      <span className="text-sm text-muted-foreground">
+                        cayó {hora(a.stunnedAt)}
+                      </span>
+                    </div>
+                    {activo && (
+                      <span className="text-xs font-medium text-emerald-700">
+                        Seleccionado
+                      </span>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        {pesados.length > 0 && (
+          <>
+            <div className="border-t border-border px-5 py-3 text-sm font-semibold">
+              Pesados ({pesados.length})
+            </div>
+            <ul className="divide-y divide-border">
+              {pesados.map((a) => (
+                <li
+                  key={a.eventoId}
+                  className="flex items-center justify-between gap-3 px-5 py-3 text-sm"
                 >
                   <div className="flex items-center gap-3">
-                    <span className="text-lg font-bold tabular-nums">
+                    <span className="font-semibold tabular-nums">
                       #{a.consecutivo}
                     </span>
-                    <span className="text-sm text-muted-foreground">
-                      cayó {hora(a.stunnedAt)}
+                    <span className="text-muted-foreground">
+                      {hora(a.pieladoAt)} · {a.operatorName ?? '—'}
                     </span>
                   </div>
-                  {activo && (
-                    <span className="text-xs font-medium text-emerald-700">
-                      Seleccionado
-                    </span>
-                  )}
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-
-      {pesados.length > 0 && (
-        <>
-          <div className="border-t border-border px-5 py-3 text-sm font-semibold">
-            Pesados ({pesados.length})
-          </div>
-          <ul className="divide-y divide-border">
-            {pesados.map((a) => (
-              <li
-                key={a.eventoId}
-                className="flex items-center justify-between gap-3 px-5 py-3 text-sm"
-              >
-                <div className="flex items-center gap-3">
                   <span className="font-semibold tabular-nums">
-                    #{a.consecutivo}
+                    {a.pesoKg?.toFixed(2)} kg
                   </span>
-                  <span className="text-muted-foreground">
-                    {hora(a.pieladoAt)} · {a.operatorName ?? '—'}
-                  </span>
-                </div>
-                <span className="font-semibold tabular-nums">
-                  {a.pesoKg?.toFixed(2)} kg
-                </span>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
+                </li>
+              ))}
+            </ul>
+          </>
+        )}
+      </div>
+
+      {/* Derecha: báscula del animal seleccionado */}
+      <div className="border-t border-border md:border-t-0">
+        <WeighPanel
+          key={seleccionado?.eventoId ?? 'none'}
+          animal={seleccionado}
+        />
+      </div>
     </div>
   );
 }
@@ -660,7 +671,7 @@ function WeighPanel({ animal }: { animal: PielAnimal | null }) {
   }
 
   return (
-    <div className="border-b border-border bg-muted/20 px-5 py-6">
+    <div className="bg-muted/20 px-5 py-6 md:sticky md:top-4">
       <div className="mb-4 flex items-center gap-3">
         {animal ? (
           <>
