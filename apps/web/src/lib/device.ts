@@ -19,11 +19,23 @@ export interface ScaleReadResult {
   error: string | null;
 }
 
+export interface ScalePortInfo {
+  path: string;
+  manufacturer: string | null;
+  friendlyName: string | null;
+  serialNumber: string | null;
+}
+
 /** Puente expuesto por la app de escritorio (Electron) vía preload. */
 interface FrigoDesktopBridge {
   getDeviceInfo: () => Promise<LocalDeviceInfo>;
   openKeyboard?: () => Promise<{ ok: boolean }>;
-  readScale?: (options?: { port?: string; timeoutMs?: number }) => Promise<ScaleReadResult>;
+  readScale?: (options?: {
+    port?: string;
+    timeoutMs?: number;
+    baudRate?: number;
+  }) => Promise<ScaleReadResult>;
+  listScalePorts?: () => Promise<ScalePortInfo[]>;
 }
 declare global {
   interface Window {
@@ -72,7 +84,11 @@ export async function getLocalDeviceInfo(
   }
 }
 
-export async function readScale(options?: { port?: string; timeoutMs?: number }): Promise<ScaleReadResult> {
+export async function readScale(options?: {
+  port?: string;
+  timeoutMs?: number;
+  baudRate?: number;
+}): Promise<ScaleReadResult> {
   if (window.frigoDesktop?.readScale) {
     return window.frigoDesktop.readScale(options);
   }
@@ -84,6 +100,57 @@ export async function readScale(options?: { port?: string; timeoutMs?: number })
     baudRate: null,
     error: 'not_supported',
   };
+}
+
+/** Lista los puertos serie disponibles (solo en la app de escritorio). */
+export async function listScalePorts(): Promise<ScalePortInfo[]> {
+  if (window.frigoDesktop?.listScalePorts) {
+    try {
+      return await window.frigoDesktop.listScalePorts();
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+const SCALE_PORT_KEY = 'frigo.scale.port';
+const SCALE_BAUD_KEY = 'frigo.scale.baud';
+
+/** Puerto de báscula guardado por el usuario (persistente). */
+export function getSavedScalePort(): string | null {
+  try {
+    return window.localStorage.getItem(SCALE_PORT_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setSavedScalePort(port: string | null): void {
+  try {
+    if (port) window.localStorage.setItem(SCALE_PORT_KEY, port);
+    else window.localStorage.removeItem(SCALE_PORT_KEY);
+  } catch {
+    /* almacenamiento no disponible */
+  }
+}
+
+export function getSavedScaleBaud(): number | null {
+  try {
+    const raw = window.localStorage.getItem(SCALE_BAUD_KEY);
+    return raw ? Number(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setSavedScaleBaud(baud: number | null): void {
+  try {
+    if (baud) window.localStorage.setItem(SCALE_BAUD_KEY, String(baud));
+    else window.localStorage.removeItem(SCALE_BAUD_KEY);
+  } catch {
+    /* almacenamiento no disponible */
+  }
 }
 
 export interface DeviceValidation {

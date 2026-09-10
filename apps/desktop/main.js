@@ -34,9 +34,25 @@ async function listSerialPorts() {
   }
 }
 
-async function readScaleSerial({ port, timeoutMs = 4000 } = {}) {
+async function listSerialPortsDetailed() {
+  try {
+    const ports = await SerialPort.list();
+    return ports.map((port) => ({
+      path: port.path,
+      manufacturer: port.manufacturer ?? null,
+      friendlyName: port.friendlyName ?? null,
+      serialNumber: port.serialNumber ?? null,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+async function readScaleSerial({ port, timeoutMs = 4000, baudRate } = {}) {
   const candidatePorts = port ? [port] : await listSerialPorts();
-  const baudRates = [9600, 19200, 2400, 38400, 57600, 115200];
+  const baudRates = baudRate
+    ? [baudRate]
+    : [9600, 19200, 2400, 38400, 57600, 115200];
 
   for (const candidate of candidatePorts) {
     for (const baudRate of baudRates) {
@@ -194,6 +210,8 @@ ipcMain.handle('scale:read-stable', async (_, options = {}) => {
     error: result.error ?? null,
   };
 });
+
+ipcMain.handle('scale:list-ports', () => listSerialPortsDetailed());
 
 function createWindow() {
   const win = new BrowserWindow({
