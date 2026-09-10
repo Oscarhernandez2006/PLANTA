@@ -163,6 +163,7 @@ function ClienteCard({
           <TR>
             <TH>Guía</TH>
             <TH>Cliente</TH>
+            <TH>Corral</TH>
             <TH className="text-center">En pie</TH>
             <TH className="text-center">Asignados</TH>
             <TH className="text-center">Disponibles</TH>
@@ -182,7 +183,7 @@ function ClienteCard({
             ))
           ) : (
             <TR>
-              <TD className="text-muted-foreground" colSpan={6}>
+              <TD className="text-muted-foreground" colSpan={7}>
                 Sin guías registradas.
               </TD>
             </TR>
@@ -216,6 +217,9 @@ function GuiaLoteRow({
     <TR>
       <TD className="font-medium">{g.guia}</TD>
       <TD className="font-medium">{cliente}</TD>
+      <TD className="text-muted-foreground">
+        {g.corrales.length ? g.corrales.join(', ') : '—'}
+      </TD>
       <TD className="text-center tabular-nums">{g.animalesEnPie}</TD>
       <TD className="text-center tabular-nums text-muted-foreground">
         {g.asignados}

@@ -15,6 +15,7 @@ function dateOnly(s?: string) {
 
 export interface GuiaDetalle {
   guia: string;
+  corrales: string[];
   animalesEnPie: number;
   asignados: number;
   disponibles: number;
@@ -57,7 +58,7 @@ export class OrdenBeneficioService {
       }),
       this.prisma.pesoEnPie.findMany({
         where: { plantId: ctx.plantId, date, deletedAt: null },
-        select: { guia: true, animalCount: true },
+        select: { guia: true, animalCount: true, corral: true },
       }),
       this.prisma.ordenBeneficio.findMany({
         where: { plantId: ctx.plantId, date, deletedAt: null },
@@ -67,10 +68,17 @@ export class OrdenBeneficioService {
 
     // Animales de Peso en Pie por guía.
     const enPiePorGuia = new Map<string, number>();
+    const corralesPorGuia = new Map<string, Set<string>>();
     for (const p of pesosEnPie) {
       const g = p.guia?.trim();
       if (!g) continue;
       enPiePorGuia.set(g, (enPiePorGuia.get(g) ?? 0) + p.animalCount);
+      const corral = p.corral?.trim();
+      if (corral) {
+        const set = corralesPorGuia.get(g) ?? new Set<string>();
+        set.add(corral);
+        corralesPorGuia.set(g, set);
+      }
     }
 
     // Animales ya asignados a lotes por guía.
@@ -94,24 +102,24 @@ export class OrdenBeneficioService {
       porCliente.set(cliente, set);
     }
 
-    return { porCliente, enPiePorGuia, asignadoPorGuia };
+    return { porCliente, enPiePorGuia, asignadoPorGuia, corralesPorGuia };
   }
 
   /** Clientes del día con sus guías y animales disponibles por guía. */
   async candidates(ctx: AuthContext, dateStr?: string): Promise<Candidate[]> {
     const { date } = dateOnly(dateStr);
-    const { porCliente, enPiePorGuia, asignadoPorGuia } = await this.aggregate(
-      ctx,
-      date,
-    );
+    const { porCliente, enPiePorGuia, asignadoPorGuia, corralesPorGuia } =
+      await this.aggregate(ctx, date);
 
     const list: Candidate[] = [];
     for (const [cliente, guias] of porCliente) {
       const guiasDetalle: GuiaDetalle[] = [...guias].sort().map((guia) => {
         const animalesEnPie = enPiePorGuia.get(guia) ?? 0;
         const asignados = asignadoPorGuia.get(guia) ?? 0;
+        const corrales = [...(corralesPorGuia.get(guia) ?? [])].sort();
         return {
           guia,
+          corrales,
           animalesEnPie,
           asignados,
           disponibles: Math.max(0, animalesEnPie - asignados),

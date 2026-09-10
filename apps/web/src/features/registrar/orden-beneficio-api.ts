@@ -8,6 +8,7 @@ export type OrdenBeneficioStatus =
 
 export interface OrdenBeneficioGuiaDetalle {
   guia: string;
+  corrales: string[];
   animalesEnPie: number;
   asignados: number;
   disponibles: number;
