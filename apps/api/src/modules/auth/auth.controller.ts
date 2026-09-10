@@ -20,6 +20,11 @@ export class AuthController {
     return this.service.login(dto);
   }
 
+  @Post('verify-admin')
+  verifyAdmin(@Body() dto: LoginDto) {
+    return this.service.verifyAdmin(dto);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('me')
   me(@CurrentUser() user: AuthContext) {

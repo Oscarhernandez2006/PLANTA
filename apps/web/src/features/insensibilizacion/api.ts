@@ -67,3 +67,16 @@ export function useUndoLast() {
     },
   });
 }
+
+/** Verifica cédula + PIN de un administrador para autorizar acciones sensibles. */
+export function useVerifyAdmin() {
+  return useMutation({
+    mutationFn: async (creds: { documentId: string; pin: string }) =>
+      (
+        await api.post<{ ok: boolean; fullName: string }>(
+          '/auth/verify-admin',
+          creds,
+        )
+      ).data,
+  });
+}

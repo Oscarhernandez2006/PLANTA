@@ -6,9 +6,12 @@ import {
   CheckCircle2,
   Clock,
   ArrowLeft,
+  Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { InsensibilizacionIcon } from '@/components/icons/InsensibilizacionIcon';
 import { cn } from '@/lib/utils';
@@ -17,6 +20,7 @@ import {
   useInsensibilizacionDetail,
   useStunNext,
   useUndoLast,
+  useVerifyAdmin,
   type InsOrder,
 } from './api';
 
@@ -34,6 +38,9 @@ export function InsensibilizacionPage() {
   const detail = useInsensibilizacionDetail(selectedId);
   const stun = useStunNext();
   const undo = useUndoLast();
+
+  // Autorización de administrador para cambiar de orden.
+  const [authOpen, setAuthOpen] = useState(false);
 
   const orders = pendientes.data ?? [];
   const d = detail.data;
@@ -102,7 +109,7 @@ export function InsensibilizacionPage() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => setSelectedId(null)}
+                      onClick={() => setAuthOpen(true)}
                     >
                       <ArrowLeft /> Cambiar orden
                     </Button>
@@ -233,7 +240,112 @@ export function InsensibilizacionPage() {
         </Card>
         )}
       </div>
+
+      <AdminAuthDialog
+        open={authOpen}
+        onClose={() => setAuthOpen(false)}
+        onAuthorized={() => {
+          setAuthOpen(false);
+          setSelectedId(null);
+        }}
+      />
     </div>
+  );
+}
+
+function AdminAuthDialog({
+  open,
+  onClose,
+  onAuthorized,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onAuthorized: () => void;
+}) {
+  const [documentId, setDocumentId] = useState('');
+  const [pin, setPin] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const verify = useVerifyAdmin();
+
+  function submit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    verify.mutate(
+      { documentId: documentId.trim(), pin: pin.trim() },
+      {
+        onSuccess: () => {
+          setDocumentId('');
+          setPin('');
+          onAuthorized();
+        },
+        onError: (err) => {
+          const detail = (
+            err as { response?: { data?: { message?: string | string[] } } }
+          ).response?.data?.message;
+          setError(
+            Array.isArray(detail)
+              ? detail.join(' ')
+              : detail || 'No se pudo verificar. Intenta de nuevo.',
+          );
+        },
+      },
+    );
+  }
+
+  return (
+    <Dialog
+      open={open}
+      onClose={onClose}
+      title="Autorización requerida"
+      description="Ingresa la cédula y PIN de un administrador para cambiar de orden."
+      className="max-w-sm"
+    >
+      <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">Cédula</label>
+          <Input
+            autoFocus
+            inputMode="numeric"
+            value={documentId}
+            onChange={(e) =>
+              setDocumentId(e.target.value.replace(/\D/g, ''))
+            }
+            placeholder="Cédula del administrador"
+          />
+        </div>
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium">PIN</label>
+          <Input
+            type="password"
+            inputMode="numeric"
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+            placeholder="••••"
+          />
+        </div>
+        {error && (
+          <p className="text-sm font-medium text-destructive">{error}</p>
+        )}
+        <div className="flex justify-end gap-2 pt-2">
+          <Button type="button" variant="outline" onClick={onClose}>
+            Cancelar
+          </Button>
+          <Button
+            type="submit"
+            disabled={
+              verify.isPending || documentId.length < 5 || pin.length < 4
+            }
+          >
+            {verify.isPending ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Lock className="size-4" />
+            )}
+            Autorizar
+          </Button>
+        </div>
+      </form>
+    </Dialog>
   );
 }
 

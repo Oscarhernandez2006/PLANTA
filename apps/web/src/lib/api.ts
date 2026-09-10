@@ -21,8 +21,11 @@ api.interceptors.response.use(
   (error) => {
     const status = error?.response?.status;
     const url: string | undefined = error?.config?.url;
-    // Cierra sesión ante 401, salvo en el propio login (credenciales inválidas).
-    if (status === 401 && url !== '/auth/login' && onUnauthorized) {
+    // Cierra sesión ante 401, salvo en endpoints de credenciales puntuales
+    // (login y verificación de administrador), que manejan su propio error.
+    const isCredentialCheck =
+      url === '/auth/login' || url === '/auth/verify-admin';
+    if (status === 401 && !isCredentialCheck && onUnauthorized) {
       onUnauthorized();
     }
     return Promise.reject(error);

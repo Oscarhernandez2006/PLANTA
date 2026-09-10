@@ -79,4 +79,24 @@ export class AuthService {
     }
     return user;
   }
+
+  /** Verifica credenciales de un administrador (para autorizar acciones sensibles). */
+  async verifyAdmin(dto: LoginDto) {
+    const user = await this.prisma.appUser.findUnique({
+      where: { documentId: dto.documentId },
+      select: { active: true, pinHash: true, role: true, fullName: true },
+    });
+
+    const isAdmin =
+      !!user &&
+      user.active &&
+      !!user.pinHash &&
+      (user.role === 'admin' || user.role === 'desarrollador');
+
+    if (!isAdmin || !(await bcrypt.compare(dto.pin, user!.pinHash!))) {
+      throw new UnauthorizedException('Credenciales de administrador inválidas.');
+    }
+
+    return { ok: true, fullName: user!.fullName };
+  }
 }
