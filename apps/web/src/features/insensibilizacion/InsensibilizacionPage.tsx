@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import {
   Inbox,
   LoaderCircle,
   Undo2,
   CheckCircle2,
   Clock,
+  ArrowLeft,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -34,13 +35,6 @@ export function InsensibilizacionPage() {
   const stun = useStunNext();
   const undo = useUndoLast();
 
-  // Selecciona la primera orden disponible por defecto.
-  useEffect(() => {
-    if (!selectedId && pendientes.data?.length) {
-      setSelectedId(pendientes.data[0].id);
-    }
-  }, [pendientes.data, selectedId]);
-
   const orders = pendientes.data ?? [];
   const d = detail.data;
   const done = d?.insensibilizados ?? 0;
@@ -62,61 +56,72 @@ export function InsensibilizacionPage() {
         </div>
       </div>
 
-      <div className="grid flex-1 gap-4 lg:grid-cols-[320px_1fr]">
-        {/* Lista de órdenes pendientes */}
-        <Card className="flex flex-col overflow-hidden">
-          <div className="border-b border-border px-4 py-3 text-sm font-semibold">
-            Órdenes pendientes
-          </div>
-          {pendientes.isLoading ? (
-            <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-              <LoaderCircle className="size-4 animate-spin" /> Cargando…
+      <div className="flex flex-1 flex-col gap-4">
+        {/* Lista de órdenes pendientes (oculta al seleccionar una) */}
+        {!selectedId && (
+          <Card className="flex flex-col overflow-hidden">
+            <div className="border-b border-border px-4 py-3 text-sm font-semibold">
+              Órdenes pendientes
             </div>
-          ) : !orders.length ? (
-            <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-              <Inbox className="size-8" />
-              No hay órdenes pendientes. Crea una en Orden de Beneficio.
-            </div>
-          ) : (
-            <ul className="flex-1 divide-y divide-border overflow-auto">
-              {orders.map((o) => (
-                <OrderRow
-                  key={o.id}
-                  order={o}
-                  active={o.id === selectedId}
-                  onClick={() => setSelectedId(o.id)}
-                />
-              ))}
-            </ul>
-          )}
-        </Card>
+            {pendientes.isLoading ? (
+              <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+                <LoaderCircle className="size-4 animate-spin" /> Cargando…
+              </div>
+            ) : !orders.length ? (
+              <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
+                <Inbox className="size-8" />
+                No hay órdenes pendientes. Crea una en Orden de Beneficio.
+              </div>
+            ) : (
+              <ul className="flex-1 divide-y divide-border overflow-auto">
+                {orders.map((o) => (
+                  <OrderRow
+                    key={o.id}
+                    order={o}
+                    active={o.id === selectedId}
+                    onClick={() => setSelectedId(o.id)}
+                  />
+                ))}
+              </ul>
+            )}
+          </Card>
+        )}
 
         {/* Panel de proceso */}
-        <Card className="flex flex-col overflow-hidden">
-          {!d ? (
-            <div className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-              <InsensibilizacionIcon className="size-10 opacity-40" />
-              Selecciona una orden para comenzar.
-            </div>
-          ) : (
-            <div className="flex flex-1 flex-col">
-              {/* Cabecera de la orden */}
-              <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
-                <div>
-                  <div className="text-sm text-muted-foreground">
-                    Orden N.º {d.reference} · {d.date}
-                  </div>
-                  <div className="text-lg font-semibold text-foreground">
-                    {d.cliente}
-                    {d.guias.length ? ` · ${d.guias.join(', ')}` : ''}
-                  </div>
-                </div>
-                {completo && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700">
-                    <CheckCircle2 className="size-4" /> Lote completado
-                  </span>
-                )}
+        {selectedId && (
+          <Card className="flex flex-col overflow-hidden">
+            {!d ? (
+              <div className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
+                <LoaderCircle className="size-5 animate-spin" /> Cargando…
               </div>
+            ) : (
+              <div className="flex flex-1 flex-col">
+                {/* Cabecera de la orden */}
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-6 py-4">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setSelectedId(null)}
+                    >
+                      <ArrowLeft /> Cambiar orden
+                    </Button>
+                    <div>
+                      <div className="text-sm text-muted-foreground">
+                        Orden N.º {d.reference} · {d.date}
+                      </div>
+                      <div className="text-lg font-semibold text-foreground">
+                        {d.cliente}
+                        {d.guias.length ? ` · ${d.guias.join(', ')}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  {completo && (
+                    <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-100 px-3 py-1 text-sm font-medium text-emerald-700">
+                      <CheckCircle2 className="size-4" /> Lote completado
+                    </span>
+                  )}
+                </div>
 
               {/* Recuadros por animal con su consecutivo global del día */}
               <div className="flex flex-col gap-4 px-6 py-8">
@@ -226,6 +231,7 @@ export function InsensibilizacionPage() {
             </div>
           )}
         </Card>
+        )}
       </div>
     </div>
   );
