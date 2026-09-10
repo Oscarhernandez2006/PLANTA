@@ -52,7 +52,7 @@ export function PesoEnPiePage() {
   const [corral, setCorral] = useState('');
   const [peso, setPeso] = useState('');
   const [observaciones, setObservaciones] = useState('');
-  const [tab, setTab] = useState('registro');
+  const [tab, setTab] = useState('guias');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isReadingScale, setIsReadingScale] = useState(false);
