@@ -260,9 +260,7 @@ function IndividualView({
 
   return (
     <div className="border-t border-border">
-      {seleccionado && (
-        <WeighPanel key={seleccionado.eventoId} animal={seleccionado} />
-      )}
+      <WeighPanel key={seleccionado?.eventoId ?? 'none'} animal={seleccionado} />
 
       <div className="px-5 py-3 text-sm font-semibold">
         Por pesar ({pendientes.length})
@@ -648,27 +646,36 @@ function BasculaConexion() {
   );
 }
 
-function WeighPanel({ animal }: { animal: PielAnimal }) {
+function WeighPanel({ animal }: { animal: PielAnimal | null }) {
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
   const registrar = useRegistrarPiel();
 
   const valor = Number(peso.replace(',', '.'));
-  const valido = peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
+  const valido =
+    !!animal && peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
 
   function guardar() {
-    if (!valido || registrar.isPending) return;
+    if (!animal || !valido || registrar.isPending) return;
     registrar.mutate({ eventoId: animal.eventoId, pesoKg: valor });
   }
 
   return (
     <div className="border-b border-border bg-muted/20 px-5 py-6">
       <div className="mb-4 flex items-center gap-3">
-        <span className="text-2xl font-bold tabular-nums">
-          #{animal.consecutivo}
-        </span>
-        <span className="text-sm text-muted-foreground">
-          cayó {hora(animal.stunnedAt)}
-        </span>
+        {animal ? (
+          <>
+            <span className="text-2xl font-bold tabular-nums">
+              #{animal.consecutivo}
+            </span>
+            <span className="text-sm text-muted-foreground">
+              cayó {hora(animal.stunnedAt)}
+            </span>
+          </>
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            Selecciona un animal de la lista para registrar su peso.
+          </span>
+        )}
       </div>
       <BasculaField
         peso={peso}
@@ -693,7 +700,7 @@ function WeighPanel({ animal }: { animal: PielAnimal }) {
           ) : (
             <Scale className="size-5" />
           )}
-          Pesar animal #{animal.consecutivo}
+          {animal ? `Pesar animal #${animal.consecutivo}` : 'Pesar animal'}
         </Button>
       </div>
     </div>
