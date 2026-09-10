@@ -2,7 +2,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PesoCamion, PesoCamionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
-import { OrdenBeneficioService } from '../orden-beneficio/orden-beneficio.service';
 import { SavePesoCamionDto } from './dto/save-peso-camion.dto';
 
 function dateOnly(s?: string) {
@@ -12,10 +11,7 @@ function dateOnly(s?: string) {
 
 @Injectable()
 export class PesoCamionService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly ordenBeneficio: OrdenBeneficioService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   private toDto(r: PesoCamion) {
     return {
@@ -125,15 +121,6 @@ export class PesoCamionService {
       where: { id },
       data: { status: PesoCamionStatus.cerrada },
     });
-
-    // Al cerrar la guía genera automáticamente la Orden de Beneficio del
-    // cliente (si ya tiene animales validados en Peso en Pie y no existe una).
-    await this.ordenBeneficio.ensureForCliente(
-      ctx,
-      rec.cliente,
-      rec.date.toISOString().slice(0, 10),
-    );
-
     return this.toDto(rec);
   }
 

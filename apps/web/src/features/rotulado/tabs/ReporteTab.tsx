@@ -142,7 +142,7 @@ export function ReporteTab({
         />
         <div className="flex justify-end">
           <button
-            className="flex size-11 items-center justify-center rounded-md border border-input bg-card text-muted-foreground transition-colors hover:bg-muted/60"
+            className="flex size-9 items-center justify-center rounded-md border border-input bg-card text-muted-foreground transition-colors hover:bg-muted/60"
             title="Bloquear reporte"
           >
             <Lock className="size-5" />

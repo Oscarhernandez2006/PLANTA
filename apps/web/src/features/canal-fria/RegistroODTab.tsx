@@ -76,7 +76,7 @@ export function RegistroODTab({ onCreated }: { onCreated: () => void }) {
   }
 
   return (
-    <Card className="mx-auto max-w-3xl">
+    <Card className="w-full">
       <CardHeader>
         <CardTitle>Registrar orden de despacho</CardTitle>
       </CardHeader>
@@ -100,7 +100,7 @@ export function RegistroODTab({ onCreated }: { onCreated: () => void }) {
               <Input
                 id="reg"
                 type="date"
-                className="h-11"
+                className="h-9"
                 value={registrationDate}
                 disabled
                 title="La fecha de registro es la del día y no se puede modificar."
@@ -111,7 +111,7 @@ export function RegistroODTab({ onCreated }: { onCreated: () => void }) {
               <Input
                 id="proc"
                 type="date"
-                className="h-11"
+                className="h-9"
                 value={processDate}
                 onChange={(e) => setProcessDate(e.target.value)}
               />
@@ -134,7 +134,7 @@ export function RegistroODTab({ onCreated }: { onCreated: () => void }) {
             <Label htmlFor="status">Estado</Label>
             <Select
               id="status"
-              className="h-11 sm:max-w-xs"
+              className="h-9 sm:max-w-xs"
               value={status}
               onChange={(e) =>
                 setStatus(e.target.value as DispatchOrderStatus)
@@ -161,7 +161,7 @@ export function RegistroODTab({ onCreated }: { onCreated: () => void }) {
             <Button
               type="submit"
               size="lg"
-              className="h-12 px-8"
+              className="h-9 px-8"
               disabled={create.isPending}
             >
               <Save className="size-5" />

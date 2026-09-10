@@ -38,7 +38,7 @@ export function OrdenesDespachoTab({
             setStatus(e.target.value as DispatchOrderStatus | '');
             setPage(1);
           }}
-          className="h-10 w-48"
+          className="h-9 w-48"
         >
           <option value="">Todos los estados</option>
           <option value="activo">Activo</option>

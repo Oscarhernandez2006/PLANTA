@@ -85,7 +85,7 @@ export function ClienteModal({
             <Label htmlFor="codigo-cli">Código</Label>
             <Input
               id="codigo-cli"
-              className="h-11 tabular-nums"
+              className="h-9 tabular-nums"
               readOnly
               value={displayCode != null ? formatProcedenciaCode(displayCode) : ''}
               placeholder="Automático"
@@ -96,7 +96,7 @@ export function ClienteModal({
             <KeyboardField>
               <Input
                 id="cli-modal"
-                className="h-11 pr-11"
+                className="h-9 pr-11"
                 placeholder="Escribí el cliente…"
                 value={cliente}
                 onChange={(e) => {
@@ -114,7 +114,7 @@ export function ClienteModal({
           <KeyboardField>
             <Input
               id="detalles-cli"
-              className="h-11 pr-11"
+              className="h-9 pr-11"
               value={detalles}
               onChange={(e) => setDetalles(e.target.value)}
               onDoubleClick={keyboard.open}
@@ -176,13 +176,13 @@ export function ClienteModal({
         )}
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-          <Button variant="outline" className="h-11 px-4" title="Editar">
+          <Button variant="outline" className="h-9 px-4" title="Editar">
             <Pencil className="size-5" />
             Editar
           </Button>
           <Button
             variant="outline"
-            className="h-11 px-4"
+            className="h-9 px-4"
             title="Limpiar"
             onClick={limpiar}
           >
@@ -190,7 +190,7 @@ export function ClienteModal({
             Limpiar
           </Button>
           <Button
-            className="h-11 px-5"
+            className="h-9 px-5"
             title="Confirmar"
             onClick={confirmar}
             disabled={create.isPending}

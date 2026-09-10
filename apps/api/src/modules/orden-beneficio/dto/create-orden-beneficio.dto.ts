@@ -1,4 +1,11 @@
-import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import {
+  IsInt,
+  IsNotEmpty,
+  IsOptional,
+  IsString,
+  MaxLength,
+  Min,
+} from 'class-validator';
 
 export class CreateOrdenBeneficioDto {
   @IsOptional()
@@ -9,6 +16,15 @@ export class CreateOrdenBeneficioDto {
   @IsNotEmpty()
   @MaxLength(200)
   cliente!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(200)
+  guia!: string;
+
+  @IsInt()
+  @Min(1)
+  animalCount!: number;
 
   @IsOptional()
   @IsString()

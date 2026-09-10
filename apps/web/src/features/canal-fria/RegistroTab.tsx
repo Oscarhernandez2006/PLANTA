@@ -118,7 +118,7 @@ export function RegistroTab({
                   value={barcode}
                   onChange={(e) => setBarcode(e.target.value)}
                   placeholder="Escaneá o escribí el precinto…"
-                  className="h-12 pl-10 text-base"
+                  className="h-9 pl-10 text-base"
                 />
               </div>
               <Button

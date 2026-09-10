@@ -156,7 +156,7 @@ export function EmbalajeTab({
         <div className="space-y-1.5">
           <Label>Cód. Tienda</Label>
           <Select
-            className="h-11"
+            className="h-9"
             value={codTienda}
             onChange={(e) => setCodTienda(e.target.value)}
             disabled={disabled}
@@ -171,13 +171,13 @@ export function EmbalajeTab({
         </div>
         <div className="space-y-1.5 sm:col-span-2">
           <Label>Tienda</Label>
-          <div className="flex h-11 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-medium text-red-600">
+          <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-medium text-red-600">
             {tiendaNombre || '—'}
           </div>
         </div>
         <div className="space-y-1.5">
           <Label>Lote No.</Label>
-          <div className="flex h-11 items-center rounded-md border border-input bg-muted/40 px-3 text-lg font-bold tabular-nums">
+          <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-lg font-bold tabular-nums">
             {orden?.lote ?? '—'}
           </div>
         </div>
@@ -187,7 +187,7 @@ export function EmbalajeTab({
         <div className="space-y-1.5">
           <Label>Código</Label>
           <Input
-            className="h-11"
+            className="h-9"
             value={codigo}
             readOnly
             placeholder="—"
@@ -196,7 +196,7 @@ export function EmbalajeTab({
         <div className="space-y-1.5 sm:col-span-3">
           <Label>Producto</Label>
           <Input
-            className="h-11"
+            className="h-9"
             value={producto}
             readOnly
             placeholder="Elegí un producto en la pestaña Productos…"
@@ -210,7 +210,7 @@ export function EmbalajeTab({
           <Label>Sacrificio</Label>
           <Input
             type="date"
-            className="h-11"
+            className="h-9"
             value={sacrificio}
             onChange={(e) => setSacrificio(e.target.value)}
             disabled={disabled}
@@ -220,7 +220,7 @@ export function EmbalajeTab({
           <Label>Empaque</Label>
           <Input
             type="date"
-            className="h-11 text-red-600"
+            className="h-9 text-red-600"
             value={empaque}
             onChange={(e) => setEmpaque(e.target.value)}
             disabled={disabled}
@@ -230,7 +230,7 @@ export function EmbalajeTab({
           <Label>Vencimiento</Label>
           <Input
             type="date"
-            className="h-11"
+            className="h-9"
             value={vencimiento}
             onChange={(e) => setVencimiento(e.target.value)}
             disabled={disabled}
@@ -240,7 +240,7 @@ export function EmbalajeTab({
           <Label>Días</Label>
           <Input
             inputMode="numeric"
-            className="h-11"
+            className="h-9"
             value={dias}
             onChange={(e) => setDias(e.target.value.replace(/[^\d]/g, ''))}
             disabled={disabled}
@@ -258,7 +258,7 @@ export function EmbalajeTab({
               disabled={disabled}
               onClick={() => setConservacion(c)}
               className={cn(
-                'h-11 rounded-md border text-sm font-semibold uppercase tracking-wide transition-colors disabled:opacity-50',
+                'h-9 rounded-md border text-sm font-semibold uppercase tracking-wide transition-colors disabled:opacity-50',
                 conservacion === c
                   ? 'border-primary bg-primary text-primary-foreground'
                   : 'border-input bg-card hover:bg-muted/60',
@@ -275,7 +275,7 @@ export function EmbalajeTab({
         <div className="space-y-1.5">
           <Label>Ref.</Label>
           <Input
-            className="h-11"
+            className="h-9"
             value={ref}
             onChange={(e) => setRef(e.target.value)}
             disabled={disabled}
@@ -284,7 +284,7 @@ export function EmbalajeTab({
         <div className="space-y-1.5">
           <Label>Empaque</Label>
           <Input
-            className={cn('h-11 font-semibold', tipoEmpaque === 'A GRANEL' && 'text-red-600')}
+            className={cn('h-9 font-semibold', tipoEmpaque === 'A GRANEL' && 'text-red-600')}
             value={tipoEmpaque}
             onChange={(e) => setTipoEmpaque(e.target.value.toUpperCase())}
             disabled={disabled}
@@ -294,7 +294,7 @@ export function EmbalajeTab({
           <Label>Tara (kg)</Label>
           <Input
             inputMode="decimal"
-            className="h-11 tabular-nums"
+            className="h-9 tabular-nums"
             value={tara}
             onChange={(e) => setTara(e.target.value.replace(/[^\d.]/g, ''))}
             disabled={disabled}
@@ -304,7 +304,7 @@ export function EmbalajeTab({
           <Label>Bruto (kg)</Label>
           <Input
             inputMode="decimal"
-            className="h-11 tabular-nums text-red-600"
+            className="h-9 tabular-nums text-red-600"
             value={bruto}
             onChange={(e) => setBruto(e.target.value.replace(/[^\d.]/g, ''))}
             disabled={disabled}
@@ -312,7 +312,7 @@ export function EmbalajeTab({
         </div>
         <div className="space-y-1.5">
           <Label>Neto (kg)</Label>
-          <div className="flex h-11 items-center rounded-md border border-input bg-muted/40 px-3 text-lg font-bold tabular-nums text-emerald-600">
+          <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-lg font-bold tabular-nums text-emerald-600">
             {kg(neto)}
           </div>
         </div>
@@ -323,7 +323,7 @@ export function EmbalajeTab({
         <div className="space-y-1.5">
           <Label>Bodegas</Label>
           <Input
-            className="h-11"
+            className="h-9"
             value={bodega}
             onChange={(e) => setBodega(e.target.value)}
             disabled={disabled}
@@ -332,7 +332,7 @@ export function EmbalajeTab({
         <div className="space-y-1.5">
           <Label>Procesado Para</Label>
           <Input
-            className="h-11"
+            className="h-9"
             value={procesadoPara}
             onChange={(e) => setProcesadoPara(e.target.value)}
             disabled={disabled}
@@ -354,7 +354,7 @@ export function EmbalajeTab({
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="lg"
-          className="h-11 px-5"
+          className="h-9 px-5"
           onClick={agregar}
           disabled={disabled || create.isPending}
         >
@@ -367,13 +367,13 @@ export function EmbalajeTab({
         </Button>
         <Button
           variant="outline"
-          className="h-11 px-5"
+          className="h-9 px-5"
           onClick={limpiar}
           disabled={disabled}
         >
           Limpiar
         </Button>
-        <Button variant="outline" className="h-11 px-5" disabled={rows.length === 0}>
+        <Button variant="outline" className="h-9 px-5" disabled={rows.length === 0}>
           <ScanLine className="size-5" />
           Impresión de etiquetas en tirilla ({embalajeLabel})
         </Button>

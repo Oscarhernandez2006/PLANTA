@@ -5,6 +5,5 @@ import { OrdenBeneficioService } from './orden-beneficio.service';
 @Module({
   controllers: [OrdenBeneficioController],
   providers: [OrdenBeneficioService],
-  exports: [OrdenBeneficioService],
 })
 export class OrdenBeneficioModule {}

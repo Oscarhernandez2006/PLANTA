@@ -85,7 +85,7 @@ export function ProcedenciaModal({
             <KeyboardField>
               <Input
                 id="rspp"
-                className="h-11 pr-11"
+                className="h-9 pr-11"
                 value={rspp}
                 onChange={(e) => setRspp(e.target.value.toUpperCase())}
                 onDoubleClick={keyboard.open}
@@ -97,7 +97,7 @@ export function ProcedenciaModal({
             <KeyboardField>
               <Input
                 id="proc-modal"
-                className="h-11 pr-11"
+                className="h-9 pr-11"
                 placeholder="Escribí la procedencia…"
                 value={procedencia}
                 onChange={(e) => setProcedencia(e.target.value)}
@@ -112,7 +112,7 @@ export function ProcedenciaModal({
           <KeyboardField>
             <Input
               id="detalles"
-              className="h-11 pr-11"
+              className="h-9 pr-11"
               value={detalles}
               onChange={(e) => setDetalles(e.target.value)}
               onDoubleClick={keyboard.open}
@@ -174,13 +174,13 @@ export function ProcedenciaModal({
         )}
 
         <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-4">
-          <Button variant="outline" className="h-11 px-4" title="Editar">
+          <Button variant="outline" className="h-9 px-4" title="Editar">
             <Pencil className="size-5" />
             Editar
           </Button>
           <Button
             variant="outline"
-            className="h-11 px-4"
+            className="h-9 px-4"
             title="Limpiar"
             onClick={limpiar}
           >
@@ -188,7 +188,7 @@ export function ProcedenciaModal({
             Limpiar
           </Button>
           <Button
-            className="h-11 px-5"
+            className="h-9 px-5"
             title="Confirmar"
             onClick={confirmar}
             disabled={create.isPending}

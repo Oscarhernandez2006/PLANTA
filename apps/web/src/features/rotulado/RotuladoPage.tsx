@@ -94,10 +94,10 @@ export function RotuladoPage({ stage }: { stage: RotuladoStage }) {
         </div>
 
         <div className="flex items-center gap-1.5">
-          <Button variant="outline" size="icon" className="size-11" title="Imprimir">
+          <Button variant="outline" size="icon" className="size-9" title="Imprimir">
             <Printer className="size-5" />
           </Button>
-          <Button variant="outline" size="icon" className="size-11" title="Bloquear">
+          <Button variant="outline" size="icon" className="size-9" title="Bloquear">
             <Lock className="size-5" />
           </Button>
         </div>
@@ -111,14 +111,14 @@ export function RotuladoPage({ stage }: { stage: RotuladoStage }) {
             <Input
               id="fecha"
               type="date"
-              className="h-11"
+              className="h-9"
               value={fecha}
               onChange={(e) => setFecha(e.target.value)}
             />
           </div>
           <div className="space-y-1.5">
             <Label>Cliente</Label>
-            <div className="flex h-11 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-medium">
+            <div className="flex h-9 items-center rounded-md border border-input bg-muted/40 px-3 text-sm font-medium">
               {cliente}
             </div>
           </div>

@@ -55,7 +55,7 @@ function kg(n: number) {
   });
 }
 
-const fieldClass = 'h-10 pr-11';
+const fieldClass = 'h-9 pr-11';
 const areaClass = cn(
   'flex min-h-[64px] w-full rounded-md border border-input bg-card px-3 py-2 pr-11 text-sm shadow-sm transition-colors',
   'placeholder:text-muted-foreground resize-none',
@@ -386,7 +386,7 @@ export function PesoEnCamionPage() {
         <div className="flex items-center gap-1.5">
           <Button
             size="lg"
-            className="h-11 px-5"
+            className="h-9 px-5"
             title="Guardar toda la información"
             onClick={guardar}
             disabled={saving}
@@ -401,7 +401,7 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-11"
+            className="size-9"
             title="Nueva guía / limpiar"
             onClick={limpiar}
           >
@@ -411,7 +411,7 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-11"
+            className="size-9"
             title="Editar guía seleccionada"
             onClick={editar}
             disabled={!selectedGuia}
@@ -421,7 +421,7 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-11"
+            className="size-9"
             title="Imprimir recibo (PDF)"
             onClick={imprimir}
           >
@@ -430,7 +430,7 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-11"
+            className="size-9"
             title="Cerrar guía seleccionada"
             onClick={cerrar}
             disabled={!selectedGuia || closeGuia.isPending}
@@ -440,7 +440,7 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-11"
+            className="size-9"
             title="Refrescar guías abiertas"
             onClick={() => abiertas.refetch()}
             disabled={abiertas.isFetching}
@@ -523,7 +523,7 @@ export function PesoEnCamionPage() {
             <Label htmlFor="procedencia">Procedencia</Label>
             <Input
               id="procedencia"
-              className={cn('h-10 cursor-pointer', savedText)}
+              className={cn('h-9 cursor-pointer', savedText)}
               readOnly
               placeholder="Tocá para seleccionar…"
               value={procedencia}
@@ -534,7 +534,7 @@ export function PesoEnCamionPage() {
             <Label htmlFor="proveedor">Proveedor</Label>
             <Input
               id="proveedor"
-              className={cn('h-10 cursor-pointer', savedText)}
+              className={cn('h-9 cursor-pointer', savedText)}
               readOnly
               placeholder="Tocá para seleccionar…"
               value={proveedor}
@@ -545,7 +545,7 @@ export function PesoEnCamionPage() {
             <Label htmlFor="cliente">Cliente</Label>
             <Input
               id="cliente"
-              className={cn('h-10 cursor-pointer', savedText)}
+              className={cn('h-9 cursor-pointer', savedText)}
               readOnly
               placeholder="Tocá para seleccionar…"
               value={cliente}
@@ -572,7 +572,7 @@ export function PesoEnCamionPage() {
             <Label htmlFor="conductor">Conductor</Label>
             <Input
               id="conductor"
-              className={cn('h-10 cursor-pointer', savedText)}
+              className={cn('h-9 cursor-pointer', savedText)}
               readOnly
               placeholder="Doble clic para seleccionar…"
               value={conductor}

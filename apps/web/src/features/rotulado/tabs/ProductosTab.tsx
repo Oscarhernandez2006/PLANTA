@@ -31,7 +31,7 @@ export function ProductosTab({
             key={c.value}
             onClick={() => setCategoria(c.value)}
             className={cn(
-              'h-11 rounded-md border text-sm font-semibold uppercase tracking-wide transition-colors',
+              'h-9 rounded-md border text-sm font-semibold uppercase tracking-wide transition-colors',
               categoria === c.value
                 ? 'border-emerald-600 bg-emerald-600 text-white'
                 : 'border-input bg-card text-foreground hover:bg-muted/60',
@@ -62,7 +62,7 @@ export function ProductosTab({
               <button
                 key={p.id}
                 onClick={() => onPick({ codigo: p.codigo, nombre: p.nombre })}
-                className="h-11 rounded-md border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-muted/60"
+                className="h-9 rounded-md border border-input bg-card px-3 text-sm font-medium transition-colors hover:bg-muted/60"
               >
                 {p.nombre}
               </button>

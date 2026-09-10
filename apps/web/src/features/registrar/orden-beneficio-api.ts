@@ -6,13 +6,17 @@ export type OrdenBeneficioStatus =
   | 'en_insensibilizacion'
   | 'procesado';
 
+export interface OrdenBeneficioGuiaDetalle {
+  guia: string;
+  animalesEnPie: number;
+  asignados: number;
+  disponibles: number;
+}
+
 export interface OrdenBeneficioCandidate {
   cliente: string;
-  guias: string[];
-  guiasDetalle: { guia: string; animalesEnPie: number }[];
-  camionCantidad: number;
-  animalesEnPie: number;
-  yaCreada: boolean;
+  guiasDetalle: OrdenBeneficioGuiaDetalle[];
+  totalDisponibles: number;
 }
 
 export interface OrdenBeneficio {
@@ -21,7 +25,6 @@ export interface OrdenBeneficio {
   date: string;
   cliente: string;
   guias: string[];
-  animalesDisponibles: number;
   animalCount: number;
   observaciones: string | null;
   status: OrdenBeneficioStatus;
@@ -59,8 +62,12 @@ export function useOrdenBeneficioList(date: string = today()) {
 export function useCreateOrdenBeneficio() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { cliente: string; date?: string }) =>
-      (await api.post<OrdenBeneficio>('/orden-beneficio', input)).data,
+    mutationFn: async (input: {
+      cliente: string;
+      guia: string;
+      animalCount: number;
+      date?: string;
+    }) => (await api.post<OrdenBeneficio>('/orden-beneficio', input)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
       qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
@@ -73,22 +80,6 @@ export function useDeleteOrdenBeneficio() {
   return useMutation({
     mutationFn: async (id: string) =>
       (await api.delete(`/orden-beneficio/${id}`)).data,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
-      qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
-    },
-  });
-}
-
-export function useUpdateOrdenBeneficioCount() {
-  const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async (input: { id: string; animalCount: number }) =>
-      (
-        await api.patch<OrdenBeneficio>(`/orden-beneficio/${input.id}/count`, {
-          animalCount: input.animalCount,
-        })
-      ).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
       qc.invalidateQueries({ queryKey: ['insensibilizacion'] });

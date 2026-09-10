@@ -1,7 +1,5 @@
 import { useState } from 'react';
 import {
-  Check,
-  CheckCircle2,
   Inbox,
   LoaderCircle,
   Plus,
@@ -21,9 +19,9 @@ import {
   useOrdenBeneficioList,
   useCreateOrdenBeneficio,
   useDeleteOrdenBeneficio,
-  useUpdateOrdenBeneficioCount,
   type OrdenBeneficio,
   type OrdenBeneficioCandidate,
+  type OrdenBeneficioGuiaDetalle,
   type OrdenBeneficioStatus,
 } from './orden-beneficio-api';
 
@@ -59,8 +57,8 @@ export function OrdenBeneficioPage() {
               Orden de Beneficio
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Al cerrar una guía en Peso en Camión se genera la orden del cliente.
-              Ajusta cuántos animales sacrificar y pasa a Insensibilización.
+              Crea lotes eligiendo una guía y cuántos animales incluir. Cada lote
+              lleva su consecutivo y pasa a Insensibilización.
             </p>
           </div>
         </div>
@@ -78,30 +76,29 @@ export function OrdenBeneficioPage() {
             Actualizar
           </Button>
           <Button size="sm" onClick={() => setModalOpen(true)}>
-            <Plus className="size-4" /> Nueva orden
+            <Plus className="size-4" /> Nuevo lote
           </Button>
         </div>
       </div>
 
-      {/* Órdenes creadas hoy */}
+      {/* Lotes creados hoy */}
       <Card className="flex flex-col overflow-hidden">
         <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
-          <OrdenBeneficioIcon className="size-4" /> Órdenes creadas
+          <OrdenBeneficioIcon className="size-4" /> Lotes de beneficio
         </div>
         {ordenes.isLoading ? (
           <Loading />
         ) : !list.length ? (
-          <Empty text="Aún no hay órdenes hoy. Cierra una guía en Peso en Camión o usa “+ Nueva orden”." />
+          <Empty text="Aún no hay lotes hoy. Usa “+ Nuevo lote” para crear uno." />
         ) : (
           <div className="overflow-auto">
             <Table>
               <THead>
                 <TR>
-                  <TH className="w-12">N.º</TH>
+                  <TH className="w-16">Lote N.º</TH>
                   <TH>Cliente</TH>
-                  <TH>Guías</TH>
-                  <TH className="text-center">Disponibles</TH>
-                  <TH className="text-center">A sacrificar</TH>
+                  <TH>Guía</TH>
+                  <TH className="text-center">Animales</TH>
                   <TH>Estado</TH>
                   <TH className="w-12" />
                 </TR>
@@ -121,7 +118,7 @@ export function OrdenBeneficioPage() {
         )}
       </Card>
 
-      <NuevaOrdenDialog
+      <NuevoLoteDialog
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         date={date}
@@ -130,7 +127,7 @@ export function OrdenBeneficioPage() {
   );
 }
 
-function NuevaOrdenDialog({
+function NuevoLoteDialog({
   open,
   onClose,
   date,
@@ -140,15 +137,14 @@ function NuevaOrdenDialog({
   date: string;
 }) {
   const candidates = useOrdenBeneficioCandidates(date);
-  const crear = useCreateOrdenBeneficio();
   const cands = candidates.data ?? [];
 
   return (
     <Dialog
       open={open}
       onClose={onClose}
-      title="Nueva Orden de Beneficio"
-      description="Guías del día con sus animales validados en Peso en Pie."
+      title="Nuevo lote de beneficio"
+      description="Elige una guía y cuántos de sus animales incluir en el lote."
       className="max-w-3xl"
     >
       {candidates.isLoading ? (
@@ -161,13 +157,8 @@ function NuevaOrdenDialog({
             <ClienteCard
               key={c.cliente}
               c={c}
-              creating={crear.isPending}
-              onCreate={() =>
-                crear.mutate(
-                  { cliente: c.cliente, date },
-                  { onSuccess: () => candidates.refetch() },
-                )
-              }
+              date={date}
+              onCreated={() => candidates.refetch()}
             />
           ))}
         </div>
@@ -178,71 +169,46 @@ function NuevaOrdenDialog({
 
 function ClienteCard({
   c,
-  creating,
-  onCreate,
+  date,
+  onCreated,
 }: {
   c: OrdenBeneficioCandidate;
-  creating: boolean;
-  onCreate: () => void;
+  date: string;
+  onCreated: () => void;
 }) {
-  const sinAnimales = c.animalesEnPie <= 0;
   return (
     <div className="rounded-lg border border-border">
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
           <Users className="size-4 text-muted-foreground" />
           <span className="font-semibold">{c.cliente}</span>
-          <Badge tone="neutral">{c.animalesEnPie} animales</Badge>
         </div>
-        {c.yaCreada ? (
-          <Badge tone="success">
-            <CheckCircle2 className="mr-1 size-3.5" /> Orden creada
-          </Badge>
-        ) : (
-          <Button
-            size="sm"
-            onClick={onCreate}
-            disabled={creating || sinAnimales}
-            title={
-              sinAnimales
-                ? 'El cliente no tiene animales validados en Peso en Pie.'
-                : 'Crear Orden de Beneficio'
-            }
-          >
-            {creating ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <Plus className="size-4" />
-            )}
-            Crear orden
-          </Button>
-        )}
+        <Badge tone="neutral">{c.totalDisponibles} disponibles</Badge>
       </div>
       <Table>
         <THead>
           <TR>
             <TH>Guía</TH>
-            <TH className="text-center">Animales en pie</TH>
+            <TH className="text-center">En pie</TH>
+            <TH className="text-center">Asignados</TH>
+            <TH className="text-center">Disponibles</TH>
+            <TH className="text-right">Crear lote</TH>
           </TR>
         </THead>
         <TBody>
           {c.guiasDetalle.length ? (
             c.guiasDetalle.map((g) => (
-              <TR key={g.guia}>
-                <TD className="font-medium">{g.guia}</TD>
-                <TD
-                  className={cn(
-                    'text-center font-semibold tabular-nums',
-                    g.animalesEnPie === 0 && 'text-muted-foreground',
-                  )}
-                >
-                  {g.animalesEnPie}
-                </TD>
-              </TR>
+              <GuiaLoteRow
+                key={g.guia}
+                cliente={c.cliente}
+                g={g}
+                date={date}
+                onCreated={onCreated}
+              />
             ))
           ) : (
             <TR>
-              <TD className="text-muted-foreground" colSpan={2}>
+              <TD className="text-muted-foreground" colSpan={5}>
                 Sin guías registradas.
               </TD>
             </TR>
@@ -250,6 +216,85 @@ function ClienteCard({
         </TBody>
       </Table>
     </div>
+  );
+}
+
+function GuiaLoteRow({
+  cliente,
+  g,
+  date,
+  onCreated,
+}: {
+  cliente: string;
+  g: OrdenBeneficioGuiaDetalle;
+  date: string;
+  onCreated: () => void;
+}) {
+  const crear = useCreateOrdenBeneficio();
+  const [value, setValue] = useState('');
+
+  const parsed = Number(value);
+  const sinCupo = g.disponibles <= 0;
+  const invalid =
+    !Number.isInteger(parsed) || parsed < 1 || parsed > g.disponibles;
+
+  return (
+    <TR>
+      <TD className="font-medium">{g.guia}</TD>
+      <TD className="text-center tabular-nums">{g.animalesEnPie}</TD>
+      <TD className="text-center tabular-nums text-muted-foreground">
+        {g.asignados}
+      </TD>
+      <TD
+        className={cn(
+          'text-center font-semibold tabular-nums',
+          sinCupo && 'text-muted-foreground',
+        )}
+      >
+        {g.disponibles}
+      </TD>
+      <TD>
+        <div className="flex items-center justify-end gap-1.5">
+          <input
+            type="number"
+            min={1}
+            max={g.disponibles}
+            value={value}
+            disabled={sinCupo}
+            placeholder={sinCupo ? '0' : String(g.disponibles)}
+            onChange={(e) => setValue(e.target.value)}
+            className="h-8 w-16 rounded-md border border-border bg-background px-2 text-center text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+          />
+          <Button
+            size="sm"
+            disabled={sinCupo || invalid || crear.isPending}
+            onClick={() =>
+              crear.mutate(
+                { cliente, guia: g.guia, animalCount: parsed, date },
+                {
+                  onSuccess: () => {
+                    setValue('');
+                    onCreated();
+                  },
+                },
+              )
+            }
+            title={
+              sinCupo
+                ? 'La guía ya tiene todos sus animales asignados.'
+                : 'Crear lote'
+            }
+          >
+            {crear.isPending ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Plus className="size-4" />
+            )}
+            Crear
+          </Button>
+        </div>
+      </TD>
+    </TR>
   );
 }
 
@@ -270,9 +315,8 @@ function OrderRow({
       <TD className="text-muted-foreground">
         {o.guias.length ? o.guias.join(', ') : '—'}
       </TD>
-      <TD className="text-center tabular-nums">{o.animalesDisponibles}</TD>
-      <TD className="text-center">
-        <SacrificarCell o={o} />
+      <TD className="text-center tabular-nums">
+        {o.insensibilizados}/{o.animalCount}
       </TD>
       <TD>
         <Badge tone={meta.tone}>{meta.label}</Badge>
@@ -284,67 +328,13 @@ function OrderRow({
             size="icon"
             onClick={onDelete}
             disabled={deleting}
-            title="Eliminar orden"
+            title="Eliminar lote"
           >
             <Trash2 className="size-4 text-red-600" />
           </Button>
         )}
       </TD>
     </TR>
-  );
-}
-
-/** Cantidad a sacrificar: editable mientras la orden esté pendiente. */
-function SacrificarCell({ o }: { o: OrdenBeneficio }) {
-  const actualizar = useUpdateOrdenBeneficioCount();
-  const [value, setValue] = useState(String(o.animalCount));
-
-  if (o.status !== 'pendiente') {
-    return (
-      <span className="tabular-nums">
-        {o.insensibilizados}/{o.animalCount}
-      </span>
-    );
-  }
-
-  const parsed = Number(value);
-  const invalid =
-    !Number.isInteger(parsed) ||
-    parsed < 1 ||
-    parsed > o.animalesDisponibles;
-  const changed = parsed !== o.animalCount;
-
-  return (
-    <div className="flex items-center justify-center gap-1.5">
-      <input
-        type="number"
-        min={1}
-        max={o.animalesDisponibles}
-        value={value}
-        onChange={(e) => setValue(e.target.value)}
-        className="h-8 w-16 rounded-md border border-border bg-background px-2 text-center text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring"
-      />
-      <Button
-        size="icon"
-        variant="outline"
-        className="size-8"
-        disabled={invalid || !changed || actualizar.isPending}
-        onClick={() =>
-          actualizar.mutate({ id: o.id, animalCount: parsed })
-        }
-        title={
-          invalid
-            ? `Debe estar entre 1 y ${o.animalesDisponibles}`
-            : 'Guardar cantidad'
-        }
-      >
-        {actualizar.isPending ? (
-          <LoaderCircle className="size-4 animate-spin" />
-        ) : (
-          <Check className="size-4" />
-        )}
-      </Button>
-    </div>
   );
 }
 

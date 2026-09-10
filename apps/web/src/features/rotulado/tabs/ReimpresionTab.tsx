@@ -51,20 +51,20 @@ export function ReimpresionTab() {
         <Label>Código de Barras de Etiqueta</Label>
         <div className="flex gap-2">
           <Input
-            className="h-11"
+            className="h-9"
             placeholder="Escaneá o escribí el código…"
             value={barcode}
             onChange={(e) => setBarcode(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && buscar()}
           />
-          <Button className="h-11 px-4" onClick={buscar} disabled={loading}>
+          <Button className="h-9 px-4" onClick={buscar} disabled={loading}>
             {loading ? (
               <LoaderCircle className="size-5 animate-spin" />
             ) : (
               <Search className="size-5" />
             )}
           </Button>
-          <Button variant="outline" className="h-11 px-4" onClick={limpiar}>
+          <Button variant="outline" className="h-9 px-4" onClick={limpiar}>
             <Eraser className="size-5" />
           </Button>
         </div>
@@ -145,7 +145,7 @@ export function ReimpresionTab() {
           )}
 
           <Button
-            className="mt-4 h-11 w-full"
+            className="mt-4 h-9 w-full"
             disabled={!etiqueta}
             title="Reimprimir etiqueta"
           >
