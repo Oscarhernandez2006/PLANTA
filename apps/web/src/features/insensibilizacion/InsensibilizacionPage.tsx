@@ -151,48 +151,32 @@ export function InsensibilizacionPage() {
 
                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
                   {Array.from({ length: total }).map((_, i) => {
+                    // Los ya insensibilizados desaparecen; solo quedan pendientes.
+                    if (i < done) return null;
                     const consecutivo = (d.consecutivoBase ?? 0) + i + 1;
-                    const marked = i < done;
                     const isNext = i === done;
-                    const isLastMarked = i === done - 1;
                     const busy = stun.isPending || undo.isPending;
                     return (
                       <button
                         key={consecutivo}
-                        disabled={busy || (!isNext && !isLastMarked)}
+                        disabled={busy || !isNext}
                         onClick={() => {
                           if (!selectedId) return;
                           if (isNext) stun.mutate(selectedId);
-                          else if (isLastMarked) undo.mutate(selectedId);
                         }}
                         title={
-                          marked
-                            ? isLastMarked
-                              ? 'Clic para deshacer'
-                              : 'Insensibilizado'
-                            : isNext
-                              ? 'Clic para insensibilizar'
-                              : 'Pendiente'
+                          isNext ? 'Clic para insensibilizar' : 'Pendiente'
                         }
                         className={cn(
                           'flex aspect-square items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
-                          marked &&
-                            'border-emerald-600 bg-emerald-600 text-white',
                           isNext &&
                             'border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300 hover:bg-emerald-100',
-                          !marked &&
-                            !isNext &&
+                          !isNext &&
                             'border-border bg-muted/40 text-muted-foreground',
-                          !busy &&
-                            (isNext || isLastMarked) &&
-                            'cursor-pointer',
+                          !busy && isNext && 'cursor-pointer',
                         )}
                       >
-                        {marked ? (
-                          <CheckCircle2 className="size-7" />
-                        ) : (
-                          consecutivo
-                        )}
+                        {consecutivo}
                       </button>
                     );
                   })}
