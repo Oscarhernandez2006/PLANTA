@@ -562,6 +562,7 @@ function GuiasCamionList({
         <THead>
           <TR>
             <TH>Guía</TH>
+            <TH>Cliente</TH>
             <TH>Fecha</TH>
             <TH>Placa</TH>
             <TH className="text-right">Animales</TH>
@@ -580,6 +581,7 @@ function GuiasCamionList({
               <TD className="font-semibold">
                 {guia.guia ?? `Ref. ${guia.reference}`}
               </TD>
+              <TD className="font-medium">{guia.cliente ?? '—'}</TD>
               <TD className="text-muted-foreground">{guia.date}</TD>
               <TD>{guia.placa ?? '—'}</TD>
               <TD className="text-right tabular-nums">{guia.cantidad ?? '—'}</TD>
