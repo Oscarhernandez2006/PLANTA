@@ -14,6 +14,7 @@ import { Input, Label, Select } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
+import { cn } from '@/lib/utils';
 import { readScale } from '@/lib/device';
 import {
   usePesoEnPieList,
@@ -455,19 +456,21 @@ export function PesoEnPiePage() {
         </div>
       </Card>
 
-      <div className="grid gap-3 md:grid-cols-[1fr_1.2fr]">
-        <FieldBox label="Peso (kg):"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.0" className="h-14 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none" /></FieldBox>
-        <div className="flex items-center justify-end gap-2"><Button aria-label="Leer báscula" title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'} variant="outline" className="size-12 p-0" onClick={leerBascula} disabled={isReadingScale}>{isReadingScale ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}</Button><Button aria-label="Imprimir" title="Imprimir" variant="outline" className="size-12 p-0" onClick={imprimir}><Printer /></Button></div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-card p-3">
-        <div>
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Animales de la guía</p>
-          <p className="mt-0.5 text-xl font-semibold tabular-nums">{animalesRegistrados} / {animalesObjetivo || '—'}</p>
+      <div className="grid gap-3 md:grid-cols-2">
+        <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-card p-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Animales de la guía</p>
+            <p className="mt-0.5 text-xl font-semibold tabular-nums">{animalesRegistrados} / {animalesObjetivo || '—'}</p>
+          </div>
+          <div className="border-l border-border pl-4">
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total kg</p>
+            <p className="mt-0.5 text-xl font-semibold tabular-nums text-emerald-700">{kg(totalKg)} kg</p>
+          </div>
         </div>
-        <div className="border-l border-border pl-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total kg</p>
-          <p className="mt-0.5 text-xl font-semibold tabular-nums text-emerald-700">{kg(totalKg)} kg</p>
+        <div className="flex items-center gap-2">
+          <FieldBox label="Peso (kg):" className="flex-1"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.0" className="h-14 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none" /></FieldBox>
+          <Button aria-label="Leer báscula" title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'} variant="outline" className="size-12 p-0" onClick={leerBascula} disabled={isReadingScale}>{isReadingScale ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}</Button>
+          <Button aria-label="Imprimir" title="Imprimir" variant="outline" className="size-12 p-0" onClick={imprimir}><Printer /></Button>
         </div>
       </div>
 
@@ -593,6 +596,6 @@ function GuiasCamionList({
   );
 }
 
-function FieldBox({ label, children }: { label: string; children: React.ReactNode }) {
-  return <div className="relative rounded-sm border-2 border-border bg-card pt-2"><span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">{label}</span>{children}</div>;
+function FieldBox({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
+  return <div className={cn('relative rounded-sm border-2 border-border bg-card pt-2', className)}><span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">{label}</span>{children}</div>;
 }
