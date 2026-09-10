@@ -116,9 +116,9 @@ export function PesoEnPiePage() {
   }, [corralGuia, corral]);
 
   const tabs: TabItem[] = [
+    { value: 'guias', label: `Guías Abiertas: ${guiasCamion.data?.length ?? 0}` },
     { value: 'registro', label: 'Registro de animales' },
     { value: 'observaciones', label: 'Observaciones' },
-    { value: 'guias', label: `Guías Abiertas: ${guiasCamion.data?.length ?? 0}` },
   ];
 
   const guiaSeleccionada = guia.trim().length > 0 && animalesObjetivo > 0;
