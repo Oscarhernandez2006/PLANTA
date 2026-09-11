@@ -314,7 +314,7 @@ const CANAL_PANELS: {
 const PANEL_TIPO: Record<CanalPiezaTipo, CanalTipo> = {
   canal: 'canal_completa',
   cizq: 'media_canal_con_cola',
-  cder: 'media_canal_con_cola',
+  cder: 'media_canal_sin_cola',
 };
 
 function CanalesTab({
@@ -371,11 +371,7 @@ function CanalesTab({
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
           const esObjetivo = target === pieza;
-          const tipoActivo =
-            pieza === 'canal'
-              ? detail.canalTipo === 'canal_completa'
-              : detail.canalTipo === 'media_canal_con_cola' ||
-                detail.canalTipo === 'media_canal_sin_cola';
+          const tipoActivo = detail.canalTipo === PANEL_TIPO[pieza];
           return (
             <button
               key={pieza}
@@ -399,7 +395,7 @@ function CanalesTab({
               <span className="text-sm font-semibold">{title}:</span>
               <div
                 className={cn(
-                  'flex h-52 items-end justify-center',
+                  'flex h-80 items-end justify-center',
                   !aplica && 'opacity-30 grayscale',
                 )}
               >
