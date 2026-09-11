@@ -425,10 +425,13 @@ export function PesoEnPiePage() {
             <Label htmlFor="fecha">Fecha</Label>
             <Input
               id="fecha"
-              type="text"
-              readOnly
-              className="h-9"
-              value={fecha.split('-').reverse().join('/')}
+              type="date"
+              className="h-9 [&::-webkit-calendar-picker-indicator]:hidden"
+              value={fecha}
+              min={fecha}
+              max={fecha}
+              onKeyDown={(e) => e.preventDefault()}
+              onChange={() => {}}
             />
           </div>
           <div className="space-y-1">
