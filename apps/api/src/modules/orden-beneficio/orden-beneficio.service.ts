@@ -6,7 +6,7 @@ import {
 import {
   OrdenBeneficio,
   OrdenBeneficioStatus,
-  PesoEnPieStatus,
+  PesoCamionStatus,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
@@ -58,7 +58,13 @@ export class OrdenBeneficioService {
   private async aggregate(ctx: AuthContext, date: Date) {
     const [camiones, pesosEnPie, ordenes] = await Promise.all([
       this.prisma.pesoCamion.findMany({
-        where: { plantId: ctx.plantId, date, deletedAt: null },
+        // La guía se cierra en Peso en Camión; solo las cerradas son candidatas.
+        where: {
+          plantId: ctx.plantId,
+          date,
+          deletedAt: null,
+          status: PesoCamionStatus.cerrada,
+        },
         select: { cliente: true, guia: true },
       }),
       this.prisma.pesoEnPie.findMany({
@@ -66,8 +72,6 @@ export class OrdenBeneficioService {
           plantId: ctx.plantId,
           date,
           deletedAt: null,
-          // Solo guías ya cerradas (pasan a insensibilización o más).
-          status: { not: PesoEnPieStatus.pendiente },
         },
         select: { guia: true, animalCount: true, corral: true },
       }),
