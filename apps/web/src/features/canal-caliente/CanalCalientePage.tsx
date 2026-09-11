@@ -326,6 +326,43 @@ const CANAL_PANELS: {
   { pieza: 'cder', title: 'Canal Derecha (CDER)', mirror: true },
 ];
 
+/** Selector del tipo de canal, se define directamente en la pestaña CANALES. */
+function TipoSelector({ detail }: { detail: CanalLoteDetail }) {
+  const setTipo = useSetCanalTipo();
+  return (
+    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+      {TIPOS.map((t) => {
+        const activo = detail.canalTipo === t.key;
+        return (
+          <button
+            key={t.key}
+            disabled={setTipo.isPending}
+            onClick={() =>
+              setTipo.mutate({
+                ordenBeneficioId: detail.ordenBeneficioId,
+                tipo: t.key,
+              })
+            }
+            className={cn(
+              'flex flex-col items-start gap-0.5 rounded-sm border-2 px-3 py-2 text-left transition-all hover:border-emerald-400',
+              activo
+                ? 'border-emerald-500 bg-emerald-50'
+                : 'border-border bg-card',
+              setTipo.isPending && 'opacity-60',
+            )}
+          >
+            <span className="flex w-full items-center justify-between text-sm font-semibold">
+              {t.label}
+              {activo && <span className="text-emerald-600">✓</span>}
+            </span>
+            <span className="text-xs text-muted-foreground">{t.hint}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function CanalesTab({
   date,
   detail,
@@ -344,7 +381,12 @@ function CanalesTab({
     );
   if (!detail.canalTipo)
     return (
-      <Empty text="Selecciona el tipo de canal de la orden para empezar a pesar." />
+      <div className="flex flex-col gap-3 p-3">
+        <TipoSelector detail={detail} />
+        <p className="py-6 text-center text-sm text-muted-foreground">
+          Elige el tipo de canal para empezar a pesar.
+        </p>
+      </div>
     );
 
   const esCompleta = detail.canalTipo === 'canal_completa';
@@ -356,6 +398,7 @@ function CanalesTab({
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      <TipoSelector detail={detail} />
       <p className="text-center text-sm text-muted-foreground">
         {animal ? (
           <>
