@@ -426,7 +426,7 @@ export function PesoEnPiePage() {
             <Input
               id="fecha"
               type="date"
-              className="h-9"
+              className="h-9 pr-11"
               value={fecha}
               min={fecha}
               max={fecha}
