@@ -98,10 +98,10 @@ export function CanalCalientePage() {
     [detail.data],
   );
 
-  function seleccionarOrden(ordenBeneficioId: string, tipo: CanalTipo | null) {
+  function seleccionarOrden(ordenBeneficioId: string, _tipo: CanalTipo | null) {
     setSelectedId(ordenBeneficioId);
     setTab('canales');
-    if (!tipo) setTipoDialogFor(ordenBeneficioId);
+    setTipoDialogFor(ordenBeneficioId);
   }
 
   function scrollList(dir: 1 | -1) {
@@ -202,6 +202,7 @@ export function CanalCalientePage() {
       {/* Diálogo de tipo de canal */}
       <TipoDialog
         ordenBeneficioId={tipoDialogFor}
+        current={detail.data?.canalTipo ?? selectedLote?.canalTipo ?? null}
         onClose={() => setTipoDialogFor(null)}
       />
     </div>
@@ -712,9 +713,11 @@ function FooterBascula({
 
 function TipoDialog({
   ordenBeneficioId,
+  current,
   onClose,
 }: {
   ordenBeneficioId: string | null;
+  current?: CanalTipo | null;
   onClose: () => void;
 }) {
   const setTipo = useSetCanalTipo();
@@ -727,26 +730,35 @@ function TipoDialog({
       className="max-w-md"
     >
       <div className="grid gap-3">
-        {TIPOS.map((t) => (
-          <button
-            key={t.key}
-            disabled={setTipo.isPending}
-            onClick={() =>
-              ordenBeneficioId &&
-              setTipo.mutate(
-                { ordenBeneficioId, tipo: t.key },
-                { onSuccess: onClose },
-              )
-            }
-            className={cn(
-              'flex flex-col items-start gap-0.5 rounded-lg border-2 border-border bg-card px-4 py-4 text-left transition-all hover:border-emerald-400 hover:bg-emerald-50',
-              setTipo.isPending && 'opacity-60',
-            )}
-          >
-            <span className="text-base font-semibold">{t.label}</span>
-            <span className="text-xs text-muted-foreground">{t.hint}</span>
-          </button>
-        ))}
+        {TIPOS.map((t) => {
+          const activo = current === t.key;
+          return (
+            <button
+              key={t.key}
+              disabled={setTipo.isPending}
+              onClick={() =>
+                ordenBeneficioId &&
+                setTipo.mutate(
+                  { ordenBeneficioId, tipo: t.key },
+                  { onSuccess: onClose },
+                )
+              }
+              className={cn(
+                'flex flex-col items-start gap-0.5 rounded-lg border-2 px-4 py-4 text-left transition-all hover:border-emerald-400 hover:bg-emerald-50',
+                activo
+                  ? 'border-emerald-500 bg-emerald-50'
+                  : 'border-border bg-card',
+                setTipo.isPending && 'opacity-60',
+              )}
+            >
+              <span className="flex w-full items-center justify-between text-base font-semibold">
+                {t.label}
+                {activo && <span className="text-emerald-600">✓</span>}
+              </span>
+              <span className="text-xs text-muted-foreground">{t.hint}</span>
+            </button>
+          );
+        })}
       </div>
     </Dialog>
   );
