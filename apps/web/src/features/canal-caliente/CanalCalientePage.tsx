@@ -100,6 +100,7 @@ export function CanalCalientePage() {
 
   function seleccionarOrden(ordenBeneficioId: string, tipo: CanalTipo | null) {
     setSelectedId(ordenBeneficioId);
+    setTab('canales');
     if (!tipo) setTipoDialogFor(ordenBeneficioId);
   }
 
@@ -289,7 +290,7 @@ function OrdenesTab({
   );
 }
 
-/** Silueta estilizada de media canal colgada (leg arriba). */
+/** Silueta de media canal colgada, estilo FrigoAPP (rellena con contorno). */
 function Carcass({
   className,
   mirror,
@@ -299,17 +300,16 @@ function Carcass({
 }) {
   return (
     <svg
-      viewBox="0 0 60 200"
+      viewBox="0 0 100 240"
       className={className}
       style={mirror ? { transform: 'scaleX(-1)' } : undefined}
-      fill="currentColor"
-      stroke="currentColor"
       aria-hidden
     >
       <path
-        d="M31,4 C41,2 49,9 46,19 C45,25 41,27 39,31 C48,40 49,66 46,92 C44,116 47,146 41,176 C39,188 35,196 30,196 C26,196 23,190 21,181 C16,150 18,118 16,92 C13,64 15,40 22,31 C20,27 16,24 15,18 C13,8 21,2 31,4 Z"
-        strokeWidth={2}
+        d="M48 6 C58 4 60 16 56 26 C70 44 72 74 66 100 C62 116 64 124 70 138 C80 158 78 196 64 222 C58 232 42 233 36 221 C26 194 30 154 36 138 C42 124 40 116 34 100 C28 74 30 44 44 26 C40 16 40 6 48 6 Z"
+        strokeWidth={4}
         strokeLinejoin="round"
+        strokeLinecap="round"
       />
     </svg>
   );
@@ -377,10 +377,10 @@ function CanalesTab({
           const pesado = !!estado?.pesado;
           const esObjetivo = target === pieza;
           const color = pesado
-            ? 'text-emerald-300'
+            ? 'fill-emerald-200 stroke-emerald-600'
             : esObjetivo
-              ? 'text-red-400'
-              : 'text-rose-200';
+              ? 'fill-red-300 stroke-red-600'
+              : 'fill-rose-200 stroke-rose-800';
           return (
             <div
               key={pieza}
