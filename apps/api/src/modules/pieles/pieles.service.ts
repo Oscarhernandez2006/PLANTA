@@ -7,16 +7,10 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { RegistrarPielDto } from './dto/registrar-piel.dto';
 import { RegistrarLoteDto } from './dto/registrar-lote.dto';
-
-function today() {
-  return new Date();
-}
+import { plantDateOnly } from '../../common/plant-date';
 
 function dateOnly(value?: string) {
-  const d = value ? new Date(`${value}T00:00:00Z`) : today();
-  return new Date(
-    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
-  );
+  return plantDateOnly(value);
 }
 
 @Injectable()

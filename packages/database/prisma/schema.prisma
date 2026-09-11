@@ -681,6 +681,23 @@ enum OrdenBeneficioStatus {
   procesado
 }
 
+enum CanalTipo {
+  canal_completa
+  media_canal_con_cola
+  media_canal_sin_cola
+}
+
+enum CanalPiezaTipo {
+  canal
+  cizq
+  cder
+}
+
+enum CanalTurno {
+  manana
+  tarde
+}
+
 model PesoEnPie {
   id             String              @id @default(uuid()) @db.Uuid
   plantId        String              @map("plant_id") @db.Uuid
@@ -765,6 +782,8 @@ model OrdenBeneficio {
   animalCount   Int                  @map("animal_count")
   observaciones String?
   status        OrdenBeneficioStatus @default(pendiente)
+  // Tipo de pesaje en Canal Caliente, elegido una vez por orden.
+  canalTipo     CanalTipo?           @map("canal_tipo")
   createdById   String               @map("created_by") @db.Uuid
   createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -799,8 +818,29 @@ model OrdenBeneficioEvento {
   viscRojasOperatorId   String?   @map("visc_rojas_operator_id") @db.Uuid
 
   ordenBeneficio OrdenBeneficio @relation(fields: [ordenBeneficioId], references: [id])
+  canalPiezas    CanalPieza[]
 
   @@unique([ordenBeneficioId, sequence])
   @@index([ordenBeneficioId])
   @@map("orden_beneficio_evento")
+}
+
+// Peso del canal caliente por PIEZA de cada animal. Canal completa = 1 pieza
+// (canal); media canal = 2 piezas (cizq izquierda, cder derecha). El tipo de
+// la orden vive en OrdenBeneficio.canalTipo.
+model CanalPieza {
+  id         String         @id @default(uuid()) @db.Uuid
+  eventoId   String         @map("orden_beneficio_evento_id") @db.Uuid
+  pieza      CanalPiezaTipo
+  pesoKg     Decimal        @map("peso_kg") @db.Decimal(12, 2)
+  turno      CanalTurno?
+  weighedAt  DateTime       @default(now()) @map("weighed_at") @db.Timestamptz(6)
+  operatorId String         @map("operator_id") @db.Uuid
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  evento OrdenBeneficioEvento @relation(fields: [eventoId], references: [id])
+
+  @@unique([eventoId, pieza])
+  @@index([eventoId])
+  @@map("canal_pieza")
 }

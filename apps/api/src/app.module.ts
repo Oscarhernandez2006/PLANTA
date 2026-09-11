@@ -14,6 +14,7 @@ import { PesoEnPieModule } from './modules/peso-en-pie/peso-en-pie.module';
 import { InsensibilizacionModule } from './modules/insensibilizacion/insensibilizacion.module';
 import { OrdenBeneficioModule } from './modules/orden-beneficio/orden-beneficio.module';
 import { PielesModule } from './modules/pieles/pieles.module';
+import { CanalCalienteModule } from './modules/canal-caliente/canal-caliente.module';
 import { ProcedenciaModule } from './modules/procedencia/procedencia.module';
 import { ProveedorModule } from './modules/proveedor/proveedor.module';
 import { SubproductosModule } from './modules/subproductos/subproductos.module';
@@ -38,6 +39,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
     InsensibilizacionModule,
     OrdenBeneficioModule,
     PielesModule,
+    CanalCalienteModule,
     ProcedenciaModule,
     ProveedorModule,
     SubproductosModule,

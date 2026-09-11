@@ -11,9 +11,10 @@ import {
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { CreateOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
+import { plantToday } from '../../common/plant-date';
 
 function dateOnly(s?: string) {
-  const str = s ?? new Date().toISOString().slice(0, 10);
+  const str = s ?? plantToday();
   return { str, date: new Date(`${str}T00:00:00.000Z`) };
 }
 

@@ -5,6 +5,13 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+/** Fecha de hoy (YYYY-MM-DD) en la zona horaria de la planta (America/Bogota), no UTC. */
+export function plantToday(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Bogota',
+  }).format(new Date());
+}
+
 /** Formatea kilogramos con separador de miles y 2-3 decimales. */
 export function formatKg(value: number | string, decimals = 2): string {
   const n = typeof value === 'string' ? Number(value) : value;
