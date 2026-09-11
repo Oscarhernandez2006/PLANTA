@@ -337,7 +337,6 @@ function CanalesTab({
 
   const esCompleta = detail.canalTipo === 'canal_completa';
   const animal = objetivo?.animal;
-  const target = objetivo?.pieza ?? null;
   const estadoDe = (p: CanalPiezaTipo) =>
     animal?.piezas.find((x) => x.pieza === p);
   const rows = piezas.data ?? [];
@@ -370,7 +369,6 @@ function CanalesTab({
               : pieza !== 'canal';
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
-          const esObjetivo = target === pieza;
           const tipoActivo = detail.canalTipo === PANEL_TIPO[pieza];
           return (
             <button
@@ -385,11 +383,9 @@ function CanalesTab({
               disabled={setTipo.isPending}
               className={cn(
                 'flex flex-col items-center gap-2 rounded-sm border-2 bg-card p-3 text-center transition-colors hover:border-emerald-400',
-                esObjetivo
-                  ? 'border-red-500 ring-2 ring-red-200'
-                  : tipoActivo
-                    ? 'border-emerald-500 ring-2 ring-emerald-200'
-                    : 'border-border',
+                tipoActivo
+                  ? 'border-emerald-500 ring-2 ring-emerald-200'
+                  : 'border-border',
               )}
             >
               <span className="text-sm font-semibold">{title}:</span>
@@ -413,8 +409,6 @@ function CanalesTab({
                   <span className="text-sm font-bold text-emerald-600">
                     {estado?.pesoKg?.toFixed(2)} kg ✓
                   </span>
-                ) : esObjetivo ? (
-                  <span className="text-sm font-bold text-red-600">Objetivo</span>
                 ) : tipoActivo ? (
                   <span className="text-xs font-semibold text-emerald-600">
                     Seleccionado
