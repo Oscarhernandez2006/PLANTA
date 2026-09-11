@@ -15,6 +15,7 @@ import { InsensibilizacionModule } from './modules/insensibilizacion/insensibili
 import { OrdenBeneficioModule } from './modules/orden-beneficio/orden-beneficio.module';
 import { PielesModule } from './modules/pieles/pieles.module';
 import { CanalCalienteModule } from './modules/canal-caliente/canal-caliente.module';
+import { CanalReceiptModule } from './modules/canal-receipt/canal-receipt.module';
 import { ProcedenciaModule } from './modules/procedencia/procedencia.module';
 import { ProveedorModule } from './modules/proveedor/proveedor.module';
 import { SubproductosModule } from './modules/subproductos/subproductos.module';
@@ -40,6 +41,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
     OrdenBeneficioModule,
     PielesModule,
     CanalCalienteModule,
+    CanalReceiptModule,
     ProcedenciaModule,
     ProveedorModule,
     SubproductosModule,

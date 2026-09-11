@@ -149,6 +149,7 @@ model Client {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   dispatchOrders DispatchOrder[]
+  canalReceipts  CanalReceiptOrder[]
 
   @@map("client")
 }
@@ -252,6 +253,53 @@ model DispatchOrder {
   @@map("dispatch_order")
 }
 
+// Recibo en Canal: orden de recibo de canales. Solo el registro; luego se
+// consume en otro módulo. Numeración propia por planta.
+model CanalReceiptOrder {
+  id               String              @id @default(uuid()) @db.Uuid
+  plantId          String              @map("plant_id") @db.Uuid
+  receiptNumber    Int                 @map("receipt_number")
+  registrationDate DateTime            @map("registration_date") @db.Date
+  processDate      DateTime            @map("process_date") @db.Date
+  clientId         String              @map("client_id") @db.Uuid
+  status           DispatchOrderStatus @default(activo)
+  createdById      String              @map("created_by") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
+
+  plant     Plant   @relation(fields: [plantId], references: [id])
+  client    Client  @relation(fields: [clientId], references: [id])
+  createdBy AppUser @relation("canalReceiptCreatedBy", fields: [createdById], references: [id])
+  items     CanalReceiptItem[]
+
+  @@unique([plantId, receiptNumber])
+  @@index([plantId, status])
+  @@map("canal_receipt_order")
+}
+
+// Canal pesado dentro de una orden de recibo (Recibo de Canales).
+model CanalReceiptItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  receiptOrderId String   @map("receipt_order_id") @db.Uuid
+  plantId        String   @map("plant_id") @db.Uuid
+  codigo         Int
+  cava           Int
+  pesoKg         Decimal  @map("peso_kg") @db.Decimal(12, 2)
+  guia           String?
+  lote           String?
+  identificacion String?
+  createdById    String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  receiptOrder CanalReceiptOrder @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
+  plant        Plant             @relation(fields: [plantId], references: [id])
+  createdBy    AppUser           @relation("canalReceiptItemCreatedBy", fields: [createdById], references: [id])
+
+  @@index([receiptOrderId])
+  @@map("canal_receipt_item")
+}
+
 // ======================= ORGANIZACIÓN / SEGURIDAD ==========================
 
 model Plant {
@@ -274,6 +322,8 @@ model Plant {
   traceEvents    TraceEvent[]
   devices        Device[]
   dispatchOrders DispatchOrder[]
+  canalReceipts  CanalReceiptOrder[]
+  canalReceiptItems CanalReceiptItem[]
 
   @@map("plant")
 }
@@ -299,6 +349,8 @@ model AppUser {
   shipmentsDispatched Shipment[]    @relation("shipmentDispatchedBy")
   traceEvents        TraceEvent[]
   dispatchOrders     DispatchOrder[] @relation("dispatchCreatedBy")
+  canalReceipts      CanalReceiptOrder[] @relation("canalReceiptCreatedBy")
+  canalReceiptItems  CanalReceiptItem[] @relation("canalReceiptItemCreatedBy")
 
   @@index([plantId])
   @@map("app_user")

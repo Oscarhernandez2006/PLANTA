@@ -13,9 +13,11 @@ import { WelcomeScreen } from './features/auth/WelcomeScreen';
 import { DeviceGate } from './features/device/DeviceGate';
 import { DevicesPage } from './features/device/DevicesPage';
 import { CanalFriaPage } from './features/canal-fria/CanalFriaPage';
+import { CanalReciboPage } from './features/canal-recibo/CanalReciboPage';
 import { CanalCalientePage } from './features/canal-caliente/CanalCalientePage';
 import { PesoEnCamionPage } from './features/peso-en-camion/PesoEnCamionPage';
 import { PesoEnPiePage } from './features/peso-en-pie/PesoEnPiePage';
+import { ReciboCanalesPage } from './features/recibo-canales/ReciboCanalesPage';
 import { RotuladoPage } from './features/rotulado/RotuladoPage';
 import { InsensibilizacionPage } from './features/insensibilizacion/InsensibilizacionPage';
 import { PielesPage } from './features/pieles/PielesPage';
@@ -33,9 +35,11 @@ const router = createBrowserRouter([
     children: [
       { index: true, element: <DashboardPage /> },
       { path: 'canal-fria', element: <CanalFriaPage /> },
+      { path: 'recibo-canal', element: <CanalReciboPage /> },
       { path: 'canal-caliente', element: <CanalCalientePage /> },
       { path: 'peso-en-camion', element: <PesoEnCamionPage /> },
       { path: 'peso-en-pie', element: <PesoEnPiePage /> },
+      { path: 'recibo-de-canales', element: <ReciboCanalesPage /> },
       {
         path: 'rotulado-desposte',
         element: <RotuladoPage stage="desposte" />,

@@ -3,9 +3,11 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { LogOut, MonitorSmartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
+import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
 import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { PesoEnCamionIcon } from '@/components/icons/PesoEnCamionIcon';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
+import { ReciboCanalesIcon } from '@/components/icons/ReciboCanalesIcon';
 import { InsensibilizacionIcon } from '@/components/icons/InsensibilizacionIcon';
 import { PielesIcon } from '@/components/icons/PielesIcon';
 import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
@@ -30,6 +32,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     items: [
       { to: '/peso-en-camion', label: 'Peso En Camión', icon: PesoEnCamionIcon },
       { to: '/peso-en-pie', label: 'Peso En Pie', icon: PesoEnPieIcon },
+      { to: '/recibo-de-canales', label: 'Recibo de Canales', icon: ReciboCanalesIcon },
       { to: '/insensibilizacion', label: 'Insensibilización', icon: InsensibilizacionIcon },
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
@@ -45,6 +48,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/orden-beneficio', label: 'Orden de Beneficio', icon: OrdenBeneficioIcon },
       { to: '/orden-despacho-frio', label: 'Orden de Despacho Frío', icon: OrdenDespachoFrioIcon },
       { to: '/orden-desposte', label: 'Orden de Desposte', icon: OrdenDesposteIcon },
+      { to: '/recibo-canal', label: 'Orden recibo de canales', icon: CanalReciboIcon },
     ],
   },
 ];
