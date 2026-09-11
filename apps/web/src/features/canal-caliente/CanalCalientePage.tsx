@@ -101,7 +101,6 @@ export function CanalCalientePage() {
   function seleccionarOrden(ordenBeneficioId: string, _tipo: CanalTipo | null) {
     setSelectedId(ordenBeneficioId);
     setTab('canales');
-    setTipoDialogFor(ordenBeneficioId);
   }
 
   function scrollList(dir: 1 | -1) {
