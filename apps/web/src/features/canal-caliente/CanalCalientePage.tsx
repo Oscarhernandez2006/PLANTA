@@ -300,13 +300,13 @@ function Carcass({
 }) {
   return (
     <svg
-      viewBox="0 0 100 240"
+      viewBox="0 0 120 300"
       className={className}
       style={mirror ? { transform: 'scaleX(-1)' } : undefined}
       aria-hidden
     >
       <path
-        d="M48 6 C58 4 60 16 56 26 C70 44 72 74 66 100 C62 116 64 124 70 138 C80 158 78 196 64 222 C58 232 42 233 36 221 C26 194 30 154 36 138 C42 124 40 116 34 100 C28 74 30 44 44 26 C40 16 40 6 48 6 Z"
+        d="M48 14 C50 8 56 6 60 8 C66 8 72 8 72 14 C74 24 70 32 70 40 C82 52 90 62 94 80 C97 110 85 118 86 140 C87 168 100 180 100 205 C100 245 88 270 66 285 C58 290 50 290 44 285 C22 270 30 245 30 205 C30 175 44 168 44 140 C45 118 30 110 34 80 C38 62 46 52 50 40 C50 32 46 24 48 14 Z"
         strokeWidth={4}
         strokeLinejoin="round"
         strokeLinecap="round"
@@ -319,10 +319,11 @@ const CANAL_PANELS: {
   pieza: CanalPiezaTipo;
   title: string;
   double?: boolean;
+  mirror?: boolean;
 }[] = [
   { pieza: 'canal', title: 'Completo (TODO)', double: true },
   { pieza: 'cizq', title: 'Canal Izquierda (CIZQ)' },
-  { pieza: 'cder', title: 'Canal Derecha (CDER)' },
+  { pieza: 'cder', title: 'Canal Derecha (CDER)', mirror: true },
 ];
 
 function CanalesTab({
@@ -371,7 +372,7 @@ function CanalesTab({
       </p>
 
       <div className="grid grid-cols-3 gap-3">
-        {CANAL_PANELS.map(({ pieza, title, double }) => {
+        {CANAL_PANELS.map(({ pieza, title, double, mirror }) => {
           const aplica = esCompleta ? pieza === 'canal' : pieza !== 'canal';
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
@@ -398,7 +399,7 @@ function CanalesTab({
                   !aplica && 'opacity-20 grayscale',
                 )}
               >
-                <Carcass className={cn('h-full w-auto', color)} />
+                <Carcass mirror={mirror} className={cn('h-full w-auto', color)} />
                 {double && (
                   <Carcass mirror className={cn('h-full w-auto', color)} />
                 )}
