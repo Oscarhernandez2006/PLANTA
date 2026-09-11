@@ -425,13 +425,10 @@ export function PesoEnPiePage() {
             <Label htmlFor="fecha">Fecha</Label>
             <Input
               id="fecha"
-              type="date"
-              className="h-9 pr-11"
-              value={fecha}
-              min={fecha}
-              max={fecha}
-              onKeyDown={(e) => e.preventDefault()}
-              onChange={() => {}}
+              type="text"
+              readOnly
+              className="h-9"
+              value={fecha.split('-').reverse().join('/')}
             />
           </div>
           <div className="space-y-1">
