@@ -25,6 +25,21 @@ function extractWeightValue(raw) {
   return Number.isFinite(value) ? value : null;
 }
 
+// Trama de la báscula: "ST,GS,+   1.90kg" (ST = estable) o "US,..." (inestable).
+// Solo se acepta el primer peso estable (ST); los US se ignoran.
+function parseScaleLine(line) {
+  if (!line || typeof line !== 'string') return null;
+  const s = line.trim();
+  if (!s) return null;
+
+  const stable = /^ST\b/i.test(s);
+  const unstable = /^US\b/i.test(s);
+  const value = extractWeightValue(s);
+  if (value === null) return null;
+
+  return { stable: stable && !unstable, value };
+}
+
 async function listSerialPorts() {
   try {
     const ports = await SerialPort.list();
@@ -66,9 +81,6 @@ async function readScaleSerial({ port, timeoutMs = 4000, baudRate } = {}) {
           stopBits: 1,
         });
 
-        const readings = [];
-        let settled = 0;
-
         const result = await new Promise((resolve) => {
           const close = () => {
             serial.removeAllListeners();
@@ -83,30 +95,24 @@ async function readScaleSerial({ port, timeoutMs = 4000, baudRate } = {}) {
           });
 
           serial.on('open', () => {
+            let buffer = '';
             serial.on('data', (chunk) => {
-              const text = chunk.toString();
-              const values = text
-                .split(/\r?\n|\r/)
-                .map((line) => extractWeightValue(line))
-                .filter((v) => v !== null);
+              buffer += chunk.toString();
+              const lines = buffer.split(/\r?\n|\r/);
+              // Conserva la última línea si aún está incompleta.
+              buffer = lines.pop() ?? '';
 
-              if (values.length) {
-                readings.push(...values);
-                while (readings.length > 8) readings.shift();
+              for (const line of lines) {
+                const parsed = parseScaleLine(line);
+                if (!parsed || !parsed.stable) continue;
 
-                const min = Math.min(...readings);
-                const max = Math.max(...readings);
-                if (max - min <= 0.2) {
-                  settled += 1;
-                } else {
-                  settled = 0;
-                }
-
-                if (settled >= 3) {
-                  clearTimeout(timeout);
-                  const last = Number(readings[readings.length - 1].toFixed(1));
-                  serial.close(() => resolve({ ok: true, value: last, port: candidate, baudRate }));
-                }
+                // Primer peso estable (ST): se toma y se cierra.
+                clearTimeout(timeout);
+                const value = Number(parsed.value.toFixed(2));
+                serial.close(() =>
+                  resolve({ ok: true, value, port: candidate, baudRate }),
+                );
+                return;
               }
             });
           });

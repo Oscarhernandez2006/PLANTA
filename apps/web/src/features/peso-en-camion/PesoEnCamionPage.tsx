@@ -42,6 +42,7 @@ import {
   type SavePesoCamionInput,
 } from './api';
 import { downloadReciboPdf } from './recibo-print';
+import { readScale, getSavedScalePort, getSavedScaleBaud } from '@/lib/device';
 import { cn } from '@/lib/utils';
 
 function today() {
@@ -91,6 +92,8 @@ export function PesoEnCamionPage() {
   const [cantidad, setCantidad] = useState('');
   const [entrada, setEntrada] = useState('');
   const [salida, setSalida] = useState('');
+  // Campo que está tomando el peso de la báscula (puerto COM).
+  const [readingField, setReadingField] = useState<'entrada' | 'salida' | null>(null);
   const [saved, setSaved] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // Aviso breve de confirmación tras guardar (el formulario se limpia enseguida).
@@ -192,6 +195,33 @@ export function PesoEnCamionPage() {
     setNotice(msg);
     if (noticeTimer.current) window.clearTimeout(noticeTimer.current);
     noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
+  }
+
+  // Toma el peso desde la báscula (puerto COM) para Entrada/Salida.
+  async function leerPeso(field: 'entrada' | 'salida') {
+    if (readingField) return;
+    setSaveError(null);
+    setReadingField(field);
+    try {
+      const port = getSavedScalePort() ?? undefined;
+      const baudRate = getSavedScaleBaud() ?? undefined;
+      const result = await readScale({ timeoutMs: 5000, port, baudRate });
+      if (result.ok && result.value !== null) {
+        const value = result.value.toFixed(2);
+        if (field === 'entrada') setEntrada(value);
+        else setSalida(value);
+        return;
+      }
+      throw new Error(result.error ?? 'scale_not_found');
+    } catch (e) {
+      setSaveError(
+        (e as Error)?.message === 'scale_not_found'
+          ? 'No se detectó la báscula. Revisa la conexión y el puerto COM.'
+          : 'No se pudo leer la báscula. Revisa la conexión y el puerto COM.',
+      );
+    } finally {
+      setReadingField(null);
+    }
   }
 
   useEffect(
@@ -595,19 +625,19 @@ export function PesoEnCamionPage() {
         />
         <StatInput
           icon={ArrowDownToLine}
-          label="Entrada (kg)"
+          label={readingField === 'entrada' ? 'Entrada (leyendo…)' : 'Entrada (kg)'}
           tone="text-red-600"
           value={entrada}
           onChange={(v) => setEntrada(v.replace(/[^\d.]/g, ''))}
-          onKeyboard={keyboard.open}
+          onKeyboard={() => leerPeso('entrada')}
         />
         <StatInput
           icon={ArrowUpFromLine}
-          label="Salida (kg)"
+          label={readingField === 'salida' ? 'Salida (leyendo…)' : 'Salida (kg)'}
           tone="text-blue-600"
           value={salida}
           onChange={(v) => setSalida(v.replace(/[^\d.]/g, ''))}
-          onKeyboard={keyboard.open}
+          onKeyboard={() => leerPeso('salida')}
         />
         {/* Calculados */}
         <StatValue

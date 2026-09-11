@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Gauge, LoaderCircle, Plug, PlugZap, Printer, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,51 +17,13 @@ import { cn } from '@/lib/utils';
 export const BAUD_RATES = [9600, 19200, 2400, 38400, 57600, 115200];
 
 // Lee la báscula real (puerto serie). En navegador (sin app de escritorio)
-// usa una simulación para poder probar la interfaz.
-export function useBascula(initial = '0.0') {
+// Lee la báscula real (puerto serie / COM) a través de la app de escritorio.
+export function useBascula(initial = '0.00') {
   const [peso, setPeso] = useState(initial);
   const [leyendo, setLeyendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const timerRef = useRef<number | null>(null);
-
-  useEffect(
-    () => () => {
-      if (timerRef.current) window.clearInterval(timerRef.current);
-    },
-    [],
-  );
-
-  function simular() {
-    const samples: number[] = [];
-    let current = 0;
-    let stable = 0;
-    timerRef.current = window.setInterval(() => {
-      const next = Math.max(
-        0,
-        Number((current + (Math.random() - 0.5) * 2.4).toFixed(1)),
-      );
-      samples.push(next);
-      if (samples.length > 6) samples.shift();
-      current = next;
-      setPeso(next.toFixed(1));
-      if (samples.length >= 4) {
-        const min = Math.min(...samples);
-        const max = Math.max(...samples);
-        stable = max - min <= 0.2 ? stable + 1 : 0;
-      }
-      if (stable >= 2) {
-        window.clearInterval(timerRef.current ?? undefined);
-        timerRef.current = null;
-        setLeyendo(false);
-      }
-    }, 300);
-  }
 
   async function leerBascula() {
-    if (timerRef.current) {
-      window.clearInterval(timerRef.current);
-      timerRef.current = null;
-    }
     setError(null);
     setLeyendo(true);
 
@@ -71,24 +33,18 @@ export function useBascula(initial = '0.0') {
     try {
       const result = await readScale({ timeoutMs: 5000, port, baudRate });
       if (result.ok && result.value !== null) {
-        setPeso(result.value.toFixed(1));
-        setLeyendo(false);
+        setPeso(result.value.toFixed(2));
         return;
       }
       throw new Error(result.error ?? 'scale_not_found');
     } catch (e) {
-      // En el equipo de planta reportamos el error real de la báscula;
-      // en el navegador de desarrollo caemos a la simulación.
-      if (isDesktop()) {
-        setLeyendo(false);
-        setError(
-          (e as Error)?.message === 'scale_not_found'
-            ? 'No se detectó la báscula. Revisa la conexión y el puerto seleccionado.'
-            : 'No se pudo leer la báscula. Revisa la conexión y el puerto seleccionado.',
-        );
-        return;
-      }
-      simular();
+      setError(
+        (e as Error)?.message === 'scale_not_found'
+          ? 'No se detectó la báscula. Revisa la conexión y el puerto COM.'
+          : 'No se pudo leer la báscula. Revisa la conexión y el puerto COM.',
+      );
+    } finally {
+      setLeyendo(false);
     }
   }
 
@@ -123,7 +79,7 @@ export function BasculaField({
             if (e.key === 'Enter') onEnter?.();
           }}
           inputMode="decimal"
-          placeholder="0.0"
+          placeholder="0.00"
           className="h-14 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none"
         />
       </div>

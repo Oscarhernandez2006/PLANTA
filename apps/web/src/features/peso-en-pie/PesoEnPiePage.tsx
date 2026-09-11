@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import {
   Check,
   Eraser,
@@ -7,6 +7,7 @@ import {
   LoaderCircle,
   Lock,
   Printer,
+  Tag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -16,6 +17,9 @@ import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
 import { cn } from '@/lib/utils';
 import { readScale } from '@/lib/device';
+import { useAuth } from '@/features/auth/auth-context';
+import logoSantaCruz from '@/assets/logo-santacruz.png';
+import { downloadReciboPiePdf } from './recibo-print';
 import {
   usePesoEnPieList,
   useCreatePesoEnPie,
@@ -57,8 +61,8 @@ export function PesoEnPiePage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isReadingScale, setIsReadingScale] = useState(false);
   const [processClosed, setProcessClosed] = useState(false);
-  const scaleTimerRef = useRef<number | null>(null);
 
+  const { user } = useAuth();
   const lista = usePesoEnPieList();
   const guiasCamion = usePesoCamionAbiertas();
   const crear = useCreatePesoEnPie();
@@ -79,14 +83,6 @@ export function PesoEnPiePage() {
       // Ignora almacenamiento no válido.
     }
   }, [peso]);
-
-  useEffect(() => {
-    return () => {
-      if (scaleTimerRef.current) {
-        window.clearInterval(scaleTimerRef.current);
-      }
-    };
-  }, []);
 
   const pesoNum = num(peso);
   const reportes = lista.data ?? [];
@@ -145,10 +141,6 @@ export function PesoEnPiePage() {
     setObservaciones('');
     setSaveError(null);
     setIsReadingScale(false);
-    if (scaleTimerRef.current) {
-      window.clearInterval(scaleTimerRef.current);
-      scaleTimerRef.current = null;
-    }
   }
 
   function limpiarCaptura() {
@@ -158,10 +150,6 @@ export function PesoEnPiePage() {
     setObservaciones('');
     setSaveError(null);
     setIsReadingScale(false);
-    if (scaleTimerRef.current) {
-      window.clearInterval(scaleTimerRef.current);
-      scaleTimerRef.current = null;
-    }
   }
 
   function seleccionarGuia(guiaCamion: PesoCamionGuia) {
@@ -202,52 +190,24 @@ export function PesoEnPiePage() {
   }
 
   async function leerBascula() {
-    if (scaleTimerRef.current) {
-      window.clearInterval(scaleTimerRef.current);
-      scaleTimerRef.current = null;
-    }
-
     setSaveError(null);
     setIsReadingScale(true);
 
     try {
       const result = await readScale({ timeoutMs: 4000 });
       if (result.ok && result.value !== null) {
-        setPeso(result.value.toFixed(1));
-        setIsReadingScale(false);
+        setPeso(result.value.toFixed(2));
         return;
       }
-
       throw new Error(result.error ?? 'scale_not_found');
-    } catch {
-      const samples: number[] = [];
-      let current = 0;
-      let stableSamples = 0;
-
-      scaleTimerRef.current = window.setInterval(() => {
-        const next = Math.max(0, Number((current + (Math.random() - 0.5) * 2.4).toFixed(1)));
-        samples.push(next);
-        if (samples.length > 6) samples.shift();
-
-        current = next;
-        setPeso(next.toFixed(1));
-
-        if (samples.length >= 4) {
-          const min = Math.min(...samples);
-          const max = Math.max(...samples);
-          if (max - min <= 0.2) {
-            stableSamples += 1;
-          } else {
-            stableSamples = 0;
-          }
-        }
-
-        if (stableSamples >= 2) {
-          window.clearInterval(scaleTimerRef.current ?? undefined);
-          scaleTimerRef.current = null;
-          setIsReadingScale(false);
-        }
-      }, 300);
+    } catch (e) {
+      setSaveError(
+        (e as Error)?.message === 'scale_not_found'
+          ? 'No se detectó la báscula. Revisa la conexión y el puerto COM.'
+          : 'No se pudo leer la báscula. Revisa la conexión y el puerto COM.',
+      );
+    } finally {
+      setIsReadingScale(false);
     }
   }
 
@@ -306,11 +266,59 @@ export function PesoEnPiePage() {
   }
 
   function imprimir() {
-    window.print();
+    const entradaNum = num(entrada);
+    const salidaNum = num(salida);
+    const netoNum = entradaNum - salidaNum;
+    const cantNum = num(cantidad);
+    const promNum = cantNum > 0 ? netoNum / cantNum : 0;
+    const referencia = reportesGuia.length
+      ? String(Math.min(...reportesGuia.map((r) => r.reference)))
+      : '';
+    void downloadReciboPiePdf({
+      guia,
+      fecha,
+      proveedor,
+      procedencia,
+      ciudad: '',
+      cliente,
+      referencia,
+      placa,
+      conductor,
+      entrada: kg(entradaNum),
+      salida: kg(salidaNum),
+      neto: kg(netoNum),
+      cantidad: cantidad || '0',
+      prom: kg(promNum),
+      observaciones,
+      animales: reportesGuia
+        .slice()
+        .sort((a, b) => a.reference - b.reference)
+        .map((r) => ({
+          registro: `N.º ${r.reference}`,
+          animal: r.animalNo ?? String(r.reference),
+          tipo: r.tipoAnimal ?? '',
+          cantidad: r.pesoTotalKg ?? 0,
+          corral: r.corral ? `Corral ${r.corral}` : '',
+          observaciones: r.observaciones ?? '',
+        })),
+      operario: user?.fullName ?? '',
+      impreso: new Date().toLocaleString('es-CO'),
+      logoUrl: new URL(logoSantaCruz, window.location.href).href,
+    });
+  }
+
+  function imprimirPrecinto() {
+    if (!guiaSeleccionada) {
+      setSaveError('Selecciona una guía abierta para imprimir precintos.');
+      return;
+    }
+    setSaveError(null);
+    setNotice('Enviando precinto a la impresora de etiquetas…');
+    window.setTimeout(() => setNotice(null), 3000);
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <PesoEnPieIcon className="size-9" />
@@ -385,7 +393,7 @@ export function PesoEnPiePage() {
         </div>
       )}
 
-      <Card className="p-4">
+      <Card className="p-3">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
           <div className="space-y-1">
             <Label htmlFor="fecha">Fecha</Label>
@@ -394,7 +402,10 @@ export function PesoEnPiePage() {
               type="date"
               className="h-9"
               value={fecha}
-              readOnly
+              min={fecha}
+              max={fecha}
+              onKeyDown={(e) => e.preventDefault()}
+              onChange={() => {}}
             />
           </div>
           <div className="space-y-1">
@@ -409,7 +420,7 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1">
             <Label htmlFor="procedencia">Procedencia</Label>
             <Input id="procedencia" value={procedencia} readOnly className="h-9 bg-muted/40" />
@@ -424,7 +435,7 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1">
             <Label htmlFor="placa">Placa</Label>
             <Input id="placa" value={placa} readOnly className="h-9 bg-muted/40" />
@@ -435,7 +446,7 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="tipo-animal">Tipo de Animal</Label>
             <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-9">
@@ -457,7 +468,7 @@ export function PesoEnPiePage() {
       </Card>
 
       <div className="grid gap-3 md:grid-cols-2">
-        <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-card p-3">
+        <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-card p-2.5">
           <div>
             <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Animales de la guía</p>
             <p className="mt-0.5 text-xl font-semibold tabular-nums">{animalesRegistrados} / {animalesObjetivo || '—'}</p>
@@ -467,20 +478,22 @@ export function PesoEnPiePage() {
             <p className="mt-0.5 text-xl font-semibold tabular-nums text-emerald-700">{kg(totalKg)} kg</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <FieldBox label="Peso (kg):" className="flex-1"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.0" className="h-14 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none" /></FieldBox>
-          <Button aria-label="Leer báscula" title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'} variant="outline" className="size-12 p-0" onClick={leerBascula} disabled={isReadingScale}>{isReadingScale ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}</Button>
-          <Button aria-label="Imprimir" title="Imprimir" variant="outline" className="size-12 p-0" onClick={imprimir}><Printer /></Button>
+        <div className="flex flex-col gap-2">
+          <FieldBox label="Peso (kg):"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.00" className="h-12 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none" /></FieldBox>
+          <div className="flex gap-2">
+            <Button aria-label="Leer báscula" title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'} variant="outline" className="h-12 flex-1 p-0" onClick={leerBascula} disabled={isReadingScale}>{isReadingScale ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}</Button>
+            <Button aria-label="Imprimir precinto" title="Imprimir precinto / etiqueta" variant="outline" className="h-12 flex-1 p-0" onClick={imprimirPrecinto}><Tag /></Button>
+          </div>
         </div>
       </div>
 
       {guiaCompleta && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
           Esta guía ya tiene registrados sus {animalesObjetivo} animales.
         </div>
       )}
       {!guiaSeleccionada && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700">
           Selecciona una guía abierta para comenzar a pesar sus animales.
         </div>
       )}
@@ -493,11 +506,11 @@ export function PesoEnPiePage() {
             <LoaderCircle className="size-4 animate-spin" /> Cargando…
           </div>
         ) : tab === 'registro' && !reportesGuia.length ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
+          <div className="flex flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
             <Inbox className="size-8" /> Aún no hay animales registrados para esta guía.
           </div>
         ) : tab === 'registro' ? (
-          <div className="max-h-[36vh] overflow-auto">
+          <div className="max-h-[26vh] overflow-auto">
             <Table>
               <THead>
                 <TR>
@@ -548,7 +561,7 @@ function GuiasCamionList({
 
   if (!guias.length) {
     return (
-      <div className="flex flex-col items-center gap-2 p-10 text-center text-sm text-muted-foreground">
+      <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">
         <Inbox className="size-8" />
         <p className="font-medium">No hay guías abiertas</p>
         <p>Registra una guía en Peso en Camión para asignarle animales.</p>
@@ -557,7 +570,7 @@ function GuiasCamionList({
   }
 
   return (
-    <div className="max-h-[36vh] overflow-auto">
+    <div className="max-h-[26vh] overflow-auto">
       <Table>
         <THead>
           <TR>
