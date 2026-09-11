@@ -326,11 +326,11 @@ const CANAL_PANELS: {
   { pieza: 'cder', title: 'Canal Derecha (CDER)', mirror: true },
 ];
 
-/** El tipo de canal se elige tocando el recuadro correspondiente. */
+/** El tipo de canal se elige tocando el recuadro: TODO = completa, media canal = CIZQ/CDER. */
 const PANEL_TIPO: Record<CanalPiezaTipo, CanalTipo> = {
   canal: 'canal_completa',
   cizq: 'media_canal_con_cola',
-  cder: 'media_canal_sin_cola',
+  cder: 'media_canal_con_cola',
 };
 
 function CanalesTab({
@@ -387,7 +387,11 @@ function CanalesTab({
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
           const esObjetivo = target === pieza;
-          const tipoActivo = detail.canalTipo === PANEL_TIPO[pieza];
+          const tipoActivo =
+            pieza === 'canal'
+              ? detail.canalTipo === 'canal_completa'
+              : detail.canalTipo === 'media_canal_con_cola' ||
+                detail.canalTipo === 'media_canal_sin_cola';
           const color = pesado
             ? 'fill-emerald-200 stroke-emerald-600'
             : esObjetivo
