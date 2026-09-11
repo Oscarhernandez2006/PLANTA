@@ -31,6 +31,15 @@ import {
   type CanalTipo,
   type CanalTurno,
 } from './api';
+import canalTodoImg from './canal-todo.png';
+import canalCizqImg from './canal-cizq.png';
+import canalCderImg from './canal-cder.png';
+
+const CANAL_IMG: Record<CanalPiezaTipo, string> = {
+  canal: canalTodoImg,
+  cizq: canalCizqImg,
+  cder: canalCderImg,
+};
 
 type Tab = 'ordenes' | 'canales' | 'animales' | 'reporte';
 
@@ -290,31 +299,6 @@ function OrdenesTab({
   );
 }
 
-/** Silueta de media canal colgada, estilo FrigoAPP (rellena con contorno). */
-function Carcass({
-  className,
-  mirror,
-}: {
-  className?: string;
-  mirror?: boolean;
-}) {
-  return (
-    <svg
-      viewBox="0 0 120 300"
-      className={className}
-      style={mirror ? { transform: 'scaleX(-1)' } : undefined}
-      aria-hidden
-    >
-      <path
-        d="M48 14 C50 8 56 6 60 8 C66 8 72 8 72 14 C74 24 70 32 70 40 C82 52 90 62 94 80 C97 110 85 118 86 140 C87 168 100 180 100 205 C100 245 88 270 66 285 C58 290 50 290 44 285 C22 270 30 245 30 205 C30 175 44 168 44 140 C45 118 30 110 34 80 C38 62 46 52 50 40 C50 32 46 24 48 14 Z"
-        strokeWidth={4}
-        strokeLinejoin="round"
-        strokeLinecap="round"
-      />
-    </svg>
-  );
-}
-
 const CANAL_PANELS: {
   pieza: CanalPiezaTipo;
   title: string;
@@ -378,7 +362,7 @@ function CanalesTab({
       </p>
 
       <div className="grid grid-cols-3 gap-3">
-        {CANAL_PANELS.map(({ pieza, title, double, mirror }) => {
+        {CANAL_PANELS.map(({ pieza, title }) => {
           const aplica = !detail.canalTipo
             ? true
             : esCompleta
@@ -392,11 +376,6 @@ function CanalesTab({
               ? detail.canalTipo === 'canal_completa'
               : detail.canalTipo === 'media_canal_con_cola' ||
                 detail.canalTipo === 'media_canal_sin_cola';
-          const color = pesado
-            ? 'fill-emerald-200 stroke-emerald-600'
-            : esObjetivo
-              ? 'fill-red-300 stroke-red-600'
-              : 'fill-rose-200 stroke-rose-800';
           return (
             <button
               key={pieza}
@@ -420,14 +399,16 @@ function CanalesTab({
               <span className="text-sm font-semibold">{title}:</span>
               <div
                 className={cn(
-                  'flex h-52 items-end justify-center gap-1',
-                  !aplica && 'opacity-20 grayscale',
+                  'flex h-52 items-end justify-center',
+                  !aplica && 'opacity-30 grayscale',
                 )}
               >
-                <Carcass mirror={mirror} className={cn('h-full w-auto', color)} />
-                {double && (
-                  <Carcass mirror className={cn('h-full w-auto', color)} />
-                )}
+                <img
+                  src={CANAL_IMG[pieza]}
+                  alt={title}
+                  draggable={false}
+                  className="h-full w-auto object-contain"
+                />
               </div>
               <div className="h-6 text-center">
                 {!aplica ? (
