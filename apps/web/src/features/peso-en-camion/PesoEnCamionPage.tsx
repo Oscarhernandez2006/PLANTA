@@ -613,7 +613,7 @@ export function PesoEnCamionPage() {
       </Card>
 
       {/* Totales */}
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {/* Referencia: orden de llegada del día (automático) */}
         <StatValue icon={Hash} label="Referencia" value={referencia} />
         <StatInput

@@ -1,17 +1,25 @@
 import { useEffect, useState } from 'react';
 import {
+  Beef,
   Check,
   Eraser,
   Gauge,
+  Hash,
   Inbox,
   LoaderCircle,
   Lock,
+  Package,
   Printer,
+  RefreshCw,
+  Scale,
+  Sigma,
   Tag,
+  Weight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Label, Select } from '@/components/ui/input';
+import { StatValue, StatInput } from '@/components/ui/stat';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
@@ -318,7 +326,7 @@ export function PesoEnPiePage() {
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <PesoEnPieIcon className="size-9" />
@@ -379,6 +387,24 @@ export function PesoEnPiePage() {
               <Lock className="size-5" />
             )}
           </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-9"
+            title="Actualizar"
+            onClick={() => {
+              lista.refetch();
+              guiasCamion.refetch();
+            }}
+            disabled={lista.isFetching || guiasCamion.isFetching}
+          >
+            <RefreshCw
+              className={cn(
+                'size-5',
+                (lista.isFetching || guiasCamion.isFetching) && 'animate-spin',
+              )}
+            />
+          </Button>
         </div>
       </div>
 
@@ -393,7 +419,7 @@ export function PesoEnPiePage() {
         </div>
       )}
 
-      <Card className="p-3">
+      <Card className="p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
           <div className="space-y-1">
             <Label htmlFor="fecha">Fecha</Label>
@@ -420,7 +446,7 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1">
             <Label htmlFor="procedencia">Procedencia</Label>
             <Input id="procedencia" value={procedencia} readOnly className="h-9 bg-muted/40" />
@@ -435,7 +461,7 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
           <div className="space-y-1">
             <Label htmlFor="placa">Placa</Label>
             <Input id="placa" value={placa} readOnly className="h-9 bg-muted/40" />
@@ -446,7 +472,7 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
             <Label htmlFor="tipo-animal">Tipo de Animal</Label>
             <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-9">
@@ -467,24 +493,69 @@ export function PesoEnPiePage() {
         </div>
       </Card>
 
-      <div className="grid gap-3 md:grid-cols-2">
-        <div className="grid grid-cols-2 gap-3 rounded-md border border-border bg-card p-2.5">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Animales de la guía</p>
-            <p className="mt-0.5 text-xl font-semibold tabular-nums">{animalesRegistrados} / {animalesObjetivo || '—'}</p>
-          </div>
-          <div className="border-l border-border pl-4">
-            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Total kg</p>
-            <p className="mt-0.5 text-xl font-semibold tabular-nums text-emerald-700">{kg(totalKg)} kg</p>
-          </div>
-        </div>
-        <div className="flex flex-col gap-2">
-          <FieldBox label="Peso (kg):"><Input value={peso} onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))} inputMode="decimal" placeholder="0.00" className="h-12 border-0 text-center text-3xl font-bold text-emerald-700 shadow-none" /></FieldBox>
-          <div className="flex gap-2">
-            <Button aria-label="Leer báscula" title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'} variant="outline" className="h-12 flex-1 p-0" onClick={leerBascula} disabled={isReadingScale}>{isReadingScale ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge />}</Button>
-            <Button aria-label="Imprimir precinto" title="Imprimir precinto / etiqueta" variant="outline" className="h-12 flex-1 p-0" onClick={imprimirPrecinto}><Tag /></Button>
-          </div>
-        </div>
+      <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <StatValue
+          icon={Hash}
+          label="Referencia"
+          value={animalesObjetivo ? String(animalesRegistrados + 1) : '—'}
+        />
+        <StatValue
+          icon={Package}
+          label="Cant."
+          value={animalesObjetivo ? String(animalesObjetivo) : '0'}
+        />
+        <StatValue
+          icon={Beef}
+          label="Registrados"
+          value={String(animalesRegistrados)}
+        />
+        <StatValue
+          icon={Scale}
+          label="Total (kg)"
+          tone="text-emerald-600"
+          value={kg(totalKg)}
+        />
+        <StatValue
+          icon={Sigma}
+          label="Prom. (kg)"
+          value={kg(animalesRegistrados > 0 ? totalKg / animalesRegistrados : 0)}
+        />
+        <StatInput
+          icon={Weight}
+          label="Peso (kg)"
+          tone="text-emerald-700"
+          value={peso}
+          onChange={(v) => setPeso(v.replace(/[^0-9.]/g, ''))}
+          onKeyboard={leerBascula}
+          placeholder="0.00"
+          action={
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                aria-label="Leer báscula"
+                title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'}
+                onClick={leerBascula}
+                disabled={isReadingScale}
+                className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+              >
+                {isReadingScale ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Gauge className="size-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                aria-label="Imprimir precinto"
+                title="Imprimir precinto / etiqueta"
+                onClick={imprimirPrecinto}
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <Tag className="size-4" />
+              </button>
+            </div>
+          }
+        />
       </div>
 
       {guiaCompleta && (
@@ -611,6 +682,3 @@ function GuiasCamionList({
   );
 }
 
-function FieldBox({ label, children, className }: { label: string; children: React.ReactNode; className?: string }) {
-  return <div className={cn('relative rounded-sm border-2 border-border bg-card pt-2', className)}><span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">{label}</span>{children}</div>;
-}

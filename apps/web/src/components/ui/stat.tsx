@@ -16,7 +16,7 @@ export function StatCard({
   children: React.ReactNode;
 }) {
   return (
-    <Card className="p-3">
+    <Card className="flex h-full flex-col p-3">
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">
           <Icon className="size-3.5" />
