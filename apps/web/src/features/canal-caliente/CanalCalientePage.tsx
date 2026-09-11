@@ -326,42 +326,12 @@ const CANAL_PANELS: {
   { pieza: 'cder', title: 'Canal Derecha (CDER)', mirror: true },
 ];
 
-/** Selector del tipo de canal, se define directamente en la pestaña CANALES. */
-function TipoSelector({ detail }: { detail: CanalLoteDetail }) {
-  const setTipo = useSetCanalTipo();
-  return (
-    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-      {TIPOS.map((t) => {
-        const activo = detail.canalTipo === t.key;
-        return (
-          <button
-            key={t.key}
-            disabled={setTipo.isPending}
-            onClick={() =>
-              setTipo.mutate({
-                ordenBeneficioId: detail.ordenBeneficioId,
-                tipo: t.key,
-              })
-            }
-            className={cn(
-              'flex flex-col items-start gap-0.5 rounded-sm border-2 px-3 py-2 text-left transition-all hover:border-emerald-400',
-              activo
-                ? 'border-emerald-500 bg-emerald-50'
-                : 'border-border bg-card',
-              setTipo.isPending && 'opacity-60',
-            )}
-          >
-            <span className="flex w-full items-center justify-between text-sm font-semibold">
-              {t.label}
-              {activo && <span className="text-emerald-600">✓</span>}
-            </span>
-            <span className="text-xs text-muted-foreground">{t.hint}</span>
-          </button>
-        );
-      })}
-    </div>
-  );
-}
+/** El tipo de canal se elige tocando el recuadro correspondiente. */
+const PANEL_TIPO: Record<CanalPiezaTipo, CanalTipo> = {
+  canal: 'canal_completa',
+  cizq: 'media_canal_con_cola',
+  cder: 'media_canal_sin_cola',
+};
 
 function CanalesTab({
   date,
@@ -374,19 +344,11 @@ function CanalesTab({
 }) {
   const piezas = useCanalPiezas(date);
   const deshacer = useDeshacerCanal();
+  const setTipo = useSetCanalTipo();
 
   if (!detail)
     return (
       <Empty text="Selecciona una orden en la pestaña ORDENES para ver los canales." />
-    );
-  if (!detail.canalTipo)
-    return (
-      <div className="flex flex-col gap-3 p-3">
-        <TipoSelector detail={detail} />
-        <p className="py-6 text-center text-sm text-muted-foreground">
-          Elige el tipo de canal para empezar a pesar.
-        </p>
-      </div>
     );
 
   const esCompleta = detail.canalTipo === 'canal_completa';
@@ -398,9 +360,10 @@ function CanalesTab({
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      <TipoSelector detail={detail} />
       <p className="text-center text-sm text-muted-foreground">
-        {animal ? (
+        {!detail.canalTipo ? (
+          <>Toca un recuadro para elegir el tipo de canal.</>
+        ) : animal ? (
           <>
             Animal{' '}
             <span className="font-bold text-foreground">
@@ -416,23 +379,38 @@ function CanalesTab({
 
       <div className="grid grid-cols-3 gap-3">
         {CANAL_PANELS.map(({ pieza, title, double, mirror }) => {
-          const aplica = esCompleta ? pieza === 'canal' : pieza !== 'canal';
+          const aplica = !detail.canalTipo
+            ? true
+            : esCompleta
+              ? pieza === 'canal'
+              : pieza !== 'canal';
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
           const esObjetivo = target === pieza;
+          const tipoActivo = detail.canalTipo === PANEL_TIPO[pieza];
           const color = pesado
             ? 'fill-emerald-200 stroke-emerald-600'
             : esObjetivo
               ? 'fill-red-300 stroke-red-600'
               : 'fill-rose-200 stroke-rose-800';
           return (
-            <div
+            <button
               key={pieza}
+              type="button"
+              onClick={() =>
+                setTipo.mutate({
+                  ordenBeneficioId: detail.ordenBeneficioId,
+                  tipo: PANEL_TIPO[pieza],
+                })
+              }
+              disabled={setTipo.isPending}
               className={cn(
-                'flex flex-col items-center gap-2 rounded-sm border-2 bg-card p-3 transition-colors',
+                'flex flex-col items-center gap-2 rounded-sm border-2 bg-card p-3 text-center transition-colors hover:border-emerald-400',
                 esObjetivo
                   ? 'border-red-500 ring-2 ring-red-200'
-                  : 'border-border',
+                  : tipoActivo
+                    ? 'border-emerald-500 ring-2 ring-emerald-200'
+                    : 'border-border',
               )}
             >
               <span className="text-sm font-semibold">{title}:</span>
@@ -456,13 +434,17 @@ function CanalesTab({
                   </span>
                 ) : esObjetivo ? (
                   <span className="text-sm font-bold text-red-600">Objetivo</span>
+                ) : tipoActivo ? (
+                  <span className="text-xs font-semibold text-emerald-600">
+                    Seleccionado
+                  </span>
                 ) : (
                   <span className="text-xs text-muted-foreground">
                     {PIEZA_LABEL[pieza]}
                   </span>
                 )}
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
