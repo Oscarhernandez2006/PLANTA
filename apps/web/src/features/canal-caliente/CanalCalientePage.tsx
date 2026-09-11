@@ -24,7 +24,6 @@ import {
   useDeshacerCanal,
   CANAL_TIPO_LABEL,
   PIEZA_LABEL,
-  TURNO_LABEL,
   type CanalAnimal,
   type CanalLote,
   type CanalLoteDetail,
@@ -164,7 +163,9 @@ export function CanalCalientePage() {
             onSelect={seleccionarOrden}
           />
         )}
-        {tab === 'canales' && <CanalesTab date={date} />}
+        {tab === 'canales' && (
+          <CanalesTab date={date} detail={detail.data} objetivo={objetivo} />
+        )}
         {tab === 'animales' && (
           <AnimalesTab date={date} onSelectOrden={seleccionarOrden} lotes={lista} />
         )}
@@ -288,56 +289,180 @@ function OrdenesTab({
   );
 }
 
-function CanalesTab({ date }: { date: string }) {
+/** Silueta estilizada de media canal colgada (leg arriba). */
+function Carcass({
+  className,
+  mirror,
+}: {
+  className?: string;
+  mirror?: boolean;
+}) {
+  return (
+    <svg
+      viewBox="0 0 60 200"
+      className={className}
+      style={mirror ? { transform: 'scaleX(-1)' } : undefined}
+      fill="currentColor"
+      stroke="currentColor"
+      aria-hidden
+    >
+      <path
+        d="M31,4 C41,2 49,9 46,19 C45,25 41,27 39,31 C48,40 49,66 46,92 C44,116 47,146 41,176 C39,188 35,196 30,196 C26,196 23,190 21,181 C16,150 18,118 16,92 C13,64 15,40 22,31 C20,27 16,24 15,18 C13,8 21,2 31,4 Z"
+        strokeWidth={2}
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+const CANAL_PANELS: {
+  pieza: CanalPiezaTipo;
+  title: string;
+  double?: boolean;
+}[] = [
+  { pieza: 'canal', title: 'Completo (TODO)', double: true },
+  { pieza: 'cizq', title: 'Canal Izquierda (CIZQ)' },
+  { pieza: 'cder', title: 'Canal Derecha (CDER)' },
+];
+
+function CanalesTab({
+  date,
+  detail,
+  objetivo,
+}: {
+  date: string;
+  detail: CanalLoteDetail | undefined;
+  objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo } | null;
+}) {
   const piezas = useCanalPiezas(date);
   const deshacer = useDeshacerCanal();
-  if (piezas.isLoading) return <Loading />;
+
+  if (!detail)
+    return (
+      <Empty text="Selecciona una orden en la pestaña ORDENES para ver los canales." />
+    );
+  if (!detail.canalTipo)
+    return (
+      <Empty text="Selecciona el tipo de canal de la orden para empezar a pesar." />
+    );
+
+  const esCompleta = detail.canalTipo === 'canal_completa';
+  const animal = objetivo?.animal;
+  const target = objetivo?.pieza ?? null;
+  const estadoDe = (p: CanalPiezaTipo) =>
+    animal?.piezas.find((x) => x.pieza === p);
   const rows = piezas.data ?? [];
-  if (!rows.length) return <Empty text="Aún no se ha pesado ninguna pieza." />;
+
   return (
-    <table className="w-full text-sm">
-      <thead className="sticky top-0 bg-muted/60 text-left">
-        <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-          <th>Animal</th>
-          <th>Orden</th>
-          <th>Cliente</th>
-          <th>Pieza</th>
-          <th className="text-right">Peso (kg)</th>
-          <th>Turno</th>
-          <th>Hora</th>
-          <th>Operario</th>
-          <th></th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-border">
-        {rows.map((p) => (
-          <tr key={p.piezaId} className="[&>td]:px-3 [&>td]:py-2">
-            <td className="font-semibold tabular-nums">#{p.consecutivo}</td>
-            <td className="tabular-nums">{p.reference}</td>
-            <td>{p.cliente}</td>
-            <td className="font-semibold text-red-600">
-              {PIEZA_LABEL[p.pieza]}
-            </td>
-            <td className="text-right font-semibold tabular-nums">
-              {p.pesoKg.toFixed(2)}
-            </td>
-            <td>{p.turno ? TURNO_LABEL[p.turno] : '—'}</td>
-            <td className="tabular-nums">{hora(p.weighedAt)}</td>
-            <td>{p.operatorName}</td>
-            <td className="text-right">
-              <button
-                onClick={() => deshacer.mutate(p.piezaId)}
-                disabled={deshacer.isPending}
-                title="Deshacer"
-                className="text-muted-foreground hover:text-red-600"
+    <div className="flex flex-col gap-3 p-3">
+      <p className="text-center text-sm text-muted-foreground">
+        {animal ? (
+          <>
+            Animal{' '}
+            <span className="font-bold text-foreground">
+              #{animal.consecutivo}
+            </span>{' '}
+            — Orden{' '}
+            <span className="font-bold text-foreground">{detail.reference}</span>
+          </>
+        ) : (
+          <>Todas las piezas de la orden fueron pesadas.</>
+        )}
+      </p>
+
+      <div className="grid grid-cols-3 gap-3">
+        {CANAL_PANELS.map(({ pieza, title, double }) => {
+          const aplica = esCompleta ? pieza === 'canal' : pieza !== 'canal';
+          const estado = estadoDe(pieza);
+          const pesado = !!estado?.pesado;
+          const esObjetivo = target === pieza;
+          const color = pesado
+            ? 'text-emerald-300'
+            : esObjetivo
+              ? 'text-red-400'
+              : 'text-rose-200';
+          return (
+            <div
+              key={pieza}
+              className={cn(
+                'flex flex-col items-center gap-2 rounded-sm border-2 bg-card p-3 transition-colors',
+                esObjetivo
+                  ? 'border-red-500 ring-2 ring-red-200'
+                  : 'border-border',
+              )}
+            >
+              <span className="text-sm font-semibold">{title}:</span>
+              <div
+                className={cn(
+                  'flex h-52 items-end justify-center gap-1',
+                  !aplica && 'opacity-20 grayscale',
+                )}
               >
-                <Undo2 className="size-4" />
-              </button>
-            </td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+                <Carcass className={cn('h-full w-auto', color)} />
+                {double && (
+                  <Carcass mirror className={cn('h-full w-auto', color)} />
+                )}
+              </div>
+              <div className="h-6 text-center">
+                {!aplica ? (
+                  <span className="text-xs text-muted-foreground">—</span>
+                ) : pesado ? (
+                  <span className="text-sm font-bold text-emerald-600">
+                    {estado?.pesoKg?.toFixed(2)} kg ✓
+                  </span>
+                ) : esObjetivo ? (
+                  <span className="text-sm font-bold text-red-600">Objetivo</span>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    {PIEZA_LABEL[pieza]}
+                  </span>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {rows.length > 0 && (
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-muted/60 text-left">
+            <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
+              <th>Animal</th>
+              <th>Orden</th>
+              <th>Pieza</th>
+              <th className="text-right">Peso (kg)</th>
+              <th>Hora</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.map((p) => (
+              <tr key={p.piezaId} className="[&>td]:px-3 [&>td]:py-2">
+                <td className="font-semibold tabular-nums">#{p.consecutivo}</td>
+                <td className="tabular-nums">{p.reference}</td>
+                <td className="font-semibold text-red-600">
+                  {PIEZA_LABEL[p.pieza]}
+                </td>
+                <td className="text-right font-semibold tabular-nums">
+                  {p.pesoKg.toFixed(2)}
+                </td>
+                <td className="tabular-nums">{hora(p.weighedAt)}</td>
+                <td className="text-right">
+                  <button
+                    onClick={() => deshacer.mutate(p.piezaId)}
+                    disabled={deshacer.isPending}
+                    title="Deshacer"
+                    className="text-muted-foreground hover:text-red-600"
+                  >
+                    <Undo2 className="size-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
