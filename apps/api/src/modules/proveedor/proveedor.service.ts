@@ -28,7 +28,7 @@ export class ProveedorService {
       },
       select: proveedorSelect,
       orderBy: { concepto: 'asc' },
-      take: 50,
+      take: 500,
     });
   }
 

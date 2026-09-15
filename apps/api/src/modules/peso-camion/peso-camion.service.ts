@@ -132,7 +132,7 @@ export class PesoCamionService {
         status: status ?? PesoCamionStatus.abierta,
       },
       orderBy: [{ date: 'desc' }, { reference: 'desc' }],
-      take: 200,
+      take: 1000,
     });
     return rows.map((r) => this.toDto(r));
   }

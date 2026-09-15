@@ -23,7 +23,7 @@ export class ProcedenciaService {
       },
       select: procedenciaSelect,
       orderBy: { concepto: 'asc' },
-      take: 50,
+      take: 500,
     });
   }
 

@@ -52,7 +52,11 @@ interface CanalRegistro {
 export function ReciboCanalesPage() {
   const [date, setDate] = useState(today());
   const [tab, setTab] = useState<Tab>('ordenes');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  const pageSize = 20;
+  // Orden completa (no solo el id) para no perder la selección al cambiar de página.
+  const [selectedOrder, setSelectedOrder] = useState<CanalReceipt | null>(null);
+  const selectedId = selectedOrder?.id ?? null;
 
   const [guia, setGuia] = useState('');
   const [lote, setLote] = useState('');
@@ -67,9 +71,9 @@ export function ReciboCanalesPage() {
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
 
-  const receipts = useCanalReceipts({ page: 1, pageSize: 100 });
+  const receipts = useCanalReceipts({ page, pageSize });
   const lista = receipts.data?.data ?? [];
-  const selected = lista.find((o) => o.id === selectedId) ?? null;
+  const selected = selectedOrder;
   const cliente = selected
     ? `${selected.client.name} (${selected.client.sede})`
     : '';
@@ -133,7 +137,7 @@ export function ReciboCanalesPage() {
   }
 
   function seleccionarOrden(o: CanalReceipt) {
-    setSelectedId(o.id);
+    setSelectedOrder(o);
     setCava(null);
     setGuia('');
     setLote('');
@@ -252,6 +256,9 @@ export function ReciboCanalesPage() {
             ordenes={lista}
             selectedId={selectedId}
             onSelect={seleccionarOrden}
+            page={page}
+            totalPages={receipts.data?.pagination.totalPages ?? 1}
+            onPageChange={setPage}
           />
         )}
         {tab === 'canales' && (
@@ -398,11 +405,17 @@ function OrdenesTab({
   ordenes,
   selectedId,
   onSelect,
+  page,
+  totalPages,
+  onPageChange,
 }: {
   loading: boolean;
   ordenes: CanalReceipt[];
   selectedId: string | null;
   onSelect: (o: CanalReceipt) => void;
+  page: number;
+  totalPages: number;
+  onPageChange: (p: number) => void;
 }) {
   if (loading)
     return (
@@ -421,38 +434,63 @@ function OrdenesTab({
       </div>
     );
   return (
-    <ul className="flex flex-col gap-2 p-2">
-      {ordenes.map((o) => {
-        const activo = o.id === selectedId;
-        return (
-          <li key={o.id}>
+    <div className="flex flex-col gap-2 p-2">
+      <ul className="flex flex-col gap-2">
+        {ordenes.map((o) => {
+          const activo = o.id === selectedId;
+          return (
+            <li key={o.id}>
+              <button
+                onClick={() => onSelect(o)}
+                className={cn(
+                  'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
+                  activo
+                    ? 'border-emerald-500 bg-emerald-50'
+                    : 'border-border bg-card hover:bg-muted/50',
+                )}
+              >
+                <span>
+                  <span className="font-bold tabular-nums">
+                    {formatRC(o.receiptNumber)}
+                  </span>{' '}
+                  <span className="text-muted-foreground">|</span> {o.client.name}{' '}
+                  <span className="text-muted-foreground">({o.client.sede})</span>
+                </span>
+                <span className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <span>Proceso {formatDate(o.processDate)}</span>
+                  <Badge tone={statusTone[o.status]}>
+                    {statusLabels[o.status as DispatchOrderStatus]}
+                  </Badge>
+                </span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between px-1 pt-1">
+          <p className="text-sm text-muted-foreground">
+            Página {page} de {totalPages}
+          </p>
+          <div className="flex gap-2">
             <button
-              onClick={() => onSelect(o)}
-              className={cn(
-                'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
-                activo
-                  ? 'border-emerald-500 bg-emerald-50'
-                  : 'border-border bg-card hover:bg-muted/50',
-              )}
+              disabled={page <= 1}
+              onClick={() => onPageChange(page - 1)}
+              className="rounded-sm border-2 border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
             >
-              <span>
-                <span className="font-bold tabular-nums">
-                  {formatRC(o.receiptNumber)}
-                </span>{' '}
-                <span className="text-muted-foreground">|</span> {o.client.name}{' '}
-                <span className="text-muted-foreground">({o.client.sede})</span>
-              </span>
-              <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span>Proceso {formatDate(o.processDate)}</span>
-                <Badge tone={statusTone[o.status]}>
-                  {statusLabels[o.status as DispatchOrderStatus]}
-                </Badge>
-              </span>
+              Anterior
             </button>
-          </li>
-        );
-      })}
-    </ul>
+            <button
+              disabled={page >= totalPages}
+              onClick={() => onPageChange(page + 1)}
+              className="rounded-sm border-2 border-border bg-card px-3 py-1.5 text-sm font-medium hover:bg-muted disabled:opacity-50"
+            >
+              Siguiente
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

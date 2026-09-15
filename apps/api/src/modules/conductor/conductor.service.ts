@@ -28,7 +28,7 @@ export class ConductorService {
       },
       select: conductorSelect,
       orderBy: { concepto: 'asc' },
-      take: 50,
+      take: 500,
     });
   }
 

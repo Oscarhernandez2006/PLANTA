@@ -28,7 +28,7 @@ export class ClienteService {
       },
       select: clienteSelect,
       orderBy: { concepto: 'asc' },
-      take: 50,
+      take: 500,
     });
   }
 

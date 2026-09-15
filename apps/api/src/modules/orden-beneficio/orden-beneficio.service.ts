@@ -256,7 +256,7 @@ export class OrdenBeneficioService {
       where,
       orderBy: [{ date: 'desc' }, { reference: 'desc' }],
       include: { _count: { select: { eventos: true } } },
-      take: 200,
+      take: 1000,
     });
     return rows.map((r) => this.toDto(r, r._count.eventos));
   }

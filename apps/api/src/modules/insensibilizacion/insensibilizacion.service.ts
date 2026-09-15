@@ -49,7 +49,7 @@ export class InsensibilizacionService {
       },
       orderBy: [{ date: 'asc' }, { reference: 'asc' }],
       include: { _count: { select: { eventos: true } } },
-      take: 200,
+      take: 1000,
     });
     const bases = await this.consecutivoBases(
       ctx.plantId,
