@@ -504,6 +504,16 @@ enum CanalTurno {
   tarde
 }
 
+// Tipo/categoría del animal en Canal Caliente (distinto de sexo en Peso en Pie).
+enum CanalAnimalTipo {
+  vaca
+  novilla
+  toro
+  novillo
+  bufala
+  bufalo
+}
+
 // Ítems de vísceras que se generan automáticamente al caer (insensibilizarse)
 // cada animal. Todos se registran por unidad (marcado sí/no) excepto la
 // tripa ancha, que se registra por kilos.
@@ -634,6 +644,13 @@ model OrdenBeneficioEvento {
   pieladoAt      DateTime? @map("pielado_at") @db.Timestamptz(6)
   pielOperatorId String?   @map("piel_operator_id") @db.Uuid
 
+  // Clasificación del animal en Canal Caliente.
+  canalAnimalTipo CanalAnimalTipo? @map("canal_animal_tipo")
+  bodega          String?
+  cava            String?
+  destino         String?
+  observaciones   String?
+
   ordenBeneficio OrdenBeneficio       @relation(fields: [ordenBeneficioId], references: [id])
   canalPiezas    CanalPieza[]
   subproductos   SubproductoItem[]
@@ -652,6 +669,7 @@ model SubproductoItem {
   tipo         SubproductoItemTipo
   marcado      Boolean             @default(false)
   pesoKg       Decimal?            @map("peso_kg") @db.Decimal(12, 2)
+  cava         String?
   registradoAt DateTime?           @map("registrado_at") @db.Timestamptz(6)
   operatorId   String?             @map("operator_id") @db.Uuid
   createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)

@@ -27,6 +27,26 @@ export const TURNO_LABEL: Record<CanalTurno, string> = {
   tarde: 'Tarde',
 };
 
+export type CanalAnimalTipo =
+  | 'vaca'
+  | 'novilla'
+  | 'toro'
+  | 'novillo'
+  | 'bufala'
+  | 'bufalo';
+
+export const CANAL_ANIMAL_TIPO_LABEL: Record<CanalAnimalTipo, string> = {
+  vaca: 'VACA',
+  novilla: 'NOVILLA',
+  toro: 'TORO',
+  novillo: 'NOVILLO',
+  bufala: 'BUFALA',
+  bufalo: 'BUFALO',
+};
+
+export const BODEGAS = ['BODEGA 1', 'BODEGA 2', 'BODEGA 3'];
+export const CAVAS = ['CAVA 1', 'CAVA 2', 'CAVA 3', 'CAVA 4', 'CAVA 5'];
+
 export interface CanalLote {
   ordenBeneficioId: string;
   reference: number;
@@ -56,6 +76,11 @@ export interface CanalAnimal {
   sequence: number;
   consecutivo: number;
   stunnedAt: string;
+  canalAnimalTipo: CanalAnimalTipo | null;
+  bodega: string | null;
+  cava: string | null;
+  destino: string | null;
+  observaciones: string | null;
   piezas: CanalPiezaEstado[];
 }
 
@@ -78,6 +103,11 @@ export interface CanalAnimalRow {
   reference: number;
   cliente: string;
   canalTipo: CanalTipo | null;
+  canalAnimalTipo: CanalAnimalTipo | null;
+  bodega: string | null;
+  cava: string | null;
+  destino: string | null;
+  observaciones: string | null;
   piezasPesadas: number;
   piezasEsperadas: number;
   pesoTotalKg: number;
@@ -215,6 +245,31 @@ export function useDeshacerCanal() {
   return useMutation({
     mutationFn: async (piezaId: string) =>
       (await api.post<{ ok: boolean }>(`/canal-caliente/undo/${piezaId}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['canal-caliente'] });
+    },
+  });
+}
+
+export function useClasificarAnimal() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      eventoId: string;
+      tipo?: CanalAnimalTipo;
+      bodega?: string;
+      cava?: string;
+      destino?: string;
+      observaciones?: string;
+    }) => {
+      const { eventoId, ...body } = payload;
+      return (
+        await api.patch<{ ok: boolean }>(
+          `/canal-caliente/animales/${eventoId}`,
+          body,
+        )
+      ).data;
+    },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['canal-caliente'] });
     },

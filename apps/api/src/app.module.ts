@@ -20,6 +20,7 @@ import { ProcedenciaModule } from './modules/procedencia/procedencia.module';
 import { ProveedorModule } from './modules/proveedor/proveedor.module';
 import { SubproductosModule } from './modules/subproductos/subproductos.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
+import { InventariosModule } from './modules/inventarios/inventarios.module';
 
 @Module({
   imports: [
@@ -46,6 +47,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
     ProveedorModule,
     SubproductosModule,
     SupplierModule,
+    InventariosModule,
   ],
   controllers: [HealthController],
 })

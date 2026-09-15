@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
+  CanalAnimalTipo,
   CanalPiezaTipo,
   CanalTipo,
   OrdenBeneficioStatus,
@@ -12,6 +13,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { plantDateOnly } from '../../common/plant-date';
 import { RegistrarCanalDto } from './dto/registrar-canal.dto';
+import { ClasificarAnimalDto } from './dto/clasificar-animal.dto';
 
 function dateOnly(value?: string) {
   return plantDateOnly(value);
@@ -144,6 +146,11 @@ export class CanalCalienteService {
           sequence: e.sequence,
           consecutivo: base + e.sequence,
           stunnedAt: e.stunnedAt.toISOString(),
+          canalAnimalTipo: e.canalAnimalTipo,
+          bodega: e.bodega,
+          cava: e.cava,
+          destino: e.destino,
+          observaciones: e.observaciones,
           piezas: esperadas.map((pz) => {
             const reg = byPieza.get(pz);
             return {
@@ -186,6 +193,35 @@ export class CanalCalienteService {
       data: { canalTipo: tipo },
     });
     return this.loteDetail(ctx, ordenBeneficioId);
+  }
+
+  /** Actualiza la clasificación (tipo, bodega, cava, destino, observaciones) de un animal. */
+  async clasificarAnimal(
+    ctx: AuthContext,
+    eventoId: string,
+    dto: ClasificarAnimalDto,
+  ) {
+    const evt = await this.prisma.ordenBeneficioEvento.findFirst({
+      where: {
+        id: eventoId,
+        ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
+      },
+      select: { id: true },
+    });
+    if (!evt) throw new NotFoundException('Animal no encontrado.');
+    await this.prisma.ordenBeneficioEvento.update({
+      where: { id: evt.id },
+      data: {
+        ...(dto.tipo !== undefined && { canalAnimalTipo: dto.tipo }),
+        ...(dto.bodega !== undefined && { bodega: dto.bodega }),
+        ...(dto.cava !== undefined && { cava: dto.cava }),
+        ...(dto.destino !== undefined && { destino: dto.destino }),
+        ...(dto.observaciones !== undefined && {
+          observaciones: dto.observaciones,
+        }),
+      },
+    });
+    return { ok: true };
   }
 
   /** Registra el peso de una pieza del canal de un animal. */
@@ -277,6 +313,11 @@ export class CanalCalienteService {
       reference: number;
       cliente: string;
       canalTipo: CanalTipo | null;
+      canalAnimalTipo: CanalAnimalTipo | null;
+      bodega: string | null;
+      cava: string | null;
+      destino: string | null;
+      observaciones: string | null;
       piezasPesadas: number;
       piezasEsperadas: number;
       pesoTotalKg: number;
@@ -291,6 +332,11 @@ export class CanalCalienteService {
           reference: o.reference,
           cliente: o.cliente,
           canalTipo: o.canalTipo,
+          canalAnimalTipo: e.canalAnimalTipo,
+          bodega: e.bodega,
+          cava: e.cava,
+          destino: e.destino,
+          observaciones: e.observaciones,
           piezasPesadas: e.canalPiezas.length,
           piezasEsperadas: esperadas,
           pesoTotalKg: e.canalPiezas.reduce(

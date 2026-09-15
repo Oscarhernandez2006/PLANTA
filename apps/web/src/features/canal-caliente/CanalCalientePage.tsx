@@ -1,10 +1,11 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ChevronDown,
   ChevronUp,
   Gauge,
   Inbox,
   LoaderCircle,
+  Lock,
   Pencil,
   Tag,
   Undo2,
@@ -16,15 +17,19 @@ import { cn } from '@/lib/utils';
 import {
   useCanalLotes,
   useCanalLoteDetail,
-  useCanalAnimales,
   useCanalPiezas,
   useCanalReporte,
   useSetCanalTipo,
   useRegistrarCanal,
   useDeshacerCanal,
+  useClasificarAnimal,
   CANAL_TIPO_LABEL,
+  CANAL_ANIMAL_TIPO_LABEL,
   PIEZA_LABEL,
+  BODEGAS,
+  CAVAS,
   type CanalAnimal,
+  type CanalAnimalTipo,
   type CanalLote,
   type CanalLoteDetail,
   type CanalPiezaTipo,
@@ -85,6 +90,12 @@ function siguienteObjetivo(detail: CanalLoteDetail | undefined) {
     if (pieza) return { animal, pieza: pieza.pieza };
   }
   return null;
+}
+
+/** Último animal registrado de la orden (para clasificarlo aunque ya esté pesado). */
+function siguienteObjetivoAnimal(detail: CanalLoteDetail | undefined) {
+  if (!detail || !detail.animales.length) return null;
+  return detail.animales[detail.animales.length - 1];
 }
 
 export function CanalCalientePage() {
@@ -176,7 +187,7 @@ export function CanalCalientePage() {
           <CanalesTab date={date} detail={detail.data} objetivo={objetivo} />
         )}
         {tab === 'animales' && (
-          <AnimalesTab date={date} onSelectOrden={seleccionarOrden} lotes={lista} />
+          <AnimalesTab date={date} detail={detail.data} objetivoAnimal={objetivo?.animal ?? siguienteObjetivoAnimal(detail.data)} />
         )}
         {tab === 'reporte' && <ReporteTab date={date} />}
       </div>
@@ -469,63 +480,203 @@ function CanalesTab({
 
 function AnimalesTab({
   date,
-  lotes,
-  onSelectOrden,
+  detail,
+  objetivoAnimal,
 }: {
   date: string;
-  lotes: CanalLote[];
-  onSelectOrden: (id: string, tipo: CanalTipo | null) => void;
+  detail: CanalLoteDetail | undefined;
+  objetivoAnimal: CanalAnimal | null;
 }) {
-  const animales = useCanalAnimales(date);
-  if (animales.isLoading) return <Loading />;
-  const rows = animales.data ?? [];
-  if (!rows.length) return <Empty text="No hay animales en esta fecha." />;
+  const clasificar = useClasificarAnimal();
+  const piezas = useCanalPiezas(date);
+  const deshacer = useDeshacerCanal();
+  const [destino, setDestino] = useState('');
+  const [observaciones, setObservaciones] = useState('');
+
+  const eventoId = objetivoAnimal?.eventoId ?? null;
+  const rows = piezas.data ?? [];
+
+  useEffect(() => {
+    setDestino(objetivoAnimal?.destino ?? '');
+    setObservaciones(objetivoAnimal?.observaciones ?? '');
+  }, [eventoId, objetivoAnimal?.destino, objetivoAnimal?.observaciones]);
+
+  if (!detail || !objetivoAnimal) {
+    return (
+      <Empty text="Selecciona una orden en la pestaña ORDENES para clasificar sus animales." />
+    );
+  }
+
+  function guardar(
+    campo: 'tipo' | 'bodega' | 'cava' | 'destino' | 'observaciones',
+    valor: string,
+  ) {
+    if (!eventoId) return;
+    clasificar.mutate({ eventoId, [campo]: valor });
+  }
+
   return (
-    <table className="w-full text-sm">
-      <thead className="sticky top-0 bg-muted/60 text-left">
-        <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-          <th>Animal</th>
-          <th>Orden</th>
-          <th>Cliente</th>
-          <th>Tipo</th>
-          <th className="text-center">Piezas</th>
-          <th className="text-right">Peso total (kg)</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-border">
-        {rows.map((a) => {
-          const completo = a.piezasPesadas >= a.piezasEsperadas;
-          const lote = lotes.find((l) => l.reference === a.reference);
-          return (
-            <tr
-              key={a.eventoId}
-              onClick={() =>
-                lote && onSelectOrden(lote.ordenBeneficioId, lote.canalTipo)
-              }
-              className="cursor-pointer [&>td]:px-3 [&>td]:py-2 hover:bg-muted/40"
-            >
-              <td className="font-semibold tabular-nums">#{a.consecutivo}</td>
-              <td className="tabular-nums">{a.reference}</td>
-              <td>{a.cliente}</td>
-              <td className="text-xs">
-                {a.canalTipo ? CANAL_TIPO_LABEL[a.canalTipo] : '—'}
-              </td>
-              <td
+    <div className="flex h-full flex-col gap-4 p-4">
+      <div>
+        <p className="mb-2 text-sm font-semibold text-muted-foreground">
+          Tipos:
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          {(['vaca', 'novilla'] as CanalAnimalTipo[]).map((t) => (
+            <TipoButton
+              key={t}
+              tipo={t}
+              activo={objetivoAnimal.canalAnimalTipo === t}
+              onClick={() => guardar('tipo', t)}
+            />
+          ))}
+          <div className="w-4" />
+          {(['toro', 'novillo'] as CanalAnimalTipo[]).map((t) => (
+            <TipoButton
+              key={t}
+              tipo={t}
+              activo={objetivoAnimal.canalAnimalTipo === t}
+              onClick={() => guardar('tipo', t)}
+            />
+          ))}
+          <div className="w-4" />
+          {(['bufala', 'bufalo'] as CanalAnimalTipo[]).map((t) => (
+            <TipoButton
+              key={t}
+              tipo={t}
+              activo={objetivoAnimal.canalAnimalTipo === t}
+              onClick={() => guardar('tipo', t)}
+            />
+          ))}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <FieldBox label="Bodegas:">
+          <select
+            value={objetivoAnimal.bodega ?? ''}
+            onChange={(e) => guardar('bodega', e.target.value)}
+            className="h-9 w-full bg-transparent text-base font-medium outline-none"
+          >
+            <option value="">Seleccione...</option>
+            {BODEGAS.map((b) => (
+              <option key={b} value={b}>
+                {b}
+              </option>
+            ))}
+          </select>
+        </FieldBox>
+        <FieldBox label="Destino:">
+          <textarea
+            value={destino}
+            onChange={(e) => setDestino(e.target.value)}
+            onBlur={() => guardar('destino', destino)}
+            rows={1}
+            className="w-full resize-none bg-transparent text-base outline-none"
+          />
+        </FieldBox>
+      </div>
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div>
+          <p className="mb-2 text-sm font-semibold text-muted-foreground">
+            Cavas de Canales:
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {CAVAS.map((c) => (
+              <button
+                key={c}
+                type="button"
+                onClick={() => guardar('cava', c)}
                 className={cn(
-                  'text-center tabular-nums',
-                  completo && 'font-semibold text-emerald-600',
+                  'rounded-sm border-2 px-3 py-2 text-sm font-semibold uppercase',
+                  objetivoAnimal.cava === c
+                    ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+                    : 'border-border bg-card hover:bg-muted',
                 )}
               >
-                {a.piezasPesadas}/{a.piezasEsperadas}
-              </td>
-              <td className="text-right font-semibold tabular-nums">
-                {a.pesoTotalKg ? a.pesoTotalKg.toFixed(2) : '—'}
-              </td>
+                {c}
+              </button>
+            ))}
+          </div>
+        </div>
+        <FieldBox label="Observaciones:" className="relative">
+          <textarea
+            value={observaciones}
+            onChange={(e) => setObservaciones(e.target.value)}
+            onBlur={() => guardar('observaciones', observaciones)}
+            rows={1}
+            className="w-full resize-none bg-transparent pr-10 text-base outline-none"
+          />
+          <Lock className="absolute right-2 top-1 size-5 text-muted-foreground" />
+        </FieldBox>
+      </div>
+
+      {rows.length > 0 && (
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 bg-muted/60 text-left">
+            <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
+              <th>Animal</th>
+              <th>Orden</th>
+              <th>Pieza</th>
+              <th className="text-right">Peso (kg)</th>
+              <th>Hora</th>
+              <th></th>
             </tr>
-          );
-        })}
-      </tbody>
-    </table>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {rows.map((p) => (
+              <tr key={p.piezaId} className="[&>td]:px-3 [&>td]:py-2">
+                <td className="font-semibold tabular-nums">#{p.consecutivo}</td>
+                <td className="tabular-nums">{p.reference}</td>
+                <td className="font-semibold text-red-600">
+                  {PIEZA_LABEL[p.pieza]}
+                </td>
+                <td className="text-right font-semibold tabular-nums">
+                  {p.pesoKg.toFixed(2)}
+                </td>
+                <td className="tabular-nums">{hora(p.weighedAt)}</td>
+                <td className="text-right">
+                  <button
+                    onClick={() => deshacer.mutate(p.piezaId)}
+                    disabled={deshacer.isPending}
+                    title="Deshacer"
+                    className="text-muted-foreground hover:text-red-600"
+                  >
+                    <Undo2 className="size-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
+function TipoButton({
+  tipo,
+  activo,
+  onClick,
+}: {
+  tipo: CanalAnimalTipo;
+  activo: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'rounded-sm border-2 px-4 py-2 text-sm font-semibold uppercase',
+        activo
+          ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+          : 'border-border bg-card hover:bg-muted',
+      )}
+    >
+      {CANAL_ANIMAL_TIPO_LABEL[tipo]}
+    </button>
   );
 }
 
@@ -533,42 +684,73 @@ function ReporteTab({ date }: { date: string }) {
   const reporte = useCanalReporte(date);
   if (reporte.isLoading) return <Loading />;
   const data = reporte.data;
-  if (!data || !data.clientes.length)
-    return <Empty text="Sin datos para el reporte de esta fecha." />;
+  const hayDatos = !!data && data.clientes.length > 0;
   return (
-    <div className="p-2">
-      <table className="w-full text-sm">
-        <thead className="bg-muted/60 text-left">
-          <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-            <th>Cliente</th>
-            <th className="text-center">Animales</th>
-            <th className="text-center">Piezas</th>
-            <th className="text-right">Peso (kg)</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {data.clientes.map((c) => (
-            <tr key={c.cliente} className="[&>td]:px-3 [&>td]:py-2">
-              <td>{c.cliente}</td>
-              <td className="text-center tabular-nums">{c.animales}</td>
-              <td className="text-center tabular-nums">{c.piezas}</td>
-              <td className="text-right font-semibold tabular-nums">
-                {c.pesoKg.toFixed(2)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr className="border-t-2 border-border bg-muted/40 [&>td]:px-3 [&>td]:py-2 [&>td]:font-bold">
-            <td>Total</td>
-            <td></td>
-            <td className="text-center tabular-nums">{data.totalPiezas}</td>
-            <td className="text-right tabular-nums">
-              {data.totalPesoKg.toFixed(2)}
-            </td>
-          </tr>
-        </tfoot>
-      </table>
+    <div className="flex h-full flex-col p-2">
+      <div className="flex-1 overflow-auto">
+        {!hayDatos ? (
+          <Empty text="Sin datos para el reporte de esta fecha." />
+        ) : (
+          <table className="w-full text-sm">
+            <thead className="bg-muted/60 text-left">
+              <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
+                <th>Cliente</th>
+                <th className="text-center">Animales</th>
+                <th className="text-center">Piezas</th>
+                <th className="text-right">Peso (kg)</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {data.clientes.map((c) => (
+                <tr key={c.cliente} className="[&>td]:px-3 [&>td]:py-2">
+                  <td>{c.cliente}</td>
+                  <td className="text-center tabular-nums">{c.animales}</td>
+                  <td className="text-center tabular-nums">{c.piezas}</td>
+                  <td className="text-right font-semibold tabular-nums">
+                    {c.pesoKg.toFixed(2)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-border bg-muted/40 [&>td]:px-3 [&>td]:py-2 [&>td]:font-bold">
+                <td>Total</td>
+                <td></td>
+                <td className="text-center tabular-nums">
+                  {data.totalPiezas}
+                </td>
+                <td className="text-right tabular-nums">
+                  {data.totalPesoKg.toFixed(2)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        )}
+      </div>
+
+      <div className="mt-2 flex items-center justify-end gap-2 self-end">
+        <span className="text-sm font-medium text-muted-foreground">
+          Reimpresión de Brazalete:
+        </span>
+        <button
+          type="button"
+          disabled={!hayDatos}
+          onClick={() => window.print()}
+          title="Reimprimir brazalete de canales del último animal"
+          className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
+        >
+          Canales
+        </button>
+        <button
+          type="button"
+          disabled={!hayDatos}
+          onClick={() => window.print()}
+          title="Reimprimir brazalete de vísceras del último animal"
+          className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
+        >
+          Vísceras
+        </button>
+      </div>
     </div>
   );
 }

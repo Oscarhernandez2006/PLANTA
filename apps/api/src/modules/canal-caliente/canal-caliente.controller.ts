@@ -15,6 +15,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CanalCalienteService } from './canal-caliente.service';
 import { SetTipoDto } from './dto/set-tipo.dto';
 import { RegistrarCanalDto } from './dto/registrar-canal.dto';
+import { ClasificarAnimalDto } from './dto/clasificar-animal.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('canal-caliente')
@@ -56,6 +57,15 @@ export class CanalCalienteController {
     @Body() dto: SetTipoDto,
   ) {
     return this.service.setTipo(user, id, dto.tipo);
+  }
+
+  @Patch('animales/:eventoId')
+  clasificarAnimal(
+    @CurrentUser() user: AuthContext,
+    @Param('eventoId', ParseUUIDPipe) eventoId: string,
+    @Body() dto: ClasificarAnimalDto,
+  ) {
+    return this.service.clasificarAnimal(user, eventoId, dto);
   }
 
   @Post()

@@ -15,6 +15,7 @@ import { DevicesPage } from './features/device/DevicesPage';
 import { CanalFriaPage } from './features/canal-fria/CanalFriaPage';
 import { CanalReciboPage } from './features/canal-recibo/CanalReciboPage';
 import { CanalCalientePage } from './features/canal-caliente/CanalCalientePage';
+import { InventariosPage } from './features/inventarios/InventariosPage';
 import { PesoEnCamionPage } from './features/peso-en-camion/PesoEnCamionPage';
 import { PesoEnPiePage } from './features/peso-en-pie/PesoEnPiePage';
 import { ReciboCanalesPage } from './features/recibo-canales/ReciboCanalesPage';
@@ -37,6 +38,7 @@ const router = createBrowserRouter([
       { path: 'canal-fria', element: <CanalFriaPage /> },
       { path: 'recibo-canal', element: <CanalReciboPage /> },
       { path: 'canal-caliente', element: <CanalCalientePage /> },
+      { path: 'inventarios', element: <InventariosPage /> },
       { path: 'peso-en-camion', element: <PesoEnCamionPage /> },
       { path: 'peso-en-pie', element: <PesoEnPiePage /> },
       { path: 'recibo-de-canales', element: <ReciboCanalesPage /> },

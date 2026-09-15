@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, MonitorSmartphone } from 'lucide-react';
+import { LogOut, MonitorSmartphone, Warehouse } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
@@ -42,6 +42,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
       { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
+      { to: '/inventarios', label: 'Inventarios', icon: Warehouse },
       { to: '/rotulado-desposte', label: 'Rotulado Desposte', icon: RotuladoDesposteIcon },
       { to: '/rotulado-acondicionamiento', label: 'Rotulado Acondicionamiento', icon: RotuladoAcondicionamientoIcon },
       { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
