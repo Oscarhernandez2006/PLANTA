@@ -7,9 +7,11 @@ import {
   Clock,
   ArrowLeft,
   Lock,
+  RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
@@ -23,6 +25,10 @@ import {
   useVerifyAdmin,
   type InsOrder,
 } from './api';
+
+function today() {
+  return new Date().toISOString().slice(0, 10);
+}
 
 function hora(iso: string) {
   return new Date(iso).toLocaleTimeString('es-CO', {
@@ -47,57 +53,70 @@ export function InsensibilizacionPage() {
   const done = d?.insensibilizados ?? 0;
   const total = d?.animalCount ?? 0;
   const completo = d?.status === 'procesado';
+  const refrescando = pendientes.isFetching || detail.isFetching;
 
   return (
-    <div className="flex flex-1 flex-col gap-4 p-4 md:p-6">
+    <div className="space-y-6">
       {/* Encabezado */}
-      <div className="flex items-center gap-3">
-        <InsensibilizacionIcon className="size-9 text-foreground" />
-        <div>
-          <h1 className="text-xl font-semibold text-foreground">
-            Insensibilización
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Procesa las órdenes provenientes de Orden de Beneficio.
-          </p>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <InsensibilizacionIcon className="size-9 text-foreground" />
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">
+              Insensibilización
+            </h1>
+            <p className="mt-0.5 text-sm text-muted-foreground">
+              Procesa las órdenes provenientes de Orden de Beneficio.
+            </p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge tone="info">{today()}</Badge>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              pendientes.refetch();
+              if (selectedId) detail.refetch();
+            }}
+            disabled={refrescando}
+          >
+            <RefreshCw className={cn('size-4', refrescando && 'animate-spin')} />
+            Actualizar
+          </Button>
         </div>
       </div>
 
-      <div className="flex flex-1 flex-col gap-4">
-        {/* Lista de órdenes pendientes (oculta al seleccionar una) */}
-        {!selectedId && (
-          <Card className="flex flex-col overflow-hidden">
-            <div className="border-b border-border px-4 py-3 text-sm font-semibold">
-              Órdenes pendientes
+      {!selectedId ? (
+        <Card className="flex flex-col overflow-hidden">
+          <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
+            <InsensibilizacionIcon className="size-4" /> Órdenes pendientes
+          </div>
+          {pendientes.isLoading ? (
+            <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+              <LoaderCircle className="size-4 animate-spin" /> Cargando…
             </div>
-            {pendientes.isLoading ? (
-              <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin" /> Cargando…
-              </div>
-            ) : !orders.length ? (
-              <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-                <Inbox className="size-8" />
-                No hay órdenes pendientes. Crea una en Orden de Beneficio.
-              </div>
-            ) : (
-              <ul className="flex-1 divide-y divide-border overflow-auto">
-                {orders.map((o) => (
-                  <OrderRow
-                    key={o.id}
-                    order={o}
-                    active={o.id === selectedId}
-                    onClick={() => setSelectedId(o.id)}
-                  />
-                ))}
-              </ul>
-            )}
-          </Card>
-        )}
-
-        {/* Panel de proceso */}
-        {selectedId && (
-          <Card className="flex flex-col overflow-hidden">
-            {!d ? (
+          ) : !orders.length ? (
+            <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
+              <Inbox className="size-6" />
+              No hay órdenes pendientes. Crea una en Orden de Beneficio.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {orders.map((o) => (
+                <OrderRow
+                  key={o.id}
+                  order={o}
+                  active={o.id === selectedId}
+                  onClick={() => setSelectedId(o.id)}
+                />
+              ))}
+            </ul>
+          )}
+        </Card>
+      ) : (
+        <Card className="flex flex-col overflow-hidden">
+          {!d ? (
               <div className="flex flex-1 flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
                 <LoaderCircle className="size-5 animate-spin" /> Cargando…
               </div>
@@ -224,8 +243,7 @@ export function InsensibilizacionPage() {
             </div>
           )}
         </Card>
-        )}
-      </div>
+      )}
 
       <AdminAuthDialog
         open={authOpen}
