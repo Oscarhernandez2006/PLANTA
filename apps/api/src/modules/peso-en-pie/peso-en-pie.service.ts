@@ -22,6 +22,8 @@ export class PesoEnPieService {
     return {
       id: r.id,
       reference: r.reference,
+      bpReference: r.bpReference,
+      bcReference: r.bcReference,
       date: r.date.toISOString().slice(0, 10),
       guia: r.guia,
       procedencia: r.procedencia,
@@ -56,6 +58,30 @@ export class PesoEnPieService {
     return { next: (agg._max.reference ?? 0) + 1 };
   }
 
+  /**
+   * Vista previa del BP de una guía: si ya tiene animales pesados devuelve su
+   * BP real; si es nueva, estima el próximo consecutivo global (se confirma
+   * recién al guardar el primer animal).
+   */
+  async bpPreview(ctx: AuthContext, bcReference?: number, guia?: string) {
+    const existing = await this.prisma.pesoEnPie.findFirst({
+      where: {
+        plantId: ctx.plantId,
+        deletedAt: null,
+        ...(bcReference != null ? { bcReference } : { guia: guia?.trim() }),
+      },
+      orderBy: { reference: 'desc' },
+      select: { bpReference: true },
+    });
+    if (existing) return { bpReference: existing.bpReference, existing: true };
+
+    const agg = await this.prisma.pesoEnPie.aggregate({
+      _max: { bpReference: true },
+      where: { plantId: ctx.plantId, deletedAt: null },
+    });
+    return { bpReference: (agg._max.bpReference ?? 0) + 1, existing: false };
+  }
+
   private fields(dto: SavePesoEnPieDto) {
     const tipoPesaje = dto.tipoPesaje ?? PesoEnPieTipoPesaje.promediado;
     const total = dto.pesoTotalKg ?? null;
@@ -87,7 +113,7 @@ export class PesoEnPieService {
   }
 
   async create(ctx: AuthContext, dto: SavePesoEnPieDto) {
-    const { str, date } = dateOnly(dto.date);
+    const { date } = dateOnly(dto.date);
     return this.prisma.$transaction(async (tx) => {
       if (dto.guia?.trim()) {
         const closedGuide = await tx.pesoEnPie.findFirst({
@@ -104,17 +130,44 @@ export class PesoEnPieService {
           throw new BadRequestException('El proceso de esta guía ya está cerrado.');
         }
       }
-      // Serializa la numeración de referencia por planta y día.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:${str}:pep`}))`;
-      const agg = await tx.pesoEnPie.aggregate({
-        _max: { reference: true },
-        where: { plantId: ctx.plantId, date, deletedAt: null },
+      // Serializa la numeración de BP por planta.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:pep`}))`;
+
+      // Un BP por guía (asociado a la BC). Reusa el BP existente de la guía o
+      // asigna el próximo consecutivo global; los animales se numeran dentro del BP.
+      const guiaKey = dto.guia?.trim() || null;
+      const previo = await tx.pesoEnPie.findFirst({
+        where: {
+          plantId: ctx.plantId,
+          deletedAt: null,
+          ...(dto.bcReference != null
+            ? { bcReference: dto.bcReference }
+            : { guia: guiaKey }),
+        },
+        orderBy: { reference: 'desc' },
+        select: { bpReference: true, reference: true },
       });
-      const reference = (agg._max.reference ?? 0) + 1;
+
+      let bpReference: number;
+      let reference: number;
+      if (previo) {
+        bpReference = previo.bpReference;
+        reference = previo.reference + 1;
+      } else {
+        const agg = await tx.pesoEnPie.aggregate({
+          _max: { bpReference: true },
+          where: { plantId: ctx.plantId, deletedAt: null },
+        });
+        bpReference = (agg._max.bpReference ?? 0) + 1;
+        reference = 1;
+      }
+
       const rec = await tx.pesoEnPie.create({
         data: {
           plantId: ctx.plantId,
           reference,
+          bpReference,
+          bcReference: dto.bcReference ?? null,
           date,
           createdById: ctx.userId,
           ...this.fields(dto),

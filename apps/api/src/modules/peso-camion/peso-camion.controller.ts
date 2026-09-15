@@ -22,11 +22,8 @@ export class PesoCamionController {
   constructor(private readonly service: PesoCamionService) {}
 
   @Get('next-reference')
-  nextReference(
-    @CurrentUser() user: AuthContext,
-    @Query('date') date?: string,
-  ) {
-    return this.service.nextReference(user, date);
+  nextReference(@CurrentUser() user: AuthContext) {
+    return this.service.nextReference(user);
   }
 
   @Get('next-temp')

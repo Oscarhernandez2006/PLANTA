@@ -26,6 +26,19 @@ export class PesoEnPieController {
     return this.service.nextReference(user, date);
   }
 
+  @Get('bp-preview')
+  bpPreview(
+    @CurrentUser() user: AuthContext,
+    @Query('bcReference') bcReference?: string,
+    @Query('guia') guia?: string,
+  ) {
+    return this.service.bpPreview(
+      user,
+      bcReference != null ? Number(bcReference) : undefined,
+      guia,
+    );
+  }
+
   @Post()
   create(@CurrentUser() user: AuthContext, @Body() dto: SavePesoEnPieDto) {
     return this.service.create(user, dto);

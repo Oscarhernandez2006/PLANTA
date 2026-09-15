@@ -10,6 +10,8 @@ export type TipoPesaje = 'individual' | 'promediado';
 export interface PesoEnPie {
   id: string;
   reference: number;
+  bpReference: number;
+  bcReference: number | null;
   date: string;
   guia: string | null;
   procedencia: string | null;
@@ -32,8 +34,20 @@ export interface PesoEnPie {
   status: PesoEnPieStatus;
 }
 
+// Consecutivo de producción de Báscula en Pie: BP + 6 dígitos (BP000001).
+export function formatBP(n: number) {
+  return `BP${String(n).padStart(6, '0')}`;
+}
+
+// Identificador de animal dentro de su BP: BP000001-A01 (la "A" deja explícito
+// que es un Animal, no otro tipo de sub-documento).
+export function formatAnimal(bpReference: number, reference: number) {
+  return `${formatBP(bpReference)}-A${String(reference).padStart(2, '0')}`;
+}
+
 export interface SavePesoEnPieInput {
   date?: string;
+  bcReference?: number;
   guia?: string;
   procedencia?: string;
   proveedor?: string;
@@ -75,6 +89,22 @@ export function usePesoEnPieNextReference(date: string, enabled: boolean) {
         await api.get<{ next: number }>('/peso-en-pie/next-reference', {
           params: { date },
         })
+      ).data,
+  });
+}
+
+// Vista previa del BP de la guía seleccionada (real si ya tiene animales
+// pesados, o estimado si aún no se guardó ninguno).
+export function useBpPreview(bcReference: number | null) {
+  return useQuery({
+    enabled: bcReference != null,
+    queryKey: ['peso-en-pie', 'bp-preview', bcReference],
+    queryFn: async () =>
+      (
+        await api.get<{ bpReference: number; existing: boolean }>(
+          '/peso-en-pie/bp-preview',
+          { params: { bcReference } },
+        )
       ).data,
   });
 }

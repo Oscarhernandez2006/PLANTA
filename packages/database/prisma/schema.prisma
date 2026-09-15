@@ -139,9 +139,10 @@ enum DispatchOrderType {
 // ===================== CANAL FRÍA / ÓRDENES DE DESPACHO ====================
 
 // Cliente (a futuro se sincroniza desde el ERP; global, no por planta).
+// Un mismo NIT puede tener varias sedes (sucursales): una fila por sede.
 model Client {
   id        String   @id @default(uuid()) @db.Uuid
-  nit       String   @unique
+  nit       String
   name      String
   sede      String
   active    Boolean  @default(true)
@@ -151,6 +152,7 @@ model Client {
   dispatchOrders DispatchOrder[]
   canalReceipts  CanalReceiptOrder[]
 
+  @@unique([nit, sede])
   @@map("client")
 }
 
@@ -754,6 +756,8 @@ model PesoEnPie {
   id             String              @id @default(uuid()) @db.Uuid
   plantId        String              @map("plant_id") @db.Uuid
   reference      Int
+  bpReference    Int                 @map("bp_reference")
+  bcReference    Int?                @map("bc_reference")
   date           DateTime            @db.Date
   guia           String?
   procedencia    String?
@@ -781,7 +785,8 @@ model PesoEnPie {
 
   insensibilizacion Insensibilizacion?
 
-  @@unique([plantId, date, reference])
+  @@unique([plantId, bpReference, reference])
+  @@index([plantId, bpReference])
   @@index([plantId, status])
   @@map("peso_en_pie")
 }

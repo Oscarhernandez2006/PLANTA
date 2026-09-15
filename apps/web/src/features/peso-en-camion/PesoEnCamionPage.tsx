@@ -38,6 +38,7 @@ import {
   useUpdatePesoCamion,
   useClosePesoCamion,
   getNextTempGuia,
+  formatReferencia,
   type PesoCamionGuia,
   type SavePesoCamionInput,
 } from './api';
@@ -112,12 +113,14 @@ export function PesoEnCamionPage() {
   const updateGuia = useUpdatePesoCamion();
   const closeGuia = useClosePesoCamion();
 
-  // Referencia (orden de llegada del día): la de la guía cargada o el próximo.
+  // Referencia (consecutivo global de producción): la de la guía cargada o la próxima.
   const referencia = editingId
     ? loadedReference != null
-      ? String(loadedReference)
+      ? formatReferencia(loadedReference)
       : '—'
-    : String(nextRef.data?.next ?? '—');
+    : nextRef.data?.next != null
+      ? formatReferencia(nextRef.data.next)
+      : '—';
 
   // Totales derivados.
   const neto = num(entrada) - num(salida);
@@ -264,7 +267,7 @@ export function PesoEnCamionPage() {
       }
       // Limpia enseguida para poder capturar la siguiente guía.
       resetForm();
-      showNotice(`Guía N.º ${ref} guardada. Listo para la siguiente.`);
+      showNotice(`Guía ${formatReferencia(ref)} guardada. Listo para la siguiente.`);
     } catch {
       setSaveError('No se pudo guardar la guía.');
     }
@@ -329,7 +332,7 @@ export function PesoEnCamionPage() {
       await closeGuia.mutateAsync(id);
       if (editingId === id) resetForm();
       setSelectedGuia(null);
-      showNotice(`Guía N.º ${ref} cerrada.`);
+      showNotice(`Guía ${formatReferencia(ref)} cerrada.`);
     } catch {
       setSaveError('No se pudo cerrar la guía.');
     }
@@ -368,7 +371,7 @@ export function PesoEnCamionPage() {
       procedencia: g.procedencia ?? '',
       ciudad: '',
       cliente: g.cliente ?? '',
-      referencia: String(g.reference),
+      referencia: formatReferencia(g.reference),
       placa: g.placa ?? '',
       conductor: g.conductor ?? '',
       entrada: kg(g.entrada ?? 0),
@@ -496,13 +499,13 @@ export function PesoEnCamionPage() {
       )}
       {editingId && (
         <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
-          Editando la guía de referencia N.º {loadedReference}. Guardá para
+          Editando la guía de referencia {loadedReference != null ? formatReferencia(loadedReference) : '—'}. Guardá para
           aplicar los cambios.
         </div>
       )}
       {!editingId && selectedGuia && (
         <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
-          Guía N.º {selectedGuia.reference} seleccionada. Usá el lápiz para
+          Guía {formatReferencia(selectedGuia.reference)} seleccionada. Usá el lápiz para
           editarla, o el botón imprimir.
         </div>
       )}
@@ -692,7 +695,7 @@ export function PesoEnCamionPage() {
                         'bg-sky-100 hover:bg-sky-100',
                     )}
                   >
-                    <TD className="font-medium tabular-nums">{g.reference}</TD>
+                    <TD className="font-medium tabular-nums">{formatReferencia(g.reference)}</TD>
                     <TD>{g.placa ?? '—'}</TD>
                     <TD>{g.guia ?? '—'}</TD>
                     <TD>{g.procedencia ?? '—'}</TD>

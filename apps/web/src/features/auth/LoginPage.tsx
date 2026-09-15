@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowLeft, ArrowRight, LoaderCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Numpad } from '@/components/ui/numpad';
@@ -79,6 +79,30 @@ export function LoginPage() {
       setSubmitting(false);
     }
   }
+
+  // Permite escribir con el teclado físico del equipo (dígitos, Backspace, Enter).
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (submitting || checking) return;
+      if (e.key >= '0' && e.key <= '9') {
+        e.preventDefault();
+        handleDigit(e.key);
+      } else if (e.key === 'Backspace') {
+        e.preventDefault();
+        handleBackspace();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (step === 'cedula') {
+          if (cedula.length >= MIN_CEDULA) void handleContinue();
+        } else if (pin.length >= MIN_PIN) {
+          void submit();
+        }
+      }
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, cedula, pin, submitting, checking]);
 
   return (
     <div className="flex min-h-screen bg-background">

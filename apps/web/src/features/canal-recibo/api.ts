@@ -35,6 +35,16 @@ export interface CreateCanalReceiptInput {
   status: DispatchOrderStatus;
 }
 
+// Consecutivo de producción de Recibo de Canales: RC + 6 dígitos (RC000001).
+export function formatRC(n: number) {
+  return `RC${String(n).padStart(6, '0')}`;
+}
+
+// Identificador de pieza/canal dentro de su orden: RC000001-01 (igual patrón que formatAnimal).
+export function formatPieza(receiptNumber: number, codigo: number) {
+  return `${formatRC(receiptNumber)}-${String(codigo).padStart(2, '0')}`;
+}
+
 export function useCanalReceiptNextNumber() {
   return useQuery({
     queryKey: ['canal-receipts', 'next-number'],

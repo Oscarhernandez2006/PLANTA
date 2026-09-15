@@ -3,8 +3,6 @@ import {
   Beef,
   Check,
   Eraser,
-  Gauge,
-  Hash,
   Inbox,
   LoaderCircle,
   Lock,
@@ -19,7 +17,6 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Label, Select } from '@/components/ui/input';
-import { StatValue, StatInput } from '@/components/ui/stat';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
@@ -32,8 +29,15 @@ import {
   usePesoEnPieList,
   useCreatePesoEnPie,
   useClosePesoEnPieGuide,
+  useBpPreview,
+  formatBP,
+  formatAnimal,
 } from './api';
-import { usePesoCamionAbiertas, type PesoCamionGuia } from '../peso-en-camion/api';
+import {
+  usePesoCamionAbiertas,
+  formatReferencia,
+  type PesoCamionGuia,
+} from '../peso-en-camion/api';
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -60,6 +64,8 @@ export function PesoEnPiePage() {
   const [cantidad, setCantidad] = useState('');
   const [entrada, setEntrada] = useState('');
   const [salida, setSalida] = useState('');
+  // Consecutivo BC de la guía seleccionada (trazabilidad BC↔BP).
+  const [bcReference, setBcReference] = useState<number | null>(null);
   const [tipoAnimal, setTipoAnimal] = useState('');
   const [corral, setCorral] = useState('');
   const [peso, setPeso] = useState('');
@@ -106,6 +112,10 @@ export function PesoEnPiePage() {
     (total, reporte) => total + (reporte.pesoTotalKg ?? 0),
     0,
   );
+  // BP de la guía en curso: el real si ya hay animales pesados, o el previsto
+  // (se confirma recién al guardar el primer animal) apenas se selecciona la guía.
+  const bpPreview = useBpPreview(bcReference);
+  const bpActual = reportesGuia[0]?.bpReference ?? bpPreview.data?.bpReference ?? null;
   // Corral del primer animal registrado en la guía: se usa como valor por
   // defecto para los siguientes animales (editable).
   const corralGuia =
@@ -143,6 +153,7 @@ export function PesoEnPiePage() {
     setCantidad('');
     setEntrada('');
     setSalida('');
+    setBcReference(null);
     setTipoAnimal('');
     setCorral('');
     setPeso('');
@@ -171,6 +182,7 @@ export function PesoEnPiePage() {
     setCantidad(guiaCamion.cantidad == null ? '' : String(guiaCamion.cantidad));
     setEntrada(guiaCamion.entrada == null ? '' : String(guiaCamion.entrada));
     setSalida(guiaCamion.salida == null ? '' : String(guiaCamion.salida));
+    setBcReference(guiaCamion.reference);
     setCorral('');
     setProcessClosed(false);
     setTab('registro');
@@ -236,6 +248,7 @@ export function PesoEnPiePage() {
     try {
       const created = await crear.mutateAsync({
         date: fecha,
+        bcReference: bcReference ?? undefined,
         guia: guia.trim() || undefined,
         procedencia: procedencia.trim() || undefined,
         proveedor: proveedor.trim() || undefined,
@@ -255,7 +268,7 @@ export function PesoEnPiePage() {
       limpiarCaptura();
       const siguiente = animalesRegistrados + 1;
       setNotice(
-        `Animal N.º ${created.reference} guardado. ${siguiente} de ${animalesObjetivo} animales de la guía.`,
+        `Animal ${formatAnimal(created.bpReference, created.reference)} guardado. ${siguiente} de ${animalesObjetivo} animales de la guía.`,
       );
       window.setTimeout(() => setNotice(null), 3500);
     } catch (error) {
@@ -302,7 +315,7 @@ export function PesoEnPiePage() {
         .slice()
         .sort((a, b) => a.reference - b.reference)
         .map((r) => ({
-          registro: `N.º ${r.reference}`,
+          registro: formatAnimal(r.bpReference, r.reference),
           animal: r.animalNo ?? String(r.reference),
           tipo: r.tipoAnimal ?? '',
           cantidad: r.pesoTotalKg ?? 0,
@@ -420,7 +433,7 @@ export function PesoEnPiePage() {
       )}
 
       <Card className="p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[130px_1fr_150px]">
           <div className="space-y-1">
             <Label htmlFor="fecha">Fecha</Label>
             <Input
@@ -443,6 +456,12 @@ export function PesoEnPiePage() {
               className="h-9 bg-muted/40"
               placeholder="Seleccione una guía abierta…"
             />
+          </div>
+          <div className="space-y-1">
+            <Label>Consecutivo BP</Label>
+            <div className="flex h-9 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-base font-bold tabular-nums text-emerald-700">
+              {bpActual != null ? formatBP(bpActual) : '—'}
+            </div>
           </div>
         </div>
 
@@ -493,69 +512,89 @@ export function PesoEnPiePage() {
         </div>
       </Card>
 
-      <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <StatValue
-          icon={Hash}
-          label="Referencia"
-          value={animalesObjetivo ? String(animalesRegistrados + 1) : '—'}
-        />
-        <StatValue
-          icon={Package}
-          label="Cant."
-          value={animalesObjetivo ? String(animalesObjetivo) : '0'}
-        />
-        <StatValue
-          icon={Beef}
-          label="Registrados"
-          value={String(animalesRegistrados)}
-        />
-        <StatValue
-          icon={Scale}
-          label="Total (kg)"
-          tone="text-emerald-600"
-          value={kg(totalKg)}
-        />
-        <StatValue
-          icon={Sigma}
-          label="Prom. (kg)"
-          value={kg(animalesRegistrados > 0 ? totalKg / animalesRegistrados : 0)}
-        />
-        <StatInput
-          icon={Weight}
-          label="Peso (kg)"
-          tone="text-emerald-700"
-          value={peso}
-          onChange={(v) => setPeso(v.replace(/[^0-9.]/g, ''))}
-          onKeyboard={leerBascula}
-          placeholder="0.00"
-          action={
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                aria-label="Leer báscula"
-                title={isReadingScale ? 'Leyendo báscula…' : 'Leer báscula'}
-                onClick={leerBascula}
-                disabled={isReadingScale}
-                className="text-muted-foreground hover:text-foreground disabled:opacity-50"
-              >
-                {isReadingScale ? (
-                  <LoaderCircle className="size-4 animate-spin" />
-                ) : (
-                  <Gauge className="size-4" />
-                )}
-              </button>
-              <button
-                type="button"
-                aria-label="Imprimir precinto"
-                title="Imprimir precinto / etiqueta"
-                onClick={imprimirPrecinto}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <Tag className="size-4" />
-              </button>
+      <div className="grid auto-rows-fr grid-cols-2 gap-3 lg:grid-cols-4">
+        <Card className="flex h-full flex-col justify-center p-2">
+          <div className="flex items-center justify-around gap-3">
+            <div className="flex flex-col items-center">
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Package className="size-3.5" />
+                Cant.
+              </div>
+              <p className="text-2xl font-semibold tabular-nums">
+                {animalesObjetivo ? String(animalesObjetivo) : '0'}
+              </p>
             </div>
-          }
-        />
+            <div className="h-8 w-px bg-border" />
+            <div className="flex flex-col items-center">
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Beef className="size-3.5" />
+                Registrados
+              </div>
+              <p className="text-2xl font-semibold tabular-nums">
+                {animalesRegistrados}
+              </p>
+            </div>
+          </div>
+        </Card>
+        <Card className="flex h-full flex-col justify-center p-2">
+          <div className="flex items-center justify-around gap-3">
+            <div className="flex flex-col items-center">
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Scale className="size-3.5" />
+                Total (kg)
+              </div>
+              <p className="text-2xl font-semibold tabular-nums text-emerald-600">
+                {kg(totalKg)}
+              </p>
+            </div>
+            <div className="h-8 w-px bg-border" />
+            <div className="flex flex-col items-center">
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Sigma className="size-3.5" />
+                Prom. (kg)
+              </div>
+              <p className="text-2xl font-semibold tabular-nums">
+                {kg(animalesRegistrados > 0 ? totalKg / animalesRegistrados : 0)}
+              </p>
+            </div>
+          </div>
+        </Card>
+        <Card
+          className="col-span-2 flex h-full cursor-pointer flex-col justify-center p-2 select-none"
+          onDoubleClick={leerBascula}
+          title="Doble clic para leer la báscula"
+        >
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex flex-col">
+              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                <Weight className="size-3.5" />
+                Peso (kg)
+                {isReadingScale && <LoaderCircle className="size-3.5 animate-spin" />}
+              </div>
+              <input
+                inputMode="decimal"
+                placeholder="0.00"
+                value={peso}
+                onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
+                onDoubleClick={leerBascula}
+                className="w-full bg-transparent text-2xl font-semibold tabular-nums outline-none placeholder:text-muted-foreground/40"
+              />
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={(e) => {
+                e.stopPropagation();
+                imprimirPrecinto();
+              }}
+              className="h-9 shrink-0 gap-1.5"
+            >
+              <Tag className="size-4" />
+              Precinto
+            </Button>
+          </div>
+        </Card>
       </div>
 
       {guiaCompleta && (
@@ -595,7 +634,9 @@ export function PesoEnPiePage() {
               <TBody>
                 {reportesGuia.map((r) => (
                   <TR key={r.id}>
-                    <TD className="font-semibold tabular-nums">N.º {r.reference}</TD>
+                    <TD className="font-semibold tabular-nums">
+                      {formatAnimal(r.bpReference, r.reference)}
+                    </TD>
                     <TD>{r.tipoAnimal ?? '—'}</TD>
                     <TD>{r.corral ? `Corral ${r.corral}` : '—'}</TD>
                     <TD className="text-muted-foreground">{r.date}</TD>
@@ -645,6 +686,7 @@ function GuiasCamionList({
       <Table>
         <THead>
           <TR>
+            <TH>Referencia</TH>
             <TH>Guía</TH>
             <TH>Cliente</TH>
             <TH>Fecha</TH>
@@ -662,8 +704,11 @@ function GuiasCamionList({
               className="cursor-pointer"
               onClick={() => onSelect(guia)}
             >
+              <TD className="font-semibold tabular-nums">
+                {formatReferencia(guia.reference)}
+              </TD>
               <TD className="font-semibold">
-                {guia.guia ?? `Ref. ${guia.reference}`}
+                {guia.guia ?? '—'}
               </TD>
               <TD className="font-medium">{guia.cliente ?? '—'}</TD>
               <TD className="text-muted-foreground">{guia.date}</TD>

@@ -14,6 +14,7 @@ import { useClients } from '../canal-fria/api';
 import {
   useCanalReceiptNextNumber,
   useCreateCanalReceipt,
+  formatRC,
   type DispatchOrderStatus,
 } from './api';
 
@@ -60,7 +61,7 @@ export function RegistroReciboTab() {
         processDate,
         status,
       });
-      setOkMsg(`Recibo N.º ${created.receiptNumber} registrado.`);
+      setOkMsg(`Recibo ${formatRC(created.receiptNumber)} registrado.`);
       setClientId('');
       setRegistrationDate(today());
       setProcessDate(tomorrow());
@@ -86,7 +87,7 @@ export function RegistroReciboTab() {
               Recibo N.º
             </Label>
             <p className="mt-1 text-3xl font-semibold tabular-nums text-primary">
-              {next.data ? next.data.next : '—'}
+              {next.data ? formatRC(next.data.next) : '—'}
             </p>
             <p className="text-xs text-muted-foreground">
               Se asigna automáticamente al guardar.

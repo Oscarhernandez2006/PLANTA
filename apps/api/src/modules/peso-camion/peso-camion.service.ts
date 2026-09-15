@@ -33,12 +33,11 @@ export class PesoCamionService {
     };
   }
 
-  /** Próxima referencia (orden de llegada) del día para la planta. */
-  async nextReference(ctx: AuthContext, dateStr?: string) {
-    const { date } = dateOnly(dateStr);
+  /** Próximo consecutivo global de referencia para la planta (producción). */
+  async nextReference(ctx: AuthContext) {
     const agg = await this.prisma.pesoCamion.aggregate({
       _max: { reference: true },
-      where: { plantId: ctx.plantId, date, deletedAt: null },
+      where: { plantId: ctx.plantId, deletedAt: null },
     });
     return { next: (agg._max.reference ?? 0) + 1 };
   }
@@ -76,13 +75,13 @@ export class PesoCamionService {
   }
 
   async create(ctx: AuthContext, dto: SavePesoCamionDto) {
-    const { str, date } = dateOnly(dto.date);
+    const { date } = dateOnly(dto.date);
     return this.prisma.$transaction(async (tx) => {
-      // Serializa la numeración de referencia por planta y día.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:${str}:pc`}))`;
+      // Serializa el consecutivo global de referencia por planta.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:pc`}))`;
       const agg = await tx.pesoCamion.aggregate({
         _max: { reference: true },
-        where: { plantId: ctx.plantId, date, deletedAt: null },
+        where: { plantId: ctx.plantId, deletedAt: null },
       });
       const reference = (agg._max.reference ?? 0) + 1;
       const rec = await tx.pesoCamion.create({

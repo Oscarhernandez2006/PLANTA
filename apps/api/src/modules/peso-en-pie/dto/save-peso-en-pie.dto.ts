@@ -15,6 +15,11 @@ export class SavePesoEnPieDto {
   @IsDateString()
   date?: string;
 
+  // Consecutivo BC (Báscula Camión) de la guía, para trazabilidad BC↔BP.
+  @IsOptional()
+  @IsInt()
+  bcReference?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(60)

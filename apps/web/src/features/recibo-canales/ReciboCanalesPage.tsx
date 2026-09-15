@@ -12,6 +12,7 @@ import {
 import { ReciboCanalesIcon } from '@/components/icons/ReciboCanalesIcon';
 import { useBascula } from '@/components/bascula/Bascula';
 import { Badge } from '@/components/ui/badge';
+import { getSavedScaleBaud, getSavedScalePort, readScale } from '@/lib/device';
 import { cn, formatDate } from '@/lib/utils';
 import {
   statusLabels,
@@ -20,6 +21,8 @@ import {
   useCanalReceiptItems,
   useCreateCanalReceiptItem,
   useDeleteCanalReceiptItem,
+  formatRC,
+  formatPieza,
   type CanalReceipt,
   type DispatchOrderStatus,
 } from '../canal-recibo/api';
@@ -57,6 +60,9 @@ export function ReciboCanalesPage() {
   const [cava, setCava] = useState<number | null>(null);
   // Valor digitado en el teclado; se coloca en el input que se toque.
   const [buffer, setBuffer] = useState('');
+  // Origen del valor en `buffer`: manual (teclado) o báscula (puerto COM).
+  // Al leer báscula el siguiente dígito reemplaza en vez de concatenar.
+  const [bufferOrigen, setBufferOrigen] = useState<'manual' | 'bascula' | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [deleteNotice, setDeleteNotice] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -99,6 +105,33 @@ export function ReciboCanalesPage() {
   const puedePesar =
     !!selected && cava != null && Number.isFinite(valor) && valor > 0;
 
+  // Lectura de báscula para el panel de captura (pestaña CANALES/CUARTOS):
+  // coloca el peso leído directo en el "Digitado (kg)" en vez del pie de página.
+  const [leyendoPanel, setLeyendoPanel] = useState(false);
+  async function leerBasculaPanel() {
+    setSaveError(null);
+    setLeyendoPanel(true);
+    try {
+      const port = getSavedScalePort() ?? undefined;
+      const baudRate = getSavedScaleBaud() ?? undefined;
+      const result = await readScale({ timeoutMs: 5000, port, baudRate });
+      if (result.ok && result.value !== null) {
+        setBuffer(result.value.toFixed(2));
+        setBufferOrigen('bascula');
+        return;
+      }
+      throw new Error(result.error ?? 'scale_not_found');
+    } catch (e) {
+      setSaveError(
+        (e as Error)?.message === 'scale_not_found'
+          ? 'No se detectó la báscula. Revisa la conexión y el puerto COM.'
+          : 'No se pudo leer la báscula. Revisa la conexión y el puerto COM.',
+      );
+    } finally {
+      setLeyendoPanel(false);
+    }
+  }
+
   function seleccionarOrden(o: CanalReceipt) {
     setSelectedId(o.id);
     setCava(null);
@@ -110,6 +143,16 @@ export function ReciboCanalesPage() {
 
   function registrarEn(cavaNum: number, pesoKg: number) {
     if (!selectedId || crearItem.isPending) return;
+    const faltantes: string[] = [];
+    if (!guia.trim()) faltantes.push('No. de Guía');
+    if (!lote.trim()) faltantes.push('Lote (Orden Sacrificio)');
+    if (!identificacion.trim()) faltantes.push('Identificación');
+    if (!cavaNum) faltantes.push('Cava');
+    if (!Number.isFinite(pesoKg) || pesoKg <= 0) faltantes.push('Peso (kg)');
+    if (faltantes.length) {
+      setSaveError(`Completa los campos obligatorios: ${faltantes.join(', ')}.`);
+      return;
+    }
     setCava(cavaNum);
     setSaveError(null);
     crearItem.mutate(
@@ -123,7 +166,7 @@ export function ReciboCanalesPage() {
       {
         onSuccess: (item) => {
           setNotice(
-            `Canal N.º ${item.codigo} registrada en CAVA ${item.cava} · ${Number(item.pesoKg).toFixed(2)} kg.`,
+            `Canal ${formatPieza(selected!.receiptNumber, item.codigo)} registrada en CAVA ${item.cava} · ${Number(item.pesoKg).toFixed(2)} kg.`,
           );
           window.setTimeout(() => setNotice(null), 3000);
           // Limpia la captura para la siguiente canal.
@@ -141,7 +184,7 @@ export function ReciboCanalesPage() {
     borrarItem.mutate(id, {
       onSuccess: () => {
         setDeleteNotice(
-          `Eliminaste la canal N.º ${reg?.codigo ?? ''} exitosamente.`,
+          `Eliminaste la canal ${reg && selected ? formatPieza(selected.receiptNumber, reg.codigo) : ''} exitosamente.`,
         );
         window.setTimeout(() => setDeleteNotice(null), 3000);
       },
@@ -226,12 +269,17 @@ export function ReciboCanalesPage() {
             totalKg={totalKg}
             buffer={buffer}
             setBuffer={setBuffer}
+            bufferOrigen={bufferOrigen}
+            setBufferOrigen={setBufferOrigen}
             onColocar={colocar}
             onRegistrar={registrarEn}
+            leyendoBascula={leyendoPanel}
+            onLeerBascula={leerBasculaPanel}
           />
         )}
         {tab === 'totales' && (
           <TotalesTab
+            selected={selected}
             registros={registros}
             totalKg={totalKg}
             onEliminar={eliminarRegistro}
@@ -243,7 +291,7 @@ export function ReciboCanalesPage() {
       <div className="flex flex-wrap items-stretch gap-2">
         <FieldBox label="Orden No.:">
           <div className="flex h-10 min-w-24 items-center text-2xl font-bold tabular-nums">
-            {selected ? selected.receiptNumber : '—'}
+            {selected ? formatRC(selected.receiptNumber) : '—'}
           </div>
         </FieldBox>
         <FieldBox label="Código:">
@@ -289,7 +337,9 @@ export function ReciboCanalesPage() {
           <div className="flex h-10 items-center gap-2 text-sm font-medium">
             {ultimo ? (
               <>
-                <span className="tabular-nums">#{ultimo.codigo}</span>
+                <span className="tabular-nums">
+                  {selected ? formatPieza(selected.receiptNumber, ultimo.codigo) : `#${ultimo.codigo}`}
+                </span>
                 <span className="text-muted-foreground">CAVA {ultimo.cava}</span>
                 <span className="font-bold text-emerald-700 tabular-nums">
                   {ultimo.pesoKg.toFixed(2)} kg
@@ -387,7 +437,7 @@ function OrdenesTab({
             >
               <span>
                 <span className="font-bold tabular-nums">
-                  {o.receiptNumber}
+                  {formatRC(o.receiptNumber)}
                 </span>{' '}
                 <span className="text-muted-foreground">|</span> {o.client.name}{' '}
                 <span className="text-muted-foreground">({o.client.sede})</span>
@@ -420,8 +470,12 @@ function CanalesTab({
   totalKg,
   buffer,
   setBuffer,
+  bufferOrigen,
+  setBufferOrigen,
   onColocar,
   onRegistrar,
+  leyendoBascula,
+  onLeerBascula,
 }: {
   selected: CanalReceipt | null;
   guia: string;
@@ -436,13 +490,28 @@ function CanalesTab({
   totalKg: number;
   buffer: string;
   setBuffer: (v: string) => void;
+  bufferOrigen: 'manual' | 'bascula' | null;
+  setBufferOrigen: (v: 'manual' | 'bascula' | null) => void;
   onColocar: (setter: (v: string) => void) => void;
   onRegistrar: (cava: number, pesoKg: number) => void;
+  leyendoBascula: boolean;
+  onLeerBascula: () => void;
 }) {
   function press(k: string) {
-    if (k === 'C') return setBuffer('');
+    if (k === 'C') {
+      setBuffer('');
+      setBufferOrigen(null);
+      return;
+    }
+    // Un valor leído de báscula se reemplaza (no se concatena) al empezar a teclear.
+    if (bufferOrigen === 'bascula') {
+      setBuffer(k === '.' ? '0.' : k);
+      setBufferOrigen('manual');
+      return;
+    }
     if (k === '.' && buffer.includes('.')) return;
     setBuffer((buffer + k).replace(/[^0-9.]/g, ''));
+    setBufferOrigen('manual');
   }
 
   // Coloca el peso digitado en la cava tocada y limpia el panel. Sin peso, solo la selecciona.
@@ -451,6 +520,7 @@ function CanalesTab({
     if (buffer.trim() !== '' && Number.isFinite(v) && v > 0) {
       onRegistrar(c, v);
       setBuffer('');
+      setBufferOrigen(null);
     } else {
       setCava(c);
     }
@@ -549,8 +619,29 @@ function CanalesTab({
           </FieldBox>
 
           <FieldBox label="Digitado (kg):">
-            <div className="flex h-9 items-center justify-center text-2xl font-bold tabular-nums text-emerald-700">
-              {buffer || <span className="text-muted-foreground/40">0.00</span>}
+            <div className="flex h-9 items-center justify-between gap-2">
+              <span className="flex items-baseline gap-2">
+                <span className="text-2xl font-bold tabular-nums text-emerald-700">
+                  {buffer || <span className="text-muted-foreground/40">0.00</span>}
+                </span>
+                {bufferOrigen && (
+                  <span className="text-[11px] font-medium uppercase text-muted-foreground">
+                    {bufferOrigen === 'bascula' ? 'Báscula' : 'Manual'}
+                  </span>
+                )}
+              </span>
+              <button
+                onClick={onLeerBascula}
+                disabled={leyendoBascula}
+                title="Leer báscula"
+                className="flex size-8 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
+              >
+                {leyendoBascula ? (
+                  <LoaderCircle className="size-4 animate-spin" />
+                ) : (
+                  <Gauge className="size-4" />
+                )}
+              </button>
             </div>
           </FieldBox>
 
@@ -569,7 +660,7 @@ function CanalesTab({
             ))}
           </div>
           <p className="text-center text-xs text-muted-foreground">
-            Digitá el peso y tocá la cava donde va el canal.
+            Digitá el peso (manual) o leé la báscula, y tocá la cava donde va el canal.
           </p>
         </div>
       </div>
@@ -578,10 +669,12 @@ function CanalesTab({
 }
 
 function TotalesTab({
+  selected,
   registros,
   totalKg,
   onEliminar,
 }: {
+  selected: CanalReceipt | null;
   registros: CanalRegistro[];
   totalKg: number;
   onEliminar: (id: string) => void;
@@ -598,6 +691,17 @@ function TotalesTab({
     onEliminar(sel);
     setSel(null);
   }
+
+  if (!selected)
+    return (
+      <div className="flex flex-col items-center gap-2 p-14 text-center text-muted-foreground">
+        <PackageSearch className="size-8 opacity-50" />
+        <p className="text-sm font-medium">Selecciona una orden</p>
+        <p className="text-sm">
+          Elegí una orden en la pestaña ORDENES para ver sus totales.
+        </p>
+      </div>
+    );
 
   return (
     <div className="flex h-full flex-col gap-2 px-2 pb-2 pt-4">
@@ -626,7 +730,7 @@ function TotalesTab({
                       )}
                     >
                       <span className="font-semibold tabular-nums">
-                        #{r.codigo}
+                        {formatPieza(selected.receiptNumber, r.codigo)}
                       </span>
                       <span className="text-muted-foreground">
                         CAVA {r.cava}

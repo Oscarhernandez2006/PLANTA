@@ -28,11 +28,16 @@ type NavItem = {
 
 const navGroups: { title: string; items: NavItem[] }[] = [
   {
-    title: 'Módulos',
+    title: 'Recibo de Materia Prima',
     items: [
       { to: '/peso-en-camion', label: 'Peso En Camión', icon: PesoEnCamionIcon },
       { to: '/peso-en-pie', label: 'Peso En Pie', icon: PesoEnPieIcon },
       { to: '/recibo-de-canales', label: 'Recibo de Canales', icon: ReciboCanalesIcon },
+    ],
+  },
+  {
+    title: 'Beneficio',
+    items: [
       { to: '/insensibilizacion', label: 'Insensibilización', icon: InsensibilizacionIcon },
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },

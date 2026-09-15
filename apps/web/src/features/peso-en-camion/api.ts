@@ -145,6 +145,11 @@ export function formatProcedenciaCode(code: number) {
   return String(code).padStart(6, '0');
 }
 
+// Referencia de producción: BC (Báscula Camión) + consecutivo global (6 dígitos).
+export function formatReferencia(n: number) {
+  return `BC${String(n).padStart(6, '0')}`;
+}
+
 // ======================= GUÍA DE PESO EN CAMIÓN ==========================
 
 export interface PesoCamionGuia {
