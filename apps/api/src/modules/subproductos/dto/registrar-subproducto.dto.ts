@@ -1,16 +1,17 @@
-import { IsIn, IsNumber, IsPositive, IsUUID, Max } from 'class-validator';
-
-export type TipoViscera = 'blancas' | 'rojas';
+import { IsEnum, IsNumber, IsOptional, IsPositive, IsUUID, Max } from 'class-validator';
+import { SubproductoItemTipo } from '@prisma/client';
 
 export class RegistrarSubproductoDto {
   @IsUUID()
   eventoId!: string;
 
-  @IsIn(['blancas', 'rojas'])
-  tipo!: TipoViscera;
+  @IsEnum(SubproductoItemTipo)
+  tipo!: SubproductoItemTipo;
 
+  // Solo requerido para la tripa ancha (se registra por kg, no por unidad).
+  @IsOptional()
   @IsNumber({ maxDecimalPlaces: 2 })
   @IsPositive()
   @Max(9999)
-  pesoKg!: number;
+  pesoKg?: number;
 }

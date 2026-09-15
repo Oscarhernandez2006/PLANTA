@@ -1,12 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-export type TipoViscera = 'blancas' | 'rojas';
+export type SubproductoGrupo = 'rojas' | 'blancas';
+export type SubproductoUnidad = 'unidad' | 'kg';
 
-export interface SubViscera {
-  pesado: boolean;
+export interface SubItem {
+  tipo: string;
+  label: string;
+  grupo: SubproductoGrupo;
+  unidad: SubproductoUnidad;
+  marcado: boolean;
   pesoKg: number | null;
-  at: string | null;
+  registradoAt: string | null;
   operatorName: string | null;
 }
 
@@ -21,6 +26,8 @@ export interface SubLote {
   caidos: number;
   pesadosBlancas: number;
   pesadosRojas: number;
+  totalBlancas: number;
+  totalRojas: number;
 }
 
 export interface SubAnimal {
@@ -28,8 +35,7 @@ export interface SubAnimal {
   sequence: number;
   consecutivo: number;
   stunnedAt: string;
-  blancas: SubViscera;
-  rojas: SubViscera;
+  items: SubItem[];
 }
 
 export interface SubLoteDetail extends SubLote {
@@ -62,11 +68,12 @@ export function useRegistrarSubproducto() {
   return useMutation({
     mutationFn: async (payload: {
       eventoId: string;
-      tipo: TipoViscera;
-      pesoKg: number;
+      tipo: string;
+      pesoKg?: number;
     }) => (await api.post<{ ok: boolean }>('/subproductos', payload)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['subproductos'] });
     },
   });
 }
+

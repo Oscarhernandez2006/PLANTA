@@ -7,14 +7,37 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { RegistrarSubproductoDto } from './dto/registrar-subproducto.dto';
 import { plantDateOnly } from '../../common/plant-date';
+import { SUBPRODUCTO_ITEM_BY_TIPO } from './subproducto-items';
 
 function dateOnly(value?: string) {
   return plantDateOnly(value);
 }
 
+// Cantidad de ítems del checklist que corresponden a cada grupo de vísceras.
+const TOTAL_POR_GRUPO = {
+  rojas: [...SUBPRODUCTO_ITEM_BY_TIPO.values()].filter(
+    (i) => i.grupo === 'rojas',
+  ).length,
+  blancas: [...SUBPRODUCTO_ITEM_BY_TIPO.values()].filter(
+    (i) => i.grupo === 'blancas',
+  ).length,
+};
+
 @Injectable()
 export class SubproductosService {
   constructor(private readonly prisma: PrismaService) {}
+
+  private contarPorGrupo(subproductos: { tipo: string; marcado: boolean }[]) {
+    let blancas = 0;
+    let rojas = 0;
+    for (const s of subproductos) {
+      if (!s.marcado) continue;
+      const def = SUBPRODUCTO_ITEM_BY_TIPO.get(s.tipo as never);
+      if (def?.grupo === 'blancas') blancas += 1;
+      else if (def?.grupo === 'rojas') rojas += 1;
+    }
+    return { blancas, rojas };
+  }
 
   /**
    * Base del consecutivo global por día: para cada orden devuelve cuántos
@@ -51,31 +74,46 @@ export class SubproductosService {
       orderBy: [{ reference: 'asc' }],
       include: {
         eventos: {
-          select: { pesoViscBlancasKg: true, pesoViscRojasKg: true },
+          select: { subproductos: { select: { tipo: true, marcado: true } } },
         },
       },
     });
     const bases = await this.consecutivoBases(ctx.plantId, [date]);
-    return ordenes.map((o) => ({
-      ordenBeneficioId: o.id,
-      reference: o.reference,
-      cliente: o.cliente,
-      guias: o.guias,
-      date: o.date.toISOString().slice(0, 10),
-      consecutivoBase: bases.get(o.id) ?? 0,
-      animalCount: o.animalCount,
-      caidos: o.eventos.length,
-      pesadosBlancas: o.eventos.filter((e) => e.pesoViscBlancasKg != null)
-        .length,
-      pesadosRojas: o.eventos.filter((e) => e.pesoViscRojasKg != null).length,
-    }));
+    return ordenes.map((o) => {
+      let pesadosBlancas = 0;
+      let pesadosRojas = 0;
+      for (const e of o.eventos) {
+        const { blancas, rojas } = this.contarPorGrupo(e.subproductos);
+        pesadosBlancas += blancas;
+        pesadosRojas += rojas;
+      }
+      return {
+        ordenBeneficioId: o.id,
+        reference: o.reference,
+        cliente: o.cliente,
+        guias: o.guias,
+        date: o.date.toISOString().slice(0, 10),
+        consecutivoBase: bases.get(o.id) ?? 0,
+        animalCount: o.animalCount,
+        caidos: o.eventos.length,
+        pesadosBlancas,
+        pesadosRojas,
+        totalBlancas: o.eventos.length * TOTAL_POR_GRUPO.blancas,
+        totalRojas: o.eventos.length * TOTAL_POR_GRUPO.rojas,
+      };
+    });
   }
 
   /** Detalle de un lote con sus animales caídos y su estado de pesaje. */
   async loteDetail(ctx: AuthContext, ordenBeneficioId: string) {
     const o = await this.prisma.ordenBeneficio.findFirst({
       where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
-      include: { eventos: { orderBy: { sequence: 'asc' } } },
+      include: {
+        eventos: {
+          orderBy: { sequence: 'asc' },
+          include: { subproductos: true },
+        },
+      },
     });
     if (!o) throw new NotFoundException('Lote no encontrado.');
 
@@ -85,7 +123,7 @@ export class SubproductosService {
     const operatorIds = [
       ...new Set(
         o.eventos
-          .flatMap((e) => [e.viscBlancasOperatorId, e.viscRojasOperatorId])
+          .flatMap((e) => e.subproductos.map((s) => s.operatorId))
           .filter((x): x is string => !!x),
       ),
     ];
@@ -97,6 +135,14 @@ export class SubproductosService {
       : [];
     const nameById = new Map(users.map((u) => [u.id, u.fullName]));
 
+    let pesadosBlancas = 0;
+    let pesadosRojas = 0;
+    for (const e of o.eventos) {
+      const { blancas, rojas } = this.contarPorGrupo(e.subproductos);
+      pesadosBlancas += blancas;
+      pesadosRojas += rojas;
+    }
+
     return {
       ordenBeneficioId: o.id,
       reference: o.reference,
@@ -106,76 +152,63 @@ export class SubproductosService {
       consecutivoBase: base,
       animalCount: o.animalCount,
       caidos: o.eventos.length,
-      pesadosBlancas: o.eventos.filter((e) => e.pesoViscBlancasKg != null)
-        .length,
-      pesadosRojas: o.eventos.filter((e) => e.pesoViscRojasKg != null).length,
+      pesadosBlancas,
+      pesadosRojas,
+      totalBlancas: o.eventos.length * TOTAL_POR_GRUPO.blancas,
+      totalRojas: o.eventos.length * TOTAL_POR_GRUPO.rojas,
       animales: o.eventos.map((e) => ({
         eventoId: e.id,
         sequence: e.sequence,
         consecutivo: base + e.sequence,
         stunnedAt: e.stunnedAt.toISOString(),
-        blancas: {
-          pesado: e.pesoViscBlancasKg != null,
-          pesoKg: e.pesoViscBlancasKg != null ? Number(e.pesoViscBlancasKg) : null,
-          at: e.viscBlancasAt?.toISOString() ?? null,
-          operatorName: e.viscBlancasOperatorId
-            ? (nameById.get(e.viscBlancasOperatorId) ?? '—')
-            : null,
-        },
-        rojas: {
-          pesado: e.pesoViscRojasKg != null,
-          pesoKg: e.pesoViscRojasKg != null ? Number(e.pesoViscRojasKg) : null,
-          at: e.viscRojasAt?.toISOString() ?? null,
-          operatorName: e.viscRojasOperatorId
-            ? (nameById.get(e.viscRojasOperatorId) ?? '—')
-            : null,
-        },
+        items: [...e.subproductos]
+          .sort((a, b) => a.tipo.localeCompare(b.tipo))
+          .map((s) => {
+            const def = SUBPRODUCTO_ITEM_BY_TIPO.get(s.tipo);
+            return {
+              tipo: s.tipo,
+              label: def?.label ?? s.tipo,
+              grupo: def?.grupo ?? 'blancas',
+              unidad: def?.unidad ?? 'unidad',
+              marcado: s.marcado,
+              pesoKg: s.pesoKg != null ? Number(s.pesoKg) : null,
+              registradoAt: s.registradoAt?.toISOString() ?? null,
+              operatorName: s.operatorId
+                ? (nameById.get(s.operatorId) ?? '—')
+                : null,
+            };
+          }),
       })),
     };
   }
 
-  /** Registra el peso de las vísceras (blancas o rojas) de un animal caído. */
+  /** Marca (o registra el peso de) un ítem del checklist de un animal caído. */
   async registrar(ctx: AuthContext, dto: RegistrarSubproductoDto) {
-    const evt = await this.prisma.ordenBeneficioEvento.findFirst({
+    const item = await this.prisma.subproductoItem.findFirst({
       where: {
-        id: dto.eventoId,
-        ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
-      },
-      select: {
-        id: true,
-        pesoViscBlancasKg: true,
-        pesoViscRojasKg: true,
+        eventoId: dto.eventoId,
+        tipo: dto.tipo,
+        evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } },
       },
     });
-    if (!evt) throw new NotFoundException('Animal no encontrado.');
-
-    const yaPesado =
-      dto.tipo === 'blancas'
-        ? evt.pesoViscBlancasKg != null
-        : evt.pesoViscRojasKg != null;
-    if (yaPesado) {
-      throw new BadRequestException(
-        `Las vísceras ${dto.tipo} de este animal ya tienen peso registrado.`,
-      );
+    if (!item) throw new NotFoundException('Ítem no encontrado.');
+    if (item.marcado) {
+      throw new BadRequestException('Este ítem ya fue registrado.');
     }
 
-    const now = new Date();
-    const data =
-      dto.tipo === 'blancas'
-        ? {
-            pesoViscBlancasKg: dto.pesoKg,
-            viscBlancasAt: now,
-            viscBlancasOperatorId: ctx.userId,
-          }
-        : {
-            pesoViscRojasKg: dto.pesoKg,
-            viscRojasAt: now,
-            viscRojasOperatorId: ctx.userId,
-          };
+    const def = SUBPRODUCTO_ITEM_BY_TIPO.get(item.tipo);
+    if (def?.unidad === 'kg' && dto.pesoKg == null) {
+      throw new BadRequestException(`${def.label} requiere peso en kg.`);
+    }
 
-    await this.prisma.ordenBeneficioEvento.update({
-      where: { id: evt.id },
-      data,
+    await this.prisma.subproductoItem.update({
+      where: { id: item.id },
+      data: {
+        marcado: true,
+        pesoKg: def?.unidad === 'kg' ? dto.pesoKg : null,
+        registradoAt: new Date(),
+        operatorId: ctx.userId,
+      },
     });
     return { ok: true };
   }

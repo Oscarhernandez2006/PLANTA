@@ -22,8 +22,9 @@ import {
   useSubLoteDetail,
   useRegistrarSubproducto,
   type SubAnimal,
+  type SubItem,
   type SubLoteDetail,
-  type TipoViscera,
+  type SubproductoGrupo,
 } from './api';
 
 function today() {
@@ -39,10 +40,16 @@ function hora(iso: string | null) {
   });
 }
 
-const TIPOS: { key: TipoViscera; label: string }[] = [
+const GRUPOS: { key: SubproductoGrupo; label: string }[] = [
   { key: 'blancas', label: 'Vísceras blancas' },
   { key: 'rojas', label: 'Vísceras rojas' },
 ];
+
+// Un animal + un ítem puntual de su checklist (para trabajar la lista aplanada).
+interface AnimalItem {
+  animal: SubAnimal;
+  item: SubItem;
+}
 
 export function SubproductosPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -63,8 +70,8 @@ export function SubproductosPage() {
               Subproductos
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Elige un lote para tomar el peso de las vísceras de cada animal:
-              blancas y rojas se pesan por separado.
+              Elige un lote para marcar el checklist de vísceras de cada
+              animal: blancas y rojas se registran por separado.
             </p>
           </div>
         </div>
@@ -98,7 +105,7 @@ export function SubproductosPage() {
           ) : (
             <ul className="divide-y divide-border">
               {lista.map((l) => {
-                const total = l.caidos * 2;
+                const total = l.totalBlancas + l.totalRojas;
                 const hechos = l.pesadosBlancas + l.pesadosRojas;
                 const pct = total ? Math.round((hechos / total) * 100) : 0;
                 const completo = total > 0 && hechos === total;
@@ -116,8 +123,8 @@ export function SubproductosPage() {
                           )}
                         </div>
                         <span className="text-sm tabular-nums text-muted-foreground">
-                          B {l.pesadosBlancas}/{l.caidos} · R {l.pesadosRojas}/
-                          {l.caidos}
+                          B {l.pesadosBlancas}/{l.totalBlancas} · R{' '}
+                          {l.pesadosRojas}/{l.totalRojas}
                         </span>
                       </div>
                       <div className="text-xs text-muted-foreground">
@@ -155,12 +162,18 @@ function LoteDetalle({
   data: SubLoteDetail;
   onBack: () => void;
 }) {
-  const [tipo, setTipo] = useState<TipoViscera>('blancas');
+  const [grupo, setGrupo] = useState<SubproductoGrupo>('blancas');
 
-  const pendientes = data.animales.filter((a) => !a[tipo].pesado);
-  const pesados = data.animales.filter((a) => a[tipo].pesado);
-  const totalPesados =
-    tipo === 'blancas' ? data.pesadosBlancas : data.pesadosRojas;
+  const flat: AnimalItem[] = data.animales.flatMap((animal) =>
+    animal.items
+      .filter((item) => item.grupo === grupo)
+      .map((item) => ({ animal, item })),
+  );
+  const pendientes = flat.filter((ai) => !ai.item.marcado);
+  const pesados = flat.filter((ai) => ai.item.marcado);
+  const totalGrupo = grupo === 'blancas' ? data.totalBlancas : data.totalRojas;
+  const hechosGrupo =
+    grupo === 'blancas' ? data.pesadosBlancas : data.pesadosRojas;
 
   return (
     <Card className="flex flex-col overflow-hidden">
@@ -186,36 +199,38 @@ function LoteDetalle({
           </div>
         </div>
         <span className="text-sm tabular-nums text-muted-foreground">
-          {totalPesados}/{data.caidos} pesados
+          {hechosGrupo}/{totalGrupo} pesados
         </span>
       </div>
 
       {/* Conexión a la báscula real */}
       <BasculaConexion />
 
-      {/* Selector de tipo de víscera */}
+      {/* Selector de grupo de víscera */}
       <div className="flex items-center gap-3 px-5 py-4">
         <span className="text-sm font-medium text-muted-foreground">
-          Tipo de víscera:
+          Grupo de vísceras:
         </span>
         <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
-          {TIPOS.map((t) => {
+          {GRUPOS.map((g) => {
             const done =
-              t.key === 'blancas' ? data.pesadosBlancas : data.pesadosRojas;
+              g.key === 'blancas' ? data.pesadosBlancas : data.pesadosRojas;
+            const total =
+              g.key === 'blancas' ? data.totalBlancas : data.totalRojas;
             return (
               <button
-                key={t.key}
-                onClick={() => setTipo(t.key)}
+                key={g.key}
+                onClick={() => setGrupo(g.key)}
                 className={cn(
                   'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
-                  tipo === t.key
+                  grupo === g.key
                     ? 'bg-background text-foreground shadow-sm'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                {t.label}
+                {g.label}
                 <span className="ml-1.5 text-xs tabular-nums text-muted-foreground">
-                  {done}/{data.caidos}
+                  {done}/{total}
                 </span>
               </button>
             );
@@ -223,9 +238,9 @@ function LoteDetalle({
         </div>
       </div>
 
-      <IndividualView
-        key={tipo}
-        tipo={tipo}
+      <ChecklistView
+        key={grupo}
+        grupo={grupo}
         pendientes={pendientes}
         pesados={pesados}
       />
@@ -233,53 +248,56 @@ function LoteDetalle({
   );
 }
 
-function IndividualView({
-  tipo,
+function ChecklistView({
+  grupo,
   pendientes,
   pesados,
 }: {
-  tipo: TipoViscera;
-  pendientes: SubAnimal[];
-  pesados: SubAnimal[];
+  grupo: SubproductoGrupo;
+  pendientes: AnimalItem[];
+  pesados: AnimalItem[];
 }) {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string | null>(null);
 
-  // Selecciona automáticamente el primer animal por pesar.
+  // Selecciona automáticamente el primer ítem pendiente.
   useEffect(() => {
     if (!pendientes.length) {
-      setSelectedId(null);
+      setSelectedKey(null);
       return;
     }
-    setSelectedId((prev) =>
-      prev && pendientes.some((a) => a.eventoId === prev)
-        ? prev
-        : pendientes[0].eventoId,
+    const keys = pendientes.map((ai) => `${ai.animal.eventoId}:${ai.item.tipo}`);
+    setSelectedKey((prev) =>
+      prev && keys.includes(prev) ? prev : keys[0],
     );
   }, [pendientes]);
 
-  const seleccionado = pendientes.find((a) => a.eventoId === selectedId) ?? null;
-  const tipoLabel = tipo === 'blancas' ? 'blancas' : 'rojas';
+  const seleccionado =
+    pendientes.find(
+      (ai) => `${ai.animal.eventoId}:${ai.item.tipo}` === selectedKey,
+    ) ?? null;
+  const grupoLabel = grupo === 'blancas' ? 'blancas' : 'rojas';
 
   return (
     <div className="grid border-t border-border md:grid-cols-2">
-      {/* Izquierda: animales del lote */}
+      {/* Izquierda: ítems del lote */}
       <div className="md:border-r md:border-border">
         <div className="px-5 py-3 text-sm font-semibold">
-          Por pesar ({pendientes.length})
+          Por registrar ({pendientes.length})
         </div>
         {!pendientes.length ? (
           <div className="flex items-center justify-center gap-2 px-5 pb-6 text-sm text-muted-foreground">
             <CheckCircle2 className="size-4 text-emerald-600" /> Todas las
-            vísceras {tipoLabel} de este lote ya fueron pesadas.
+            vísceras {grupoLabel} de este lote ya fueron registradas.
           </div>
         ) : (
           <ul className="divide-y divide-border">
-            {pendientes.map((a) => {
-              const activo = a.eventoId === selectedId;
+            {pendientes.map((ai) => {
+              const key = `${ai.animal.eventoId}:${ai.item.tipo}`;
+              const activo = key === selectedKey;
               return (
-                <li key={a.eventoId}>
+                <li key={key}>
                   <button
-                    onClick={() => setSelectedId(a.eventoId)}
+                    onClick={() => setSelectedKey(key)}
                     className={cn(
                       'flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors',
                       activo
@@ -289,10 +307,10 @@ function IndividualView({
                   >
                     <div className="flex items-center gap-3">
                       <span className="text-lg font-bold tabular-nums">
-                        #{a.consecutivo}
+                        #{ai.animal.consecutivo}
                       </span>
                       <span className="text-sm text-muted-foreground">
-                        cayó {hora(a.stunnedAt)}
+                        {ai.item.label}
                       </span>
                     </div>
                     {activo && (
@@ -310,25 +328,30 @@ function IndividualView({
         {pesados.length > 0 && (
           <>
             <div className="border-t border-border px-5 py-3 text-sm font-semibold">
-              Pesados ({pesados.length})
+              Registrados ({pesados.length})
             </div>
             <ul className="divide-y divide-border">
-              {pesados.map((a) => (
+              {pesados.map((ai) => (
                 <li
-                  key={a.eventoId}
+                  key={`${ai.animal.eventoId}:${ai.item.tipo}`}
                   className="flex items-center justify-between gap-3 px-5 py-3 text-sm"
                 >
                   <div className="flex items-center gap-3">
                     <span className="font-semibold tabular-nums">
-                      #{a.consecutivo}
+                      #{ai.animal.consecutivo}
                     </span>
                     <span className="text-muted-foreground">
-                      {hora(a[tipo].at)} · {a[tipo].operatorName ?? '—'}
+                      {ai.item.label} · {hora(ai.item.registradoAt)} ·{' '}
+                      {ai.item.operatorName ?? '—'}
                     </span>
                   </div>
-                  <span className="font-semibold tabular-nums">
-                    {a[tipo].pesoKg?.toFixed(2)} kg
-                  </span>
+                  {ai.item.unidad === 'kg' ? (
+                    <span className="font-semibold tabular-nums">
+                      {ai.item.pesoKg?.toFixed(2)} kg
+                    </span>
+                  ) : (
+                    <CheckCircle2 className="size-4 text-emerald-600" />
+                  )}
                 </li>
               ))}
             </ul>
@@ -336,64 +359,69 @@ function IndividualView({
         )}
       </div>
 
-      {/* Derecha: báscula del animal seleccionado */}
+      {/* Derecha: registro del ítem seleccionado */}
       <div className="border-t border-border md:border-t-0">
-        <WeighPanel
-          key={`${tipo}-${seleccionado?.eventoId ?? 'none'}`}
-          tipo={tipo}
-          animal={seleccionado}
+        <RegistroPanel
+          key={selectedKey ?? 'none'}
+          animalItem={seleccionado}
         />
       </div>
     </div>
   );
 }
 
-function WeighPanel({
-  tipo,
-  animal,
-}: {
-  tipo: TipoViscera;
-  animal: SubAnimal | null;
-}) {
+function RegistroPanel({ animalItem }: { animalItem: AnimalItem | null }) {
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
   const registrar = useRegistrarSubproducto();
-  const tipoLabel = tipo === 'blancas' ? 'blancas' : 'rojas';
 
+  const esKg = animalItem?.item.unidad === 'kg';
   const valor = Number(peso.replace(',', '.'));
-  const valido =
-    !!animal && peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
+  const validoKg =
+    !!animalItem && peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
 
   function guardar() {
-    if (!animal || !valido || registrar.isPending) return;
-    registrar.mutate({ eventoId: animal.eventoId, tipo, pesoKg: valor });
+    if (!animalItem || registrar.isPending) return;
+    if (esKg && !validoKg) return;
+    registrar.mutate({
+      eventoId: animalItem.animal.eventoId,
+      tipo: animalItem.item.tipo,
+      pesoKg: esKg ? valor : undefined,
+    });
   }
 
   return (
     <div className="bg-muted/20 px-5 py-6 md:sticky md:top-4">
       <div className="mb-4 flex items-center gap-3">
-        {animal ? (
+        {animalItem ? (
           <>
             <span className="text-2xl font-bold tabular-nums">
-              #{animal.consecutivo}
+              #{animalItem.animal.consecutivo}
             </span>
             <span className="text-sm text-muted-foreground">
-              cayó {hora(animal.stunnedAt)}
+              {animalItem.item.label} · cayó{' '}
+              {hora(animalItem.animal.stunnedAt)}
             </span>
           </>
         ) : (
           <span className="text-sm text-muted-foreground">
-            Selecciona un animal de la lista para registrar su peso.
+            Selecciona un ítem de la lista para registrarlo.
           </span>
         )}
       </div>
-      <BasculaField
-        label={`Vísceras ${tipoLabel} (kg):`}
-        peso={peso}
-        setPeso={setPeso}
-        leyendo={leyendo}
-        onLeer={leerBascula}
-        onEnter={guardar}
-      />
+      {esKg ? (
+        <BasculaField
+          label={`${animalItem?.item.label ?? 'Peso'} (kg):`}
+          peso={peso}
+          setPeso={setPeso}
+          leyendo={leyendo}
+          onLeer={leerBascula}
+          onEnter={guardar}
+        />
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          Este ítem se registra por unidad, sin peso.
+        </p>
+      )}
       {error && (
         <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
           {error}
@@ -403,16 +431,16 @@ function WeighPanel({
         <Button
           size="lg"
           onClick={guardar}
-          disabled={!valido || registrar.isPending}
+          disabled={!animalItem || (esKg && !validoKg) || registrar.isPending}
         >
           {registrar.isPending ? (
             <LoaderCircle className="size-5 animate-spin" />
           ) : (
             <Scale className="size-5" />
           )}
-          {animal
-            ? `Pesar vísceras ${tipoLabel} #${animal.consecutivo}`
-            : 'Pesar vísceras'}
+          {animalItem
+            ? `Marcar ${animalItem.item.label} #${animalItem.animal.consecutivo}`
+            : 'Marcar'}
         </Button>
       </div>
     </div>
@@ -435,3 +463,4 @@ function Empty({ text }: { text: string }) {
     </div>
   );
 }
+
