@@ -55,7 +55,7 @@ export class CanalCalienteService {
     return base;
   }
 
-  /** Órdenes ya insensibilizadas (procesadas) listas para pesar en canal. */
+  /** Órdenes con al menos un animal insensibilizado, listas para pesar en canal. */
   async lotes(ctx: AuthContext, dateStr?: string) {
     const date = dateOnly(dateStr);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
@@ -63,7 +63,12 @@ export class CanalCalienteService {
         plantId: ctx.plantId,
         deletedAt: null,
         date,
-        status: OrdenBeneficioStatus.procesado,
+        status: {
+          in: [
+            OrdenBeneficioStatus.en_insensibilizacion,
+            OrdenBeneficioStatus.procesado,
+          ],
+        },
       },
       orderBy: [{ reference: 'desc' }],
       include: { eventos: { include: { canalPiezas: true } } },
@@ -242,7 +247,7 @@ export class CanalCalienteService {
     return { ok: true };
   }
 
-  /** ANIMALES: todos los animales de las órdenes procesadas del día. */
+  /** ANIMALES: todos los animales de las órdenes con insensibilización iniciada del día. */
   async animales(ctx: AuthContext, dateStr?: string) {
     const date = dateOnly(dateStr);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
@@ -250,7 +255,12 @@ export class CanalCalienteService {
         plantId: ctx.plantId,
         deletedAt: null,
         date,
-        status: OrdenBeneficioStatus.procesado,
+        status: {
+          in: [
+            OrdenBeneficioStatus.en_insensibilizacion,
+            OrdenBeneficioStatus.procesado,
+          ],
+        },
       },
       orderBy: [{ reference: 'asc' }],
       include: {

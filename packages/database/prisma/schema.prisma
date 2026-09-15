@@ -752,6 +752,22 @@ enum CanalTurno {
   tarde
 }
 
+// Ítems de vísceras que se generan automáticamente al caer (insensibilizarse)
+// cada animal. Todos se registran por unidad (marcado sí/no) excepto la
+// tripa ancha, que se registra por kilos.
+enum SubproductoItemTipo {
+  corazon
+  higado
+  bofe
+  rinones
+  bazo
+  panza
+  librillo
+  cuajar
+  tripa_delgada
+  tripa_ancha
+}
+
 model PesoEnPie {
   id             String              @id @default(uuid()) @db.Uuid
   plantId        String              @map("plant_id") @db.Uuid
@@ -866,20 +882,33 @@ model OrdenBeneficioEvento {
   pieladoAt      DateTime? @map("pielado_at") @db.Timestamptz(6)
   pielOperatorId String?   @map("piel_operator_id") @db.Uuid
 
-  // Peso de subproductos por animal (módulo Subproductos): vísceras blancas y rojas.
-  pesoViscBlancasKg     Decimal?  @map("peso_visc_blancas_kg") @db.Decimal(12, 2)
-  viscBlancasAt         DateTime? @map("visc_blancas_at") @db.Timestamptz(6)
-  viscBlancasOperatorId String?   @map("visc_blancas_operator_id") @db.Uuid
-  pesoViscRojasKg       Decimal?  @map("peso_visc_rojas_kg") @db.Decimal(12, 2)
-  viscRojasAt           DateTime? @map("visc_rojas_at") @db.Timestamptz(6)
-  viscRojasOperatorId   String?   @map("visc_rojas_operator_id") @db.Uuid
-
-  ordenBeneficio OrdenBeneficio @relation(fields: [ordenBeneficioId], references: [id])
+  ordenBeneficio OrdenBeneficio       @relation(fields: [ordenBeneficioId], references: [id])
   canalPiezas    CanalPieza[]
+  subproductos   SubproductoItem[]
 
   @@unique([ordenBeneficioId, sequence])
   @@index([ordenBeneficioId])
   @@map("orden_beneficio_evento")
+}
+
+// Checklist de subproductos (vísceras) generado automáticamente al caer cada
+// animal: una fila por cada tipo de víscera. Se marca por unidad, salvo la
+// tripa ancha que se pesa en kilos.
+model SubproductoItem {
+  id           String              @id @default(uuid()) @db.Uuid
+  eventoId     String              @map("orden_beneficio_evento_id") @db.Uuid
+  tipo         SubproductoItemTipo
+  marcado      Boolean             @default(false)
+  pesoKg       Decimal?            @map("peso_kg") @db.Decimal(12, 2)
+  registradoAt DateTime?           @map("registrado_at") @db.Timestamptz(6)
+  operatorId   String?             @map("operator_id") @db.Uuid
+  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  evento OrdenBeneficioEvento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+
+  @@unique([eventoId, tipo])
+  @@index([eventoId])
+  @@map("subproducto_item")
 }
 
 // Peso del canal caliente por PIEZA de cada animal. Canal completa = 1 pieza
