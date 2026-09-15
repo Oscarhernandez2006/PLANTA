@@ -3,6 +3,7 @@ import {
   Beef,
   Check,
   Eraser,
+  Gauge,
   Inbox,
   LoaderCircle,
   Lock,
@@ -12,7 +13,6 @@ import {
   Scale,
   Sigma,
   Tag,
-  Weight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -493,6 +493,13 @@ export function PesoEnPiePage() {
 
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div className="space-y-1">
+            <Label htmlFor="corral">Ubicación (Corral)</Label>
+            <Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-9">
+              <option value="">Seleccione...</option>
+              {Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}
+            </Select>
+          </div>
+          <div className="space-y-1">
             <Label htmlFor="tipo-animal">Tipo de Animal</Label>
             <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-9">
               <option value="">Seleccione...</option>
@@ -500,13 +507,6 @@ export function PesoEnPiePage() {
               <option value="HEMBRA">HEMBRA</option>
               <option value="BUFALO">BUFALO</option>
               <option value="BUFALA">BUFALA</option>
-            </Select>
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="corral">Ubicación (Corral)</Label>
-            <Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-9">
-              <option value="">Seleccione...</option>
-              {Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}
             </Select>
           </div>
         </div>
@@ -559,42 +559,36 @@ export function PesoEnPiePage() {
             </div>
           </div>
         </Card>
-        <Card
-          className="col-span-2 flex h-full cursor-pointer flex-col justify-center p-2 select-none"
-          onDoubleClick={leerBascula}
-          title="Doble clic para leer la báscula"
-        >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex flex-col">
-              <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                <Weight className="size-3.5" />
-                Peso (kg)
-                {isReadingScale && <LoaderCircle className="size-3.5 animate-spin" />}
-              </div>
-              <input
-                inputMode="decimal"
-                placeholder="0.00"
-                value={peso}
-                onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
-                onDoubleClick={leerBascula}
-                className="w-full bg-transparent text-2xl font-semibold tabular-nums outline-none placeholder:text-muted-foreground/40"
-              />
-            </div>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={(e) => {
-                e.stopPropagation();
-                imprimirPrecinto();
-              }}
-              className="h-9 shrink-0 gap-1.5"
-            >
-              <Tag className="size-4" />
-              Precinto
-            </Button>
+        <div className="col-span-2 flex h-full items-center gap-2">
+          <div
+            className="relative flex-1 rounded-sm border-2 border-border bg-card px-3 pb-1 pt-1"
+          >
+            <span className="absolute -top-3 left-3 flex items-center gap-1.5 bg-background px-1.5 text-sm font-medium">
+              Peso(kg):
+              {isReadingScale && <LoaderCircle className="size-3.5 animate-spin" />}
+            </span>
+            <input
+              inputMode="decimal"
+              placeholder="0.0"
+              value={peso}
+              onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
+              className="h-10 w-full bg-transparent text-center text-3xl font-bold text-emerald-700 outline-none placeholder:text-muted-foreground/40"
+            />
           </div>
-        </Card>
+          <button
+            type="button"
+            onClick={leerBascula}
+            disabled={isReadingScale}
+            title="Leer báscula"
+            className="flex size-14 shrink-0 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
+          >
+            {isReadingScale ? (
+              <LoaderCircle className="size-6 animate-spin" />
+            ) : (
+              <Gauge className="size-6" />
+            )}
+          </button>
+        </div>
       </div>
 
       {guiaCompleta && (
