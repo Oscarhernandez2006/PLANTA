@@ -106,6 +106,7 @@ model Client {
 
   dispatchOrders DispatchOrder[]
   canalReceipts  CanalReceiptOrder[]
+  postaReceipts  PostaReceiptOrder[]
 
   @@unique([nit, sede])
   @@map("client")
@@ -235,6 +236,52 @@ model CanalReceiptOrder {
   @@map("canal_receipt_order")
 }
 
+// Recibo en Posta: orden de recibo (solo registro, sin ítems). Numeración propia por planta.
+model PostaReceiptOrder {
+  id               String              @id @default(uuid()) @db.Uuid
+  plantId          String              @map("plant_id") @db.Uuid
+  receiptNumber    Int                 @map("receipt_number")
+  registrationDate DateTime            @map("registration_date") @db.Date
+  processDate      DateTime            @map("process_date") @db.Date
+  clientId         String              @map("client_id") @db.Uuid
+  status           DispatchOrderStatus @default(activo)
+  createdById      String              @map("created_by") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
+
+  plant     Plant   @relation(fields: [plantId], references: [id])
+  client    Client  @relation(fields: [clientId], references: [id])
+  createdBy AppUser @relation("postaReceiptCreatedBy", fields: [createdById], references: [id])
+  items     PostaReceiptItem[]
+
+  @@unique([plantId, receiptNumber])
+  @@index([plantId, status])
+  @@map("posta_receipt_order")
+}
+
+// Animal/pieza pesado dentro de una orden de recibo en Posta.
+model PostaReceiptItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  receiptOrderId String   @map("receipt_order_id") @db.Uuid
+  plantId        String   @map("plant_id") @db.Uuid
+  codigo         Int
+  productId      String   @map("product_id") @db.Uuid
+  taraKg         Decimal  @map("tara_kg") @db.Decimal(12, 2)
+  brutoKg        Decimal  @map("bruto_kg") @db.Decimal(12, 2)
+  netoKg         Decimal  @map("neto_kg") @db.Decimal(12, 2)
+  createdById    String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  receiptOrder PostaReceiptOrder @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
+  plant        Plant             @relation(fields: [plantId], references: [id])
+  product      Product           @relation(fields: [productId], references: [id])
+  createdBy    AppUser           @relation("postaReceiptItemCreatedBy", fields: [createdById], references: [id])
+
+  @@index([receiptOrderId])
+  @@map("posta_receipt_item")
+}
+
 // Canal pesado dentro de una orden de recibo (Recibo de Canales).
 model CanalReceiptItem {
   id             String   @id @default(uuid()) @db.Uuid
@@ -257,6 +304,23 @@ model CanalReceiptItem {
   @@map("canal_receipt_item")
 }
 
+// Catálogo simple de productos (consulta en módulos de recibo/etiquetado).
+model Product {
+  id        String   @id @default(uuid()) @db.Uuid
+  plantId   String   @map("plant_id") @db.Uuid
+  codigo    String
+  nombre    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  plant Plant @relation(fields: [plantId], references: [id])
+  postaReceiptItems PostaReceiptItem[]
+
+  @@unique([plantId, codigo])
+  @@index([plantId])
+  @@map("product")
+}
+
 // ======================= ORGANIZACIÓN / SEGURIDAD ==========================
 
 model Plant {
@@ -275,6 +339,9 @@ model Plant {
   dispatchOrders DispatchOrder[]
   canalReceipts  CanalReceiptOrder[]
   canalReceiptItems CanalReceiptItem[]
+  postaReceipts  PostaReceiptOrder[]
+  postaReceiptItems PostaReceiptItem[]
+  products       Product[]
   traceUnits     TraceUnit[]
   traceEvents    TraceEvent[]
 
@@ -301,6 +368,8 @@ model AppUser {
   dispatchOrders     DispatchOrder[] @relation("dispatchCreatedBy")
   canalReceipts      CanalReceiptOrder[] @relation("canalReceiptCreatedBy")
   canalReceiptItems  CanalReceiptItem[] @relation("canalReceiptItemCreatedBy")
+  postaReceipts      PostaReceiptOrder[] @relation("postaReceiptCreatedBy")
+  postaReceiptItems  PostaReceiptItem[] @relation("postaReceiptItemCreatedBy")
   traceEvents        TraceEvent[]
 
   @@index([plantId])

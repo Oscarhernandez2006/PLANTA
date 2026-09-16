@@ -16,6 +16,8 @@ import { OrdenBeneficioModule } from './modules/orden-beneficio/orden-beneficio.
 import { PielesModule } from './modules/pieles/pieles.module';
 import { CanalCalienteModule } from './modules/canal-caliente/canal-caliente.module';
 import { CanalReceiptModule } from './modules/canal-receipt/canal-receipt.module';
+import { PostaReceiptModule } from './modules/posta-receipt/posta-receipt.module';
+import { ProductModule } from './modules/product/product.module';
 import { ProcedenciaModule } from './modules/procedencia/procedencia.module';
 import { ProveedorModule } from './modules/proveedor/proveedor.module';
 import { SubproductosModule } from './modules/subproductos/subproductos.module';
@@ -43,6 +45,8 @@ import { InventariosModule } from './modules/inventarios/inventarios.module';
     PielesModule,
     CanalCalienteModule,
     CanalReceiptModule,
+    PostaReceiptModule,
+    ProductModule,
     ProcedenciaModule,
     ProveedorModule,
     SubproductosModule,

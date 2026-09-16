@@ -4,6 +4,7 @@ import { LogOut, MonitorSmartphone, Warehouse } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
+import { PostaReciboIcon } from '@/components/icons/PostaReciboIcon';
 import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { PesoEnCamionIcon } from '@/components/icons/PesoEnCamionIcon';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
@@ -33,6 +34,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/peso-en-camion', label: 'Peso En Camión', icon: PesoEnCamionIcon },
       { to: '/peso-en-pie', label: 'Peso En Pie', icon: PesoEnPieIcon },
       { to: '/recibo-de-canales', label: 'Recibo de Canales', icon: ReciboCanalesIcon },
+      { to: '/recibo-en-posta', label: 'Recibo en Posta', icon: PostaReciboIcon },
     ],
   },
   {
@@ -55,6 +57,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/orden-despacho-frio', label: 'Orden de Despacho Frío', icon: OrdenDespachoFrioIcon },
       { to: '/orden-desposte', label: 'Orden de Desposte', icon: OrdenDesposteIcon },
       { to: '/recibo-canal', label: 'Orden recibo de canales', icon: CanalReciboIcon },
+      { to: '/recibo-posta', label: 'Orden recibo en posta', icon: PostaReciboIcon },
     ],
   },
 ];
