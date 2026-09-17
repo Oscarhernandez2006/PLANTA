@@ -686,8 +686,6 @@ model OrdenBeneficio {
   animalCount   Int                  @map("animal_count")
   observaciones String?
   status        OrdenBeneficioStatus @default(pendiente)
-  // Tipo de pesaje en Canal Caliente, elegido una vez por orden.
-  canalTipo     CanalTipo?           @map("canal_tipo")
   createdById   String               @map("created_by") @db.Uuid
   createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -719,6 +717,8 @@ model OrdenBeneficioEvento {
   cava            String?
   destino         String?
   observaciones   String?
+  // Tipo de pesaje en Canal Caliente, elegido por animal.
+  canalTipo       CanalTipo?       @map("canal_tipo")
 
   ordenBeneficio OrdenBeneficio       @relation(fields: [ordenBeneficioId], references: [id])
   canalPiezas    CanalPieza[]
@@ -752,7 +752,7 @@ model SubproductoItem {
 
 // Peso del canal caliente por PIEZA de cada animal. Canal completa = 1 pieza
 // (canal); media canal = 2 piezas (cizq izquierda, cder derecha). El tipo de
-// la orden vive en OrdenBeneficio.canalTipo.
+// canal vive en OrdenBeneficioEvento.canalTipo (por animal).
 model CanalPieza {
   id         String         @id @default(uuid()) @db.Uuid
   eventoId   String         @map("orden_beneficio_evento_id") @db.Uuid

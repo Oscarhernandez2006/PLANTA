@@ -55,8 +55,6 @@ export interface CanalLote {
   date: string;
   consecutivoBase: number;
   animalCount: number;
-  canalTipo: CanalTipo | null;
-  piezasPorAnimal: number;
   piezasEsperadas: number;
   piezasPesadas: number;
 }
@@ -76,6 +74,7 @@ export interface CanalAnimal {
   sequence: number;
   consecutivo: number;
   stunnedAt: string;
+  canalTipo: CanalTipo | null;
   canalAnimalTipo: CanalAnimalTipo | null;
   bodega: string | null;
   cava: string | null;
@@ -92,8 +91,6 @@ export interface CanalLoteDetail {
   date: string;
   consecutivoBase: number;
   animalCount: number;
-  canalTipo: CanalTipo | null;
-  piezasPorAnimal: number;
   animales: CanalAnimal[];
 }
 
@@ -208,13 +205,10 @@ export function useCanalReporte(date: string, enabled = true) {
 export function useSetCanalTipo() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: {
-      ordenBeneficioId: string;
-      tipo: CanalTipo;
-    }) =>
+    mutationFn: async (payload: { eventoId: string; tipo: CanalTipo }) =>
       (
         await api.patch<CanalLoteDetail>(
-          `/canal-caliente/lotes/${payload.ordenBeneficioId}/tipo`,
+          `/canal-caliente/animales/${payload.eventoId}/tipo`,
           { tipo: payload.tipo },
         )
       ).data,

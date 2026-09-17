@@ -82,12 +82,13 @@ function hora(iso: string | null) {
   });
 }
 
-/** Primera pieza sin pesar (animal + pieza), recorriendo en orden. */
+/** Siguiente animal con trabajo pendiente: sin tipo asignado (pieza null) o con una pieza sin pesar. */
 function siguienteObjetivo(detail: CanalLoteDetail | undefined) {
-  if (!detail || !detail.canalTipo) return null;
+  if (!detail) return null;
   for (const animal of detail.animales) {
+    if (!animal.canalTipo) return { animal, pieza: null as CanalPiezaTipo | null };
     const pieza = animal.piezas.find((p) => !p.pesado);
-    if (pieza) return { animal, pieza: pieza.pieza };
+    if (pieza) return { animal, pieza: pieza.pieza as CanalPiezaTipo | null };
   }
   return null;
 }
@@ -102,7 +103,6 @@ export function CanalCalientePage() {
   const [date, setDate] = useState(today());
   const [tab, setTab] = useState<Tab>('ordenes');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tipoDialogFor, setTipoDialogFor] = useState<string | null>(null);
   const [turno, setTurno] = useState<CanalTurno>('manana');
 
   const lotes = useCanalLotes(date);
@@ -217,13 +217,6 @@ export function CanalCalientePage() {
         turno={turno}
         setTurno={setTurno}
       />
-
-      {/* Diálogo de tipo de canal */}
-      <TipoDialog
-        ordenBeneficioId={tipoDialogFor}
-        current={detail.data?.canalTipo ?? selectedLote?.canalTipo ?? null}
-        onClose={() => setTipoDialogFor(null)}
-      />
     </div>
   );
 }
@@ -277,7 +270,7 @@ function OrdenesTab({
         return (
           <li key={l.ordenBeneficioId}>
             <button
-              onClick={() => onSelect(l.ordenBeneficioId, l.canalTipo)}
+              onClick={() => onSelect(l.ordenBeneficioId, null)}
               className={cn(
                 'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
                 activo
@@ -290,11 +283,6 @@ function OrdenesTab({
                 <span className="text-muted-foreground">|</span> {l.cliente}
               </span>
               <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                {l.canalTipo && (
-                  <span className="rounded-full border border-border px-2 py-0.5 text-xs">
-                    {CANAL_TIPO_LABEL[l.canalTipo]}
-                  </span>
-                )}
                 <span className="tabular-nums">
                   {l.piezasPesadas}/{l.piezasEsperadas || '—'}
                 </span>
@@ -335,7 +323,7 @@ function CanalesTab({
 }: {
   date: string;
   detail: CanalLoteDetail | undefined;
-  objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo } | null;
+  objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo | null } | null;
 }) {
   const piezas = useCanalPiezas(date);
   const deshacer = useDeshacerCanal();
@@ -346,8 +334,8 @@ function CanalesTab({
       <Empty text="Selecciona una orden en la pestaña ORDENES para ver los canales." />
     );
 
-  const esCompleta = detail.canalTipo === 'canal_completa';
   const animal = objetivo?.animal;
+  const esCompleta = animal?.canalTipo === 'canal_completa';
   const estadoDe = (p: CanalPiezaTipo) =>
     animal?.piezas.find((x) => x.pieza === p);
   const rows = piezas.data ?? [];
@@ -355,9 +343,17 @@ function CanalesTab({
   return (
     <div className="flex flex-col gap-3 p-3">
       <p className="text-center text-sm text-muted-foreground">
-        {!detail.canalTipo ? (
-          <>Toca un recuadro para elegir el tipo de canal.</>
-        ) : animal ? (
+        {!animal ? (
+          <>Todas las piezas de la orden fueron pesadas.</>
+        ) : !animal.canalTipo ? (
+          <>
+            Animal{' '}
+            <span className="font-bold text-foreground">
+              #{animal.consecutivo}
+            </span>{' '}
+            — Toca un recuadro para elegir el tipo de canal.
+          </>
+        ) : (
           <>
             Animal{' '}
             <span className="font-bold text-foreground">
@@ -366,32 +362,31 @@ function CanalesTab({
             — Orden{' '}
             <span className="font-bold text-foreground">{detail.reference}</span>
           </>
-        ) : (
-          <>Todas las piezas de la orden fueron pesadas.</>
         )}
       </p>
 
       <div className="grid grid-cols-3 gap-3">
         {CANAL_PANELS.map(({ pieza, title }) => {
-          const aplica = !detail.canalTipo
+          const aplica = !animal?.canalTipo
             ? true
             : esCompleta
               ? pieza === 'canal'
               : pieza !== 'canal';
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
-          const tipoActivo = detail.canalTipo === PANEL_TIPO[pieza];
+          const tipoActivo = animal?.canalTipo === PANEL_TIPO[pieza];
           return (
             <button
               key={pieza}
               type="button"
               onClick={() =>
+                animal &&
                 setTipo.mutate({
-                  ordenBeneficioId: detail.ordenBeneficioId,
+                  eventoId: animal.eventoId,
                   tipo: PANEL_TIPO[pieza],
                 })
               }
-              disabled={setTipo.isPending}
+              disabled={setTipo.isPending || !animal}
               className={cn(
                 'flex flex-col items-center gap-2 rounded-sm border-2 bg-card p-3 text-center transition-colors hover:border-emerald-400',
                 tipoActivo
@@ -762,7 +757,7 @@ function FooterBascula({
   setTurno,
 }: {
   detail: CanalLoteDetail | undefined;
-  objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo } | null;
+  objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo | null } | null;
   turno: CanalTurno;
   setTurno: (t: CanalTurno) => void;
 }) {
@@ -771,10 +766,10 @@ function FooterBascula({
 
   const valor = Number(peso.replace(',', '.'));
   const puedePesar =
-    !!objetivo && peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
+    !!objetivo?.pieza && peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
 
   function guardar(imprimir = false) {
-    if (!objetivo || !puedePesar || registrar.isPending) return;
+    if (!objetivo?.pieza || !puedePesar || registrar.isPending) return;
     registrar.mutate(
       {
         eventoId: objetivo.animal.eventoId,
@@ -791,11 +786,11 @@ function FooterBascula({
     );
   }
 
-  const piezaLabel = objetivo ? PIEZA_LABEL[objetivo.pieza] : '—';
+  const piezaLabel = objetivo?.pieza ? PIEZA_LABEL[objetivo.pieza] : '—';
   const animalNo = objetivo ? `#${objetivo.animal.consecutivo}` : '—';
   const osNo = detail?.reference != null ? String(detail.reference) : '—';
-  const sinTipo = !!detail && !detail.canalTipo;
-  const completo = !!detail && detail.canalTipo && !objetivo;
+  const sinTipo = !!objetivo && !objetivo.pieza;
+  const completo = !!detail && !objetivo;
 
   return (
     <div className="flex flex-wrap items-stretch gap-2">
@@ -878,7 +873,7 @@ function FooterBascula({
           )}
           {sinTipo && (
             <p className="text-xs font-medium text-amber-600">
-              Selecciona el tipo de canal de la orden para empezar a pesar.
+              Selecciona el tipo de canal de este animal para empezar a pesar.
             </p>
           )}
           {completo && (

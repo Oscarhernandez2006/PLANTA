@@ -50,13 +50,13 @@ export class CanalCalienteController {
     return this.service.loteDetail(user, id);
   }
 
-  @Patch('lotes/:id/tipo')
+  @Patch('animales/:eventoId/tipo')
   setTipo(
     @CurrentUser() user: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Param('eventoId', ParseUUIDPipe) eventoId: string,
     @Body() dto: SetTipoDto,
   ) {
-    return this.service.setTipo(user, id, dto.tipo);
+    return this.service.setTipo(user, eventoId, dto.tipo);
   }
 
   @Patch('animales/:eventoId')

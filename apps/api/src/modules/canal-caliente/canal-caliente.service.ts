@@ -77,12 +77,12 @@ export class CanalCalienteService {
     });
     const bases = await this.consecutivoBases(ctx.plantId, [date]);
     return ordenes.map((o) => {
-      const porAnimal = piezasEsperadas(o.canalTipo).length || 1;
-      const esperadas = o.animalCount * porAnimal;
-      const pesadas = o.eventos.reduce(
-        (acc, e) => acc + e.canalPiezas.length,
-        0,
-      );
+      let esperadas = 0;
+      let pesadas = 0;
+      for (const e of o.eventos) {
+        esperadas += piezasEsperadas(e.canalTipo).length || 1;
+        pesadas += e.canalPiezas.length;
+      }
       return {
         ordenBeneficioId: o.id,
         reference: o.reference,
@@ -91,8 +91,6 @@ export class CanalCalienteService {
         date: o.date.toISOString().slice(0, 10),
         consecutivoBase: bases.get(o.id) ?? 0,
         animalCount: o.animalCount,
-        canalTipo: o.canalTipo,
-        piezasPorAnimal: piezasEsperadas(o.canalTipo).length,
         piezasEsperadas: esperadas,
         piezasPesadas: pesadas,
       };
@@ -114,7 +112,6 @@ export class CanalCalienteService {
 
     const bases = await this.consecutivoBases(ctx.plantId, [o.date]);
     const base = bases.get(o.id) ?? 0;
-    const esperadas = piezasEsperadas(o.canalTipo);
 
     const operatorIds = [
       ...new Set(
@@ -137,15 +134,15 @@ export class CanalCalienteService {
       date: o.date.toISOString().slice(0, 10),
       consecutivoBase: base,
       animalCount: o.animalCount,
-      canalTipo: o.canalTipo,
-      piezasPorAnimal: esperadas.length,
       animales: o.eventos.map((e) => {
+        const esperadas = piezasEsperadas(e.canalTipo);
         const byPieza = new Map(e.canalPiezas.map((p) => [p.pieza, p]));
         return {
           eventoId: e.id,
           sequence: e.sequence,
           consecutivo: base + e.sequence,
           stunnedAt: e.stunnedAt.toISOString(),
+          canalTipo: e.canalTipo,
           canalAnimalTipo: e.canalAnimalTipo,
           bodega: e.bodega,
           cava: e.cava,
@@ -168,31 +165,31 @@ export class CanalCalienteService {
     };
   }
 
-  /** Define el tipo de canal para toda la orden (una sola vez). */
-  async setTipo(ctx: AuthContext, ordenBeneficioId: string, tipo: CanalTipo) {
-    const o = await this.prisma.ordenBeneficio.findFirst({
-      where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+  /** Define el tipo de canal de un animal (puede cambiarse mientras no tenga piezas pesadas). */
+  async setTipo(ctx: AuthContext, eventoId: string, tipo: CanalTipo) {
+    const evt = await this.prisma.ordenBeneficioEvento.findFirst({
+      where: {
+        id: eventoId,
+        ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
+      },
       select: {
         id: true,
         canalTipo: true,
-        eventos: {
-          select: { id: true },
-          where: { canalPiezas: { some: {} } },
-          take: 1,
-        },
+        ordenBeneficioId: true,
+        canalPiezas: { select: { id: true }, take: 1 },
       },
     });
-    if (!o) throw new NotFoundException('Orden no encontrada.');
-    if (o.canalTipo && o.canalTipo !== tipo && o.eventos.length) {
+    if (!evt) throw new NotFoundException('Animal no encontrado.');
+    if (evt.canalTipo && evt.canalTipo !== tipo && evt.canalPiezas.length) {
       throw new BadRequestException(
-        'No se puede cambiar el tipo: ya hay piezas pesadas en esta orden.',
+        'No se puede cambiar el tipo: este animal ya tiene piezas pesadas.',
       );
     }
-    await this.prisma.ordenBeneficio.update({
-      where: { id: o.id },
+    await this.prisma.ordenBeneficioEvento.update({
+      where: { id: evt.id },
       data: { canalTipo: tipo },
     });
-    return this.loteDetail(ctx, ordenBeneficioId);
+    return this.loteDetail(ctx, evt.ordenBeneficioId);
   }
 
   /** Actualiza la clasificación (tipo, bodega, cava, destino, observaciones) de un animal. */
@@ -233,19 +230,19 @@ export class CanalCalienteService {
       },
       select: {
         id: true,
-        ordenBeneficio: { select: { canalTipo: true } },
+        canalTipo: true,
       },
     });
     if (!evt) throw new NotFoundException('Animal no encontrado.');
-    const tipo = evt.ordenBeneficio.canalTipo;
+    const tipo = evt.canalTipo;
     if (!tipo) {
       throw new BadRequestException(
-        'Primero selecciona el tipo de canal de la orden.',
+        'Primero selecciona el tipo de canal de este animal.',
       );
     }
     if (!piezasEsperadas(tipo).includes(dto.pieza)) {
       throw new BadRequestException(
-        'La pieza no corresponde al tipo de canal de la orden.',
+        'La pieza no corresponde al tipo de canal del animal.',
       );
     }
     const existe = await this.prisma.canalPieza.findUnique({
@@ -324,21 +321,20 @@ export class CanalCalienteService {
     }[] = [];
     for (const o of ordenes) {
       const base = bases.get(o.id) ?? 0;
-      const esperadas = piezasEsperadas(o.canalTipo).length || 1;
       for (const e of o.eventos) {
         rows.push({
           eventoId: e.id,
           consecutivo: base + e.sequence,
           reference: o.reference,
           cliente: o.cliente,
-          canalTipo: o.canalTipo,
+          canalTipo: e.canalTipo,
           canalAnimalTipo: e.canalAnimalTipo,
           bodega: e.bodega,
           cava: e.cava,
           destino: e.destino,
           observaciones: e.observaciones,
           piezasPesadas: e.canalPiezas.length,
-          piezasEsperadas: esperadas,
+          piezasEsperadas: piezasEsperadas(e.canalTipo).length || 1,
           pesoTotalKg: e.canalPiezas.reduce(
             (acc, p) => acc + Number(p.pesoKg),
             0,
