@@ -599,6 +599,13 @@ enum SubproductoItemTipo {
   tripa_ancha
 }
 
+// Destino de TODAS las vísceras (rojas y blancas) de un lote: se quedan como
+// inventario de la empresa, o el firmante/cliente de la orden se las lleva.
+enum SubproductoDestino {
+  empresa
+  firmante
+}
+
 model PesoEnPie {
   id             String              @id @default(uuid()) @db.Uuid
   plantId        String              @map("plant_id") @db.Uuid
@@ -690,6 +697,13 @@ model OrdenBeneficio {
   createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt     DateTime?            @map("deleted_at") @db.Timestamptz(6)
+
+  // Destino de las vísceras del lote y constancia de su retiro por el
+  // firmante (cuando no se quedan como inventario de la empresa).
+  subproductoDestino            SubproductoDestino @default(empresa) @map("subproducto_destino")
+  subproductoRetiroAt            DateTime?         @map("subproducto_retiro_at") @db.Timestamptz(6)
+  subproductoRetiroById           String?           @map("subproducto_retiro_by") @db.Uuid
+  subproductoRetiroObservaciones  String?           @map("subproducto_retiro_observaciones")
 
   eventos OrdenBeneficioEvento[]
 

@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -13,6 +14,10 @@ import { CurrentUser } from '../../common/auth/current-user.decorator';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
+import {
+  RegistrarRetiroDto,
+  SetSubproductoDestinoDto,
+} from './dto/subproducto-destino.dto';
 import { OrdenBeneficioService } from './orden-beneficio.service';
 
 @UseGuards(JwtAuthGuard)
@@ -49,6 +54,24 @@ export class OrdenBeneficioController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.findOne(user, id);
+  }
+
+  @Patch(':id/subproducto-destino')
+  setSubproductoDestino(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetSubproductoDestinoDto,
+  ) {
+    return this.service.setSubproductoDestino(user, id, dto);
+  }
+
+  @Patch(':id/subproducto-retiro')
+  registrarRetiro(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: RegistrarRetiroDto,
+  ) {
+    return this.service.registrarRetiro(user, id, dto);
   }
 
   @Delete(':id')

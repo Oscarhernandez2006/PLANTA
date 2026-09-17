@@ -7,10 +7,15 @@ import {
   OrdenBeneficio,
   OrdenBeneficioStatus,
   PesoCamionStatus,
+  SubproductoDestino,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { CreateOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
+import {
+  RegistrarRetiroDto,
+  SetSubproductoDestinoDto,
+} from './dto/subproducto-destino.dto';
 import { plantToday } from '../../common/plant-date';
 
 function dateOnly(s?: string) {
@@ -47,6 +52,9 @@ export class OrdenBeneficioService {
       observaciones: r.observaciones,
       status: r.status,
       insensibilizados,
+      subproductoDestino: r.subproductoDestino,
+      subproductoRetiroAt: r.subproductoRetiroAt?.toISOString() ?? null,
+      subproductoRetiroObservaciones: r.subproductoRetiroObservaciones,
     };
   }
 
@@ -227,6 +235,7 @@ export class OrdenBeneficioService {
           guias: [guia],
           animalCount: dto.animalCount,
           observaciones: dto.observaciones?.trim() || null,
+          subproductoDestino: dto.subproductoDestino ?? SubproductoDestino.empresa,
           createdById: ctx.userId,
         },
       });
@@ -268,6 +277,54 @@ export class OrdenBeneficioService {
     });
     if (!rec) throw new NotFoundException('Orden de Beneficio no encontrada.');
     return this.toDto(rec, rec._count.eventos);
+  }
+
+  /** Define quién se queda con las vísceras del lote (empresa o firmante). */
+  async setSubproductoDestino(
+    ctx: AuthContext,
+    id: string,
+    dto: SetSubproductoDestinoDto,
+  ) {
+    const rec = await this.prisma.ordenBeneficio.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+    });
+    if (!rec) throw new NotFoundException('Orden de Beneficio no encontrada.');
+
+    // Si se cambia de "firmante" a "empresa" (o viceversa) se limpia la
+    // constancia de retiro previa: ya no aplica al nuevo destino.
+    const updated = await this.prisma.ordenBeneficio.update({
+      where: { id },
+      data: {
+        subproductoDestino: dto.subproductoDestino,
+        subproductoRetiroAt: null,
+        subproductoRetiroById: null,
+        subproductoRetiroObservaciones: null,
+      },
+    });
+    return this.toDto(updated);
+  }
+
+  /** Deja constancia de que el firmante retiró las vísceras del lote. */
+  async registrarRetiro(ctx: AuthContext, id: string, dto: RegistrarRetiroDto) {
+    const rec = await this.prisma.ordenBeneficio.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+    });
+    if (!rec) throw new NotFoundException('Orden de Beneficio no encontrada.');
+    if (rec.subproductoDestino !== SubproductoDestino.firmante) {
+      throw new BadRequestException(
+        'Este lote tiene sus vísceras a nombre de la empresa; no aplica retiro.',
+      );
+    }
+
+    const updated = await this.prisma.ordenBeneficio.update({
+      where: { id },
+      data: {
+        subproductoRetiroAt: new Date(),
+        subproductoRetiroById: ctx.userId,
+        subproductoRetiroObservaciones: dto.observaciones?.trim() || null,
+      },
+    });
+    return this.toDto(updated);
   }
 
   async remove(ctx: AuthContext, id: string) {

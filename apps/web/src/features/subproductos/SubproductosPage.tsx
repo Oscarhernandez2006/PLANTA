@@ -21,6 +21,7 @@ import {
   useSubproductosLotes,
   useSubLoteDetail,
   useRegistrarSubproducto,
+  useRegistrarRetiroSubproducto,
   type SubAnimal,
   type SubItem,
   type SubLoteDetail,
@@ -127,9 +128,18 @@ export function SubproductosPage() {
                           {l.pesadosRojas}/{l.totalRojas}
                         </span>
                       </div>
-                      <div className="text-xs text-muted-foreground">
-                        {l.guias.length ? l.guias.join(', ') : '—'} · {l.caidos}{' '}
-                        caídos de {l.animalCount}
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span>
+                          {l.guias.length ? l.guias.join(', ') : '—'} ·{' '}
+                          {l.caidos} caídos de {l.animalCount}
+                        </span>
+                        {l.subproductoDestino === 'firmante' && (
+                          <Badge tone={l.subproductoRetiroAt ? 'success' : 'info'}>
+                            {l.subproductoRetiroAt
+                              ? 'Retirado por firmante'
+                              : 'Se lo lleva el firmante'}
+                          </Badge>
+                        )}
                       </div>
                       <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
                         <div
@@ -198,9 +208,14 @@ function LoteDetalle({
             </div>
           </div>
         </div>
-        <span className="text-sm tabular-nums text-muted-foreground">
-          {hechosGrupo}/{totalGrupo} pesados
-        </span>
+        <div className="flex items-center gap-3">
+          {data.subproductoDestino === 'firmante' && (
+            <RetiroBadge data={data} />
+          )}
+          <span className="text-sm tabular-nums text-muted-foreground">
+            {hechosGrupo}/{totalGrupo} pesados
+          </span>
+        </div>
       </div>
 
       {/* Conexión a la báscula real */}
@@ -245,6 +260,31 @@ function LoteDetalle({
         pesados={pesados}
       />
     </Card>
+  );
+}
+
+function RetiroBadge({ data }: { data: SubLoteDetail }) {
+  const registrarRetiro = useRegistrarRetiroSubproducto();
+  if (data.subproductoRetiroAt) {
+    return (
+      <Badge tone="success">
+        Retirado por el firmante ·{' '}
+        {new Date(data.subproductoRetiroAt).toLocaleString('es-CO')}
+      </Badge>
+    );
+  }
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      disabled={registrarRetiro.isPending}
+      onClick={() =>
+        registrarRetiro.mutate({ ordenBeneficioId: data.ordenBeneficioId })
+      }
+      title="Deja constancia de que el firmante retiró estas vísceras"
+    >
+      Registrar retiro del firmante
+    </Button>
   );
 }
 

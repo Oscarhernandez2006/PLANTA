@@ -1,4 +1,5 @@
 import {
+  IsEnum,
   IsInt,
   IsNotEmpty,
   IsOptional,
@@ -6,6 +7,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { SubproductoDestino } from '@prisma/client';
 
 export class CreateOrdenBeneficioDto {
   @IsOptional()
@@ -30,4 +32,9 @@ export class CreateOrdenBeneficioDto {
   @IsString()
   @MaxLength(500)
   observaciones?: string;
+
+  // Quién se queda con las vísceras del lote (todas: rojas y blancas).
+  @IsOptional()
+  @IsEnum(SubproductoDestino)
+  subproductoDestino?: SubproductoDestino;
 }

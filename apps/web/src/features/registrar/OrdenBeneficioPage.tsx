@@ -19,10 +19,13 @@ import {
   useOrdenBeneficioList,
   useCreateOrdenBeneficio,
   useDeleteOrdenBeneficio,
+  useSetSubproductoDestino,
+  useRegistrarRetiroSubproducto,
   type OrdenBeneficio,
   type OrdenBeneficioCandidate,
   type OrdenBeneficioGuiaDetalle,
   type OrdenBeneficioStatus,
+  type SubproductoDestino,
 } from './orden-beneficio-api';
 
 function today() {
@@ -51,6 +54,14 @@ const statusMeta: Record<
   pendiente: { label: 'Pendiente', tone: 'neutral' },
   en_insensibilizacion: { label: 'En insensibilización', tone: 'info' },
   procesado: { label: 'Procesada', tone: 'success' },
+};
+
+const destinoMeta: Record<
+  SubproductoDestino,
+  { label: string; tone: 'neutral' | 'info' | 'success' }
+> = {
+  empresa: { label: 'Vísceras: empresa', tone: 'success' },
+  firmante: { label: 'Vísceras: se las lleva el firmante', tone: 'info' },
 };
 
 export function OrdenBeneficioPage() {
@@ -220,6 +231,7 @@ export function OrdenBeneficioPage() {
                   <TH>Fecha</TH>
                   <TH className="text-center">Animales</TH>
                   <TH>Estado</TH>
+                  <TH>Vísceras</TH>
                   <TH className="w-12" />
                 </TR>
               </THead>
@@ -261,6 +273,7 @@ function ClienteCard({
             <TH className="text-center">En pie</TH>
             <TH className="text-center">Asignados</TH>
             <TH className="text-center">Disponibles</TH>
+            <TH>Vísceras</TH>
             <TH className="text-right">Crear lote</TH>
           </TR>
         </THead>
@@ -277,7 +290,7 @@ function ClienteCard({
             ))
           ) : (
             <TR>
-              <TD className="text-muted-foreground" colSpan={7}>
+              <TD className="text-muted-foreground" colSpan={8}>
                 Sin guías registradas.
               </TD>
             </TR>
@@ -301,6 +314,7 @@ function GuiaLoteRow({
 }) {
   const crear = useCreateOrdenBeneficio();
   const [value, setValue] = useState('');
+  const [destino, setDestino] = useState<SubproductoDestino>('empresa');
 
   const parsed = Number(value);
   const sinCupo = g.disponibles <= 0;
@@ -327,6 +341,18 @@ function GuiaLoteRow({
         {g.disponibles}
       </TD>
       <TD>
+        <Select
+          value={destino}
+          disabled={sinCupo}
+          onChange={(e) => setDestino(e.target.value as SubproductoDestino)}
+          className="h-8 w-full text-xs"
+          title="Quién se queda con las vísceras (rojas y blancas) de este lote"
+        >
+          <option value="empresa">Vísceras: empresa</option>
+          <option value="firmante">Vísceras: se las lleva el firmante</option>
+        </Select>
+      </TD>
+      <TD>
         <div className="flex items-center justify-end gap-1.5">
           <input
             type="number"
@@ -343,7 +369,13 @@ function GuiaLoteRow({
             disabled={sinCupo || invalid || crear.isPending}
             onClick={() =>
               crear.mutate(
-                { cliente, guia: g.guia, animalCount: parsed, date },
+                {
+                  cliente,
+                  guia: g.guia,
+                  animalCount: parsed,
+                  date,
+                  subproductoDestino: destino,
+                },
                 {
                   onSuccess: () => {
                     setValue('');
@@ -381,6 +413,12 @@ function OrderRow({
   onDelete: () => void;
 }) {
   const meta = statusMeta[o.status];
+  const dMeta = destinoMeta[o.subproductoDestino];
+  const registrarRetiro = useRegistrarRetiroSubproducto();
+  const setDestino = useSetSubproductoDestino();
+  const pendienteRetiro =
+    o.subproductoDestino === 'firmante' && !o.subproductoRetiroAt;
+
   return (
     <TR>
       <TD className="font-semibold tabular-nums">{o.reference}</TD>
@@ -394,6 +432,44 @@ function OrderRow({
       </TD>
       <TD>
         <Badge tone={meta.tone}>{meta.label}</Badge>
+      </TD>
+      <TD>
+        <div className="flex flex-col gap-1">
+          {o.status === 'pendiente' ? (
+            <Select
+              value={o.subproductoDestino}
+              disabled={setDestino.isPending}
+              onChange={(e) =>
+                setDestino.mutate({
+                  id: o.id,
+                  subproductoDestino: e.target.value as SubproductoDestino,
+                })
+              }
+              className="h-7 text-xs"
+            >
+              <option value="empresa">Vísceras: empresa</option>
+              <option value="firmante">Vísceras: se las lleva el firmante</option>
+            </Select>
+          ) : (
+            <Badge tone={dMeta.tone}>{dMeta.label}</Badge>
+          )}
+          {o.subproductoDestino === 'firmante' &&
+            (o.subproductoRetiroAt ? (
+              <span className="text-xs text-muted-foreground">
+                Retirado {new Date(o.subproductoRetiroAt).toLocaleString('es-CO')}
+              </span>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs"
+                disabled={registrarRetiro.isPending}
+                onClick={() => registrarRetiro.mutate({ id: o.id })}
+              >
+                Registrar retiro
+              </Button>
+            ))}
+        </div>
       </TD>
       <TD className="text-right">
         {o.status === 'pendiente' && (

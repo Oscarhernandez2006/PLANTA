@@ -6,6 +6,8 @@ export type OrdenBeneficioStatus =
   | 'en_insensibilizacion'
   | 'procesado';
 
+export type SubproductoDestino = 'empresa' | 'firmante';
+
 export interface OrdenBeneficioGuiaDetalle {
   guia: string;
   corrales: string[];
@@ -30,6 +32,9 @@ export interface OrdenBeneficio {
   observaciones: string | null;
   status: OrdenBeneficioStatus;
   insensibilizados: number;
+  subproductoDestino: SubproductoDestino;
+  subproductoRetiroAt: string | null;
+  subproductoRetiroObservaciones: string | null;
 }
 
 function today() {
@@ -68,6 +73,7 @@ export function useCreateOrdenBeneficio() {
       guia: string;
       animalCount: number;
       date?: string;
+      subproductoDestino?: SubproductoDestino;
     }) => (await api.post<OrdenBeneficio>('/orden-beneficio', input)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
@@ -84,6 +90,52 @@ export function useDeleteOrdenBeneficio() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
       qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
+    },
+  });
+}
+
+export function useSetSubproductoDestino() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      subproductoDestino,
+    }: {
+      id: string;
+      subproductoDestino: SubproductoDestino;
+    }) =>
+      (
+        await api.patch<OrdenBeneficio>(
+          `/orden-beneficio/${id}/subproducto-destino`,
+          { subproductoDestino },
+        )
+      ).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
+      qc.invalidateQueries({ queryKey: ['subproductos'] });
+    },
+  });
+}
+
+export function useRegistrarRetiroSubproducto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      observaciones,
+    }: {
+      id: string;
+      observaciones?: string;
+    }) =>
+      (
+        await api.patch<OrdenBeneficio>(
+          `/orden-beneficio/${id}/subproducto-retiro`,
+          { observaciones },
+        )
+      ).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
+      qc.invalidateQueries({ queryKey: ['subproductos'] });
     },
   });
 }

@@ -3,6 +3,7 @@ import { api } from '@/lib/api';
 
 export type SubproductoGrupo = 'rojas' | 'blancas';
 export type SubproductoUnidad = 'unidad' | 'kg';
+export type SubproductoDestino = 'empresa' | 'firmante';
 
 export interface SubItem {
   tipo: string;
@@ -28,6 +29,8 @@ export interface SubLote {
   pesadosRojas: number;
   totalBlancas: number;
   totalRojas: number;
+  subproductoDestino: SubproductoDestino;
+  subproductoRetiroAt: string | null;
 }
 
 export interface SubAnimal {
@@ -39,6 +42,7 @@ export interface SubAnimal {
 }
 
 export interface SubLoteDetail extends SubLote {
+  subproductoRetiroObservaciones: string | null;
   animales: SubAnimal[];
 }
 
@@ -73,6 +77,29 @@ export function useRegistrarSubproducto() {
     }) => (await api.post<{ ok: boolean }>('/subproductos', payload)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['subproductos'] });
+    },
+  });
+}
+
+export function useRegistrarRetiroSubproducto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      ordenBeneficioId,
+      observaciones,
+    }: {
+      ordenBeneficioId: string;
+      observaciones?: string;
+    }) =>
+      (
+        await api.patch(
+          `/orden-beneficio/${ordenBeneficioId}/subproducto-retiro`,
+          { observaciones },
+        )
+      ).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subproductos'] });
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
     },
   });
 }

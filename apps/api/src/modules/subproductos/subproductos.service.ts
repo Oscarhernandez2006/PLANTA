@@ -100,6 +100,8 @@ export class SubproductosService {
         pesadosRojas,
         totalBlancas: o.eventos.length * TOTAL_POR_GRUPO.blancas,
         totalRojas: o.eventos.length * TOTAL_POR_GRUPO.rojas,
+        subproductoDestino: o.subproductoDestino,
+        subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
       };
     });
   }
@@ -156,6 +158,9 @@ export class SubproductosService {
       pesadosRojas,
       totalBlancas: o.eventos.length * TOTAL_POR_GRUPO.blancas,
       totalRojas: o.eventos.length * TOTAL_POR_GRUPO.rojas,
+      subproductoDestino: o.subproductoDestino,
+      subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
+      subproductoRetiroObservaciones: o.subproductoRetiroObservaciones,
       animales: o.eventos.map((e) => ({
         eventoId: e.id,
         sequence: e.sequence,
