@@ -12,6 +12,7 @@ export interface InsOrder {
   consecutivoBase: number;
   status: OrdenBeneficioStatus;
   insensibilizados: number;
+  cabezasPatas: boolean;
 }
 
 export interface InsEvento {

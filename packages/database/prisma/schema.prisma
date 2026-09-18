@@ -705,6 +705,10 @@ model OrdenBeneficio {
   subproductoRetiroById           String?           @map("subproducto_retiro_by") @db.Uuid
   subproductoRetiroObservaciones  String?           @map("subproducto_retiro_observaciones")
 
+  // Si el lote requiere tiquete de cabeza y patas por animal: al insensibilizar
+  // cada animal se imprime un tiquete con su info + las 4 patas.
+  cabezasPatas Boolean @default(false) @map("cabezas_patas")
+
   eventos OrdenBeneficioEvento[]
 
   @@unique([plantId, date, reference])

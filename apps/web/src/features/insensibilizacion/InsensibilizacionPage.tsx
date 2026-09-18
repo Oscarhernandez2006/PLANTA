@@ -25,6 +25,7 @@ import {
   useVerifyAdmin,
   type InsOrder,
 } from './api';
+import { downloadCabezaPatasTicket } from './cabeza-patas-print';
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -181,7 +182,26 @@ export function InsensibilizacionPage() {
                         disabled={busy || !isNext}
                         onDoubleClick={() => {
                           if (!selectedId) return;
-                          if (isNext) stun.mutate(selectedId);
+                          if (isNext) {
+                            stun.mutate(selectedId, {
+                              onSuccess: (data) => {
+                                if (!data.cabezasPatas) return;
+                                const ultimo = data.eventos[data.eventos.length - 1];
+                                if (!ultimo) return;
+                                downloadCabezaPatasTicket({
+                                  cliente: data.cliente,
+                                  reference: data.reference,
+                                  guias: data.guias,
+                                  consecutivo:
+                                    (data.consecutivoBase ?? 0) + ultimo.sequence,
+                                  fecha: data.date,
+                                  hora: new Date(ultimo.stunnedAt).toLocaleTimeString(
+                                    'es-CO',
+                                  ),
+                                });
+                              },
+                            });
+                          }
                         }}
                         title={
                           isNext

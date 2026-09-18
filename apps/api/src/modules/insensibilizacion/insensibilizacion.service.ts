@@ -66,6 +66,7 @@ export class InsensibilizacionService {
       consecutivoBase: bases.get(r.id) ?? 0,
       status: r.status,
       insensibilizados: r._count.eventos,
+      cabezasPatas: r.cabezasPatas,
     }));
   }
 
@@ -98,6 +99,7 @@ export class InsensibilizacionService {
       consecutivoBase: bases.get(ob.id) ?? 0,
       status: ob.status,
       insensibilizados: ob.eventos.length,
+      cabezasPatas: ob.cabezasPatas,
       eventos: ob.eventos.map((e) => ({
         sequence: e.sequence,
         stunnedAt: e.stunnedAt.toISOString(),

@@ -232,6 +232,7 @@ export function OrdenBeneficioPage() {
                   <TH className="text-center">Animales</TH>
                   <TH>Estado</TH>
                   <TH>Vísceras</TH>
+                  <TH className="text-center">Cabezas y patas</TH>
                   <TH className="w-12" />
                 </TR>
               </THead>
@@ -274,6 +275,7 @@ function ClienteCard({
             <TH className="text-center">Asignados</TH>
             <TH className="text-center">Disponibles</TH>
             <TH>Vísceras</TH>
+            <TH>Cabezas y patas</TH>
             <TH className="text-right">Crear lote</TH>
           </TR>
         </THead>
@@ -290,7 +292,7 @@ function ClienteCard({
             ))
           ) : (
             <TR>
-              <TD className="text-muted-foreground" colSpan={8}>
+              <TD className="text-muted-foreground" colSpan={9}>
                 Sin guías registradas.
               </TD>
             </TR>
@@ -315,6 +317,7 @@ function GuiaLoteRow({
   const crear = useCreateOrdenBeneficio();
   const [value, setValue] = useState('');
   const [destino, setDestino] = useState<SubproductoDestino>('empresa');
+  const [cabezasPatas, setCabezasPatas] = useState(false);
 
   const parsed = Number(value);
   const sinCupo = g.disponibles <= 0;
@@ -353,6 +356,18 @@ function GuiaLoteRow({
         </Select>
       </TD>
       <TD>
+        <Select
+          value={cabezasPatas ? 'si' : 'no'}
+          disabled={sinCupo}
+          onChange={(e) => setCabezasPatas(e.target.value === 'si')}
+          className="h-8 w-full text-xs"
+          title="Si se debe imprimir tiquete de cabeza y patas por cada animal al insensibilizar"
+        >
+          <option value="no">Cabezas y patas: No</option>
+          <option value="si">Cabezas y patas: Sí</option>
+        </Select>
+      </TD>
+      <TD>
         <div className="flex items-center justify-end gap-1.5">
           <input
             type="number"
@@ -375,6 +390,7 @@ function GuiaLoteRow({
                   animalCount: parsed,
                   date,
                   subproductoDestino: destino,
+                  cabezasPatas,
                 },
                 {
                   onSuccess: () => {
@@ -470,6 +486,11 @@ function OrderRow({
               </Button>
             ))}
         </div>
+      </TD>
+      <TD className="text-center">
+        <Badge tone={o.cabezasPatas ? 'info' : 'neutral'}>
+          {o.cabezasPatas ? 'Sí' : 'No'}
+        </Badge>
       </TD>
       <TD className="text-right">
         {o.status === 'pendiente' && (

@@ -35,6 +35,7 @@ export interface OrdenBeneficio {
   subproductoDestino: SubproductoDestino;
   subproductoRetiroAt: string | null;
   subproductoRetiroObservaciones: string | null;
+  cabezasPatas: boolean;
 }
 
 function today() {
@@ -74,6 +75,7 @@ export function useCreateOrdenBeneficio() {
       animalCount: number;
       date?: string;
       subproductoDestino?: SubproductoDestino;
+      cabezasPatas?: boolean;
     }) => (await api.post<OrdenBeneficio>('/orden-beneficio', input)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });

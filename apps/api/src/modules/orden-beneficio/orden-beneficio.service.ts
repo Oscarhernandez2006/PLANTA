@@ -55,6 +55,7 @@ export class OrdenBeneficioService {
       subproductoDestino: r.subproductoDestino,
       subproductoRetiroAt: r.subproductoRetiroAt?.toISOString() ?? null,
       subproductoRetiroObservaciones: r.subproductoRetiroObservaciones,
+      cabezasPatas: r.cabezasPatas,
     };
   }
 
@@ -236,6 +237,7 @@ export class OrdenBeneficioService {
           animalCount: dto.animalCount,
           observaciones: dto.observaciones?.trim() || null,
           subproductoDestino: dto.subproductoDestino ?? SubproductoDestino.empresa,
+          cabezasPatas: dto.cabezasPatas ?? false,
           createdById: ctx.userId,
         },
       });

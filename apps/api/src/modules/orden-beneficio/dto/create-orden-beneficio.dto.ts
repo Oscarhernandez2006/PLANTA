@@ -1,4 +1,5 @@
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -37,4 +38,9 @@ export class CreateOrdenBeneficioDto {
   @IsOptional()
   @IsEnum(SubproductoDestino)
   subproductoDestino?: SubproductoDestino;
+
+  // Si el lote requiere tiquete de cabeza y patas por animal al insensibilizar.
+  @IsOptional()
+  @IsBoolean()
+  cabezasPatas?: boolean;
 }
