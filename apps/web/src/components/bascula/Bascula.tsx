@@ -69,7 +69,7 @@ export function BasculaField({
   return (
     <div className="flex items-end gap-3">
       <div className="relative flex-1 rounded-sm border-2 border-border bg-card pt-2">
-        <span className="absolute -top-3 left-3 bg-background px-2 text-xl font-medium">
+        <span className="absolute -top-3 left-3 max-w-[85%] truncate bg-background px-2 text-sm font-medium">
           {label}
         </span>
         <Input
