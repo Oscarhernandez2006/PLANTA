@@ -1,19 +1,28 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-export type SubproductoGrupo = 'rojas' | 'blancas';
 export type SubproductoUnidad = 'unidad' | 'kg';
 export type SubproductoDestino = 'empresa' | 'firmante';
 
 export interface SubItem {
   tipo: string;
+  codigo: string;
   label: string;
-  grupo: SubproductoGrupo;
   unidad: SubproductoUnidad;
   marcado: boolean;
   pesoKg: number | null;
   registradoAt: string | null;
   operatorName: string | null;
+}
+
+export interface SubResumenItem {
+  tipo: string;
+  codigo: string;
+  label: string;
+  unidad: SubproductoUnidad;
+  marcados: number;
+  esperados: number;
+  totalKg: number | null;
 }
 
 export interface SubLote {
@@ -25,10 +34,8 @@ export interface SubLote {
   consecutivoBase: number;
   animalCount: number;
   caidos: number;
-  pesadosBlancas: number;
-  pesadosRojas: number;
-  totalBlancas: number;
-  totalRojas: number;
+  pesados: number;
+  total: number;
   subproductoDestino: SubproductoDestino;
   subproductoRetiroAt: string | null;
 }
@@ -43,6 +50,7 @@ export interface SubAnimal {
 
 export interface SubLoteDetail extends SubLote {
   subproductoRetiroObservaciones: string | null;
+  resumen: SubResumenItem[];
   animales: SubAnimal[];
 }
 

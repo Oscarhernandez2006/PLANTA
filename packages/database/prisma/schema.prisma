@@ -583,21 +583,10 @@ enum CanalAnimalTipo {
   bufalo
 }
 
-// Ítems de vísceras que se generan automáticamente al caer (insensibilizarse)
-// cada animal. Todos se registran por unidad (marcado sí/no) excepto la
-// tripa ancha, que se registra por kilos.
-enum SubproductoItemTipo {
-  corazon
-  higado
-  bofe
-  rinones
-  bazo
-  panza
-  librillo
-  cuajar
-  tripa_delgada
-  tripa_ancha
-}
+// El catálogo de subproductos (códigos SIESA, nombre y unidad) vive en
+// apps/api/src/modules/subproductos/subproducto-items.ts; "tipo" aquí es solo
+// el identificador (slug) de ese catálogo, guardado como texto libre para no
+// depender de una migración de enum cada vez que cambie el listado.
 
 // Destino de TODAS las vísceras (rojas y blancas) de un lote: se quedan como
 // inventario de la empresa, o el firmante/cliente de la orden se las lleva.
@@ -747,19 +736,19 @@ model OrdenBeneficioEvento {
   @@map("orden_beneficio_evento")
 }
 
-// Checklist de subproductos (vísceras) generado automáticamente al caer cada
-// animal: una fila por cada tipo de víscera. Se marca por unidad, salvo la
-// tripa ancha que se pesa en kilos.
+// Checklist de subproductos generado automáticamente al caer cada animal:
+// una fila por cada producto del catálogo (ver subproducto-items.ts). Se
+// marca por unidad, o se pesa en kilos, según el producto.
 model SubproductoItem {
-  id           String              @id @default(uuid()) @db.Uuid
-  eventoId     String              @map("orden_beneficio_evento_id") @db.Uuid
-  tipo         SubproductoItemTipo
-  marcado      Boolean             @default(false)
-  pesoKg       Decimal?            @map("peso_kg") @db.Decimal(12, 2)
+  id           String    @id @default(uuid()) @db.Uuid
+  eventoId     String    @map("orden_beneficio_evento_id") @db.Uuid
+  tipo         String    @db.VarChar(60)
+  marcado      Boolean   @default(false)
+  pesoKg       Decimal?  @map("peso_kg") @db.Decimal(12, 2)
   cava         String?
-  registradoAt DateTime?           @map("registrado_at") @db.Timestamptz(6)
-  operatorId   String?             @map("operator_id") @db.Uuid
-  createdAt    DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  registradoAt DateTime? @map("registrado_at") @db.Timestamptz(6)
+  operatorId   String?   @map("operator_id") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
   evento OrdenBeneficioEvento @relation(fields: [eventoId], references: [id], onDelete: Cascade)
 

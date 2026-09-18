@@ -7,36 +7,22 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { RegistrarSubproductoDto } from './dto/registrar-subproducto.dto';
 import { plantDateOnly } from '../../common/plant-date';
-import { SUBPRODUCTO_ITEM_BY_TIPO } from './subproducto-items';
+import { SUBPRODUCTO_ITEMS, SUBPRODUCTO_ITEM_BY_TIPO } from './subproducto-items';
 
 function dateOnly(value?: string) {
   return plantDateOnly(value);
 }
 
-// Cantidad de ítems del checklist que corresponden a cada grupo de vísceras.
-const TOTAL_POR_GRUPO = {
-  rojas: [...SUBPRODUCTO_ITEM_BY_TIPO.values()].filter(
-    (i) => i.grupo === 'rojas',
-  ).length,
-  blancas: [...SUBPRODUCTO_ITEM_BY_TIPO.values()].filter(
-    (i) => i.grupo === 'blancas',
-  ).length,
-};
+const TOTAL_ITEMS = SUBPRODUCTO_ITEMS.length;
+// Posición de cada tipo en el catálogo, para listar el checklist en un orden fijo.
+const ORDEN_TIPO = new Map(SUBPRODUCTO_ITEMS.map((i, idx) => [i.tipo, idx]));
 
 @Injectable()
 export class SubproductosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private contarPorGrupo(subproductos: { tipo: string; marcado: boolean }[]) {
-    let blancas = 0;
-    let rojas = 0;
-    for (const s of subproductos) {
-      if (!s.marcado) continue;
-      const def = SUBPRODUCTO_ITEM_BY_TIPO.get(s.tipo as never);
-      if (def?.grupo === 'blancas') blancas += 1;
-      else if (def?.grupo === 'rojas') rojas += 1;
-    }
-    return { blancas, rojas };
+  private contarMarcados(subproductos: { marcado: boolean }[]) {
+    return subproductos.filter((s) => s.marcado).length;
   }
 
   /**
@@ -74,19 +60,14 @@ export class SubproductosService {
       orderBy: [{ reference: 'asc' }],
       include: {
         eventos: {
-          select: { subproductos: { select: { tipo: true, marcado: true } } },
+          select: { subproductos: { select: { marcado: true } } },
         },
       },
     });
     const bases = await this.consecutivoBases(ctx.plantId, [date]);
     return ordenes.map((o) => {
-      let pesadosBlancas = 0;
-      let pesadosRojas = 0;
-      for (const e of o.eventos) {
-        const { blancas, rojas } = this.contarPorGrupo(e.subproductos);
-        pesadosBlancas += blancas;
-        pesadosRojas += rojas;
-      }
+      let pesados = 0;
+      for (const e of o.eventos) pesados += this.contarMarcados(e.subproductos);
       return {
         ordenBeneficioId: o.id,
         reference: o.reference,
@@ -96,10 +77,8 @@ export class SubproductosService {
         consecutivoBase: bases.get(o.id) ?? 0,
         animalCount: o.animalCount,
         caidos: o.eventos.length,
-        pesadosBlancas,
-        pesadosRojas,
-        totalBlancas: o.eventos.length * TOTAL_POR_GRUPO.blancas,
-        totalRojas: o.eventos.length * TOTAL_POR_GRUPO.rojas,
+        pesados,
+        total: o.eventos.length * TOTAL_ITEMS,
         subproductoDestino: o.subproductoDestino,
         subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
       };
@@ -137,13 +116,35 @@ export class SubproductosService {
       : [];
     const nameById = new Map(users.map((u) => [u.id, u.fullName]));
 
-    let pesadosBlancas = 0;
-    let pesadosRojas = 0;
+    let pesados = 0;
+    // Resumen por producto: suma de todo lo registrado en el lote (mismo
+    // cliente, mismo lote), para verificar que la información sea consistente.
+    const resumenPorTipo = new Map<
+      string,
+      { marcados: number; totalKg: number }
+    >();
     for (const e of o.eventos) {
-      const { blancas, rojas } = this.contarPorGrupo(e.subproductos);
-      pesadosBlancas += blancas;
-      pesadosRojas += rojas;
+      pesados += this.contarMarcados(e.subproductos);
+      for (const s of e.subproductos) {
+        if (!s.marcado) continue;
+        const acc = resumenPorTipo.get(s.tipo) ?? { marcados: 0, totalKg: 0 };
+        acc.marcados += 1;
+        acc.totalKg += s.pesoKg != null ? Number(s.pesoKg) : 0;
+        resumenPorTipo.set(s.tipo, acc);
+      }
     }
+    const resumen = SUBPRODUCTO_ITEMS.map((def) => {
+      const acc = resumenPorTipo.get(def.tipo) ?? { marcados: 0, totalKg: 0 };
+      return {
+        tipo: def.tipo,
+        codigo: def.codigo,
+        label: def.label,
+        unidad: def.unidad,
+        marcados: acc.marcados,
+        esperados: o.eventos.length,
+        totalKg: def.unidad === 'kg' ? acc.totalKg : null,
+      };
+    });
 
     return {
       ordenBeneficioId: o.id,
@@ -154,26 +155,28 @@ export class SubproductosService {
       consecutivoBase: base,
       animalCount: o.animalCount,
       caidos: o.eventos.length,
-      pesadosBlancas,
-      pesadosRojas,
-      totalBlancas: o.eventos.length * TOTAL_POR_GRUPO.blancas,
-      totalRojas: o.eventos.length * TOTAL_POR_GRUPO.rojas,
+      pesados,
+      total: o.eventos.length * TOTAL_ITEMS,
       subproductoDestino: o.subproductoDestino,
       subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
       subproductoRetiroObservaciones: o.subproductoRetiroObservaciones,
+      resumen,
       animales: o.eventos.map((e) => ({
         eventoId: e.id,
         sequence: e.sequence,
         consecutivo: base + e.sequence,
         stunnedAt: e.stunnedAt.toISOString(),
         items: [...e.subproductos]
-          .sort((a, b) => a.tipo.localeCompare(b.tipo))
+          .sort(
+            (a, b) =>
+              (ORDEN_TIPO.get(a.tipo) ?? 0) - (ORDEN_TIPO.get(b.tipo) ?? 0),
+          )
           .map((s) => {
             const def = SUBPRODUCTO_ITEM_BY_TIPO.get(s.tipo);
             return {
               tipo: s.tipo,
+              codigo: def?.codigo ?? '',
               label: def?.label ?? s.tipo,
-              grupo: def?.grupo ?? 'blancas',
               unidad: def?.unidad ?? 'unidad',
               marcado: s.marcado,
               pesoKg: s.pesoKg != null ? Number(s.pesoKg) : null,
@@ -218,3 +221,4 @@ export class SubproductosService {
     return { ok: true };
   }
 }
+

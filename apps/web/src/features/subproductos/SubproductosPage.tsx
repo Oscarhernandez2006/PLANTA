@@ -25,7 +25,6 @@ import {
   type SubAnimal,
   type SubItem,
   type SubLoteDetail,
-  type SubproductoGrupo,
 } from './api';
 
 function today() {
@@ -40,11 +39,6 @@ function hora(iso: string | null) {
     second: '2-digit',
   });
 }
-
-const GRUPOS: { key: SubproductoGrupo; label: string }[] = [
-  { key: 'blancas', label: 'Vísceras blancas' },
-  { key: 'rojas', label: 'Vísceras rojas' },
-];
 
 // Un animal + un ítem puntual de su checklist (para trabajar la lista aplanada).
 interface AnimalItem {
@@ -71,8 +65,8 @@ export function SubproductosPage() {
               Subproductos
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Elige un lote para marcar el checklist de vísceras de cada
-              animal: blancas y rojas se registran por separado.
+              Elige un lote para marcar el checklist de subproductos
+              (códigos SIESA) de cada animal.
             </p>
           </div>
         </div>
@@ -106,10 +100,8 @@ export function SubproductosPage() {
           ) : (
             <ul className="divide-y divide-border">
               {lista.map((l) => {
-                const total = l.totalBlancas + l.totalRojas;
-                const hechos = l.pesadosBlancas + l.pesadosRojas;
-                const pct = total ? Math.round((hechos / total) * 100) : 0;
-                const completo = total > 0 && hechos === total;
+                const pct = l.total ? Math.round((l.pesados / l.total) * 100) : 0;
+                const completo = l.total > 0 && l.pesados === l.total;
                 return (
                   <li key={l.ordenBeneficioId}>
                     <button
@@ -124,8 +116,7 @@ export function SubproductosPage() {
                           )}
                         </div>
                         <span className="text-sm tabular-nums text-muted-foreground">
-                          B {l.pesadosBlancas}/{l.totalBlancas} · R{' '}
-                          {l.pesadosRojas}/{l.totalRojas}
+                          {l.pesados}/{l.total} registrados
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -172,18 +163,13 @@ function LoteDetalle({
   data: SubLoteDetail;
   onBack: () => void;
 }) {
-  const [grupo, setGrupo] = useState<SubproductoGrupo>('blancas');
+  const [verResumen, setVerResumen] = useState(false);
 
   const flat: AnimalItem[] = data.animales.flatMap((animal) =>
-    animal.items
-      .filter((item) => item.grupo === grupo)
-      .map((item) => ({ animal, item })),
+    animal.items.map((item) => ({ animal, item })),
   );
   const pendientes = flat.filter((ai) => !ai.item.marcado);
   const pesados = flat.filter((ai) => ai.item.marcado);
-  const totalGrupo = grupo === 'blancas' ? data.totalBlancas : data.totalRojas;
-  const hechosGrupo =
-    grupo === 'blancas' ? data.pesadosBlancas : data.pesadosRojas;
 
   return (
     <Card className="flex flex-col overflow-hidden">
@@ -212,8 +198,15 @@ function LoteDetalle({
           {data.subproductoDestino === 'firmante' && (
             <RetiroBadge data={data} />
           )}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setVerResumen((v) => !v)}
+          >
+            {verResumen ? 'Ver checklist' : 'Ver resumen del lote'}
+          </Button>
           <span className="text-sm tabular-nums text-muted-foreground">
-            {hechosGrupo}/{totalGrupo} pesados
+            {data.pesados}/{data.total} registrados
           </span>
         </div>
       </div>
@@ -221,45 +214,51 @@ function LoteDetalle({
       {/* Conexión a la báscula real */}
       <BasculaConexion />
 
-      {/* Selector de grupo de víscera */}
-      <div className="flex items-center gap-3 px-5 py-4">
-        <span className="text-sm font-medium text-muted-foreground">
-          Grupo de vísceras:
-        </span>
-        <div className="inline-flex rounded-lg border border-border bg-muted/40 p-1">
-          {GRUPOS.map((g) => {
-            const done =
-              g.key === 'blancas' ? data.pesadosBlancas : data.pesadosRojas;
-            const total =
-              g.key === 'blancas' ? data.totalBlancas : data.totalRojas;
-            return (
-              <button
-                key={g.key}
-                onClick={() => setGrupo(g.key)}
-                className={cn(
-                  'rounded-md px-4 py-1.5 text-sm font-medium transition-colors',
-                  grupo === g.key
-                    ? 'bg-background text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
-              >
-                {g.label}
-                <span className="ml-1.5 text-xs tabular-nums text-muted-foreground">
-                  {done}/{total}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <ChecklistView
-        key={grupo}
-        grupo={grupo}
-        pendientes={pendientes}
-        pesados={pesados}
-      />
+      {verResumen ? (
+        <ResumenPanel data={data} />
+      ) : (
+        <ChecklistView pendientes={pendientes} pesados={pesados} />
+      )}
     </Card>
+  );
+}
+
+function ResumenPanel({ data }: { data: SubLoteDetail }) {
+  return (
+    <div className="border-t border-border">
+      <div className="px-5 py-3 text-sm font-semibold">
+        Resumen por producto (lote {data.reference} · {data.cliente}) — suma
+        de todos los animales, para verificar que la información sea real.
+      </div>
+      <div className="overflow-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-y border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-5 py-2">Código</th>
+              <th className="px-2 py-2">Producto</th>
+              <th className="px-2 py-2 text-center">Registrados</th>
+              <th className="px-5 py-2 text-right">Total kg</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {data.resumen.map((r) => (
+              <tr key={r.tipo}>
+                <td className="px-5 py-2 tabular-nums text-muted-foreground">
+                  {r.codigo}
+                </td>
+                <td className="px-2 py-2">{r.label}</td>
+                <td className="px-2 py-2 text-center tabular-nums">
+                  {r.marcados}/{r.esperados}
+                </td>
+                <td className="px-5 py-2 text-right tabular-nums">
+                  {r.unidad === 'kg' ? (r.totalKg ?? 0).toFixed(2) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 }
 
@@ -289,11 +288,9 @@ function RetiroBadge({ data }: { data: SubLoteDetail }) {
 }
 
 function ChecklistView({
-  grupo,
   pendientes,
   pesados,
 }: {
-  grupo: SubproductoGrupo;
   pendientes: AnimalItem[];
   pesados: AnimalItem[];
 }) {
@@ -315,7 +312,6 @@ function ChecklistView({
     pendientes.find(
       (ai) => `${ai.animal.eventoId}:${ai.item.tipo}` === selectedKey,
     ) ?? null;
-  const grupoLabel = grupo === 'blancas' ? 'blancas' : 'rojas';
 
   return (
     <div className="grid border-t border-border md:grid-cols-2">
@@ -326,8 +322,8 @@ function ChecklistView({
         </div>
         {!pendientes.length ? (
           <div className="flex items-center justify-center gap-2 px-5 pb-6 text-sm text-muted-foreground">
-            <CheckCircle2 className="size-4 text-emerald-600" /> Todas las
-            vísceras {grupoLabel} de este lote ya fueron registradas.
+            <CheckCircle2 className="size-4 text-emerald-600" /> Todos los
+            subproductos de este lote ya fueron registrados.
           </div>
         ) : (
           <ul className="divide-y divide-border">
