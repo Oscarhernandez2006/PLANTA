@@ -555,46 +555,6 @@ function CategoriaCavaFooter({
 }
 
 /** Fila de un ítem ya registrado, con opción de deshacer si se marcó por error. */
-function RegistradoRow({ animalItem }: { animalItem: AnimalItem }) {
-  const deshacer = useDeshacerSubproducto();
-  const ai = animalItem;
-  return (
-    <li className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
-      <div className="flex items-center gap-2">
-        <span className="font-semibold tabular-nums">
-          #{ai.animal.consecutivo}
-        </span>
-        <span className="text-muted-foreground">
-          {ai.item.label} · {hora(ai.item.registradoAt)} ·{' '}
-          {ai.item.operatorName ?? '—'}
-        </span>
-      </div>
-      <div className="flex items-center gap-2">
-        {ai.item.unidad === 'kg' ? (
-          <span className="font-semibold tabular-nums">
-            {ai.item.pesoKg?.toFixed(2)} kg
-          </span>
-        ) : (
-          <CheckCircle2 className="size-4 text-emerald-600" />
-        )}
-        <button
-          onClick={() =>
-            deshacer.mutate({
-              eventoId: ai.animal.eventoId,
-              tipo: ai.item.tipo,
-            })
-          }
-          disabled={deshacer.isPending}
-          title="Deshacer (se registró por error)"
-          className="text-muted-foreground hover:text-red-600 disabled:opacity-50"
-        >
-          <Undo2 className="size-4" />
-        </button>
-      </div>
-    </li>
-  );
-}
-
 function ChecklistView({
   data,
   pendientes,
@@ -607,6 +567,7 @@ function ChecklistView({
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [bulkCategoria, setBulkCategoria] = useState<string | null>(null);
   const registrarBulk = useRegistrarSubproducto();
+  const deshacer = useDeshacerSubproducto();
 
   // Selecciona automáticamente el primer ítem pendiente.
   useEffect(() => {
@@ -719,10 +680,19 @@ function ChecklistView({
                                 <span className="text-[10px] font-medium uppercase tabular-nums text-muted-foreground">
                                   {ai.item.unidad === 'kg' ? 'kg' : 'und'}
                                 </span>
-                                <CheckCircle2
-                                  className="size-4 shrink-0 text-emerald-600"
-                                  aria-label="Registrado"
-                                />
+                                <button
+                                  onClick={() =>
+                                    deshacer.mutate({
+                                      eventoId: ai.animal.eventoId,
+                                      tipo: ai.item.tipo,
+                                    })
+                                  }
+                                  disabled={deshacer.isPending}
+                                  title="Deshacer (se registró por error)"
+                                  className="text-emerald-600 hover:text-red-600 disabled:opacity-50"
+                                >
+                                  <CheckCircle2 className="size-4" />
+                                </button>
                               </div>
                             </div>
                           </li>
@@ -772,22 +742,6 @@ function ChecklistView({
               );
             })}
           </div>
-        )}
-
-        {pesados.length > 0 && (
-          <>
-            <div className="border-t border-border px-4 py-2 text-sm font-semibold">
-              Registrados ({pesados.length})
-            </div>
-            <ul className="max-h-60 divide-y divide-border overflow-auto overscroll-contain">
-              {pesados.map((ai) => (
-                <RegistradoRow
-                  key={`${ai.animal.eventoId}:${ai.item.tipo}`}
-                  animalItem={ai}
-                />
-              ))}
-            </ul>
-          </>
         )}
       </div>
 
