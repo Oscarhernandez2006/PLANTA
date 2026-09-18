@@ -640,12 +640,15 @@ function ChecklistView({
         ) : (
           <div className="flex flex-col divide-y divide-border sm:h-[460px] sm:flex-row sm:divide-x sm:divide-y-0">
             {CATEGORIA_COLUMNAS.map((col) => {
-              const items = pendientes.filter((ai) =>
+              const matchCategoria = (ai: AnimalItem) =>
                 col.key === 'retoma'
                   ? ai.item.categoria === 'retoma' ||
                     ai.item.categoria === 'cabeza_patas'
-                  : ai.item.categoria === col.key,
-              );
+                  : ai.item.categoria === col.key;
+              const items = pendientes.filter(matchCategoria);
+              const registrados = pesados.filter(matchCategoria);
+              // Se muestran primero los pendientes y luego los ya registrados con su chulo.
+              const filas = [...items, ...registrados];
               const categoriaCompleta = items.length === 0;
               // Solo se puede marcar en masa lo que no requiere pesarse.
               const pendientesUnidad = items.filter(
@@ -690,12 +693,41 @@ function ChecklistView({
                   </div>
                   <div className="flex items-center justify-between border-b border-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     <span>Producto</span>
-                    <span>Total</span>
+                    <span className="flex items-center gap-3">
+                      <span>Total</span>
+                      <span>Revisión</span>
+                    </span>
                   </div>
                   <ul className="max-h-[420px] divide-y divide-border overflow-auto overscroll-contain sm:max-h-none sm:min-h-0 sm:flex-1">
-                    {items.map((ai) => {
+                    {filas.map((ai) => {
                       const key = `${ai.animal.eventoId}:${ai.item.tipo}`;
                       const activo = key === selectedKey;
+                      const registrado = ai.item.marcado;
+                      if (registrado) {
+                        return (
+                          <li key={key}>
+                            <div className="flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left">
+                              <div className="min-w-0 flex-1">
+                                <span className="truncate text-xs text-muted-foreground line-through decoration-emerald-400">
+                                  {ai.item.label}
+                                </span>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-3">
+                                <span className="text-sm font-bold tabular-nums text-muted-foreground">
+                                  #{ai.animal.consecutivo}
+                                </span>
+                                <span className="text-[10px] font-medium uppercase tabular-nums text-muted-foreground">
+                                  {ai.item.unidad === 'kg' ? 'kg' : 'und'}
+                                </span>
+                                <CheckCircle2
+                                  className="size-4 shrink-0 text-emerald-600"
+                                  aria-label="Registrado"
+                                />
+                              </div>
+                            </div>
+                          </li>
+                        );
+                      }
                       return (
                         <li key={key}>
                           <button
@@ -712,7 +744,7 @@ function ChecklistView({
                                 {ai.item.label}
                               </span>
                             </div>
-                            <div className="flex shrink-0 items-center gap-2">
+                            <div className="flex shrink-0 items-center gap-3">
                               <span className="text-sm font-bold tabular-nums">
                                 #{ai.animal.consecutivo}
                               </span>
@@ -724,6 +756,7 @@ function ChecklistView({
                               >
                                 {activo ? '●' : ai.item.unidad === 'kg' ? 'kg' : 'und'}
                               </span>
+                              <span className="inline-block size-4 shrink-0" />
                             </div>
                           </button>
                         </li>
