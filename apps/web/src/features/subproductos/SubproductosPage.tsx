@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
 import {
   BasculaConexion,
@@ -25,6 +25,7 @@ import {
   useRegistrarSubproducto,
   useRegistrarRetiroSubproducto,
   useAsignarCavaSubproducto,
+  CAVAS_SUBPRODUCTO_OPCIONES,
   type SubAnimal,
   type SubItem,
   type SubLoteDetail,
@@ -233,7 +234,7 @@ function LoteDetalle({
       {verResumen ? (
         <ResumenPanel data={data} />
       ) : (
-        <ChecklistView pendientes={pendientes} pesados={pesados} />
+        <ChecklistView data={data} pendientes={pendientes} pesados={pesados} />
       )}
     </Card>
   );
@@ -394,10 +395,34 @@ function EntradaPanel({ data }: { data: SubLoteDetail }) {
   );
 }
 
-function SalidaPanel({ data }: { data: SubLoteDetail }) {
+/** Registra el retiro en cada lote del grupo y descarga el PDF de salida. */
+function useGenerarSalida(data: SubLoteDetail) {
   const { user } = useAuth();
-  const [observaciones, setObservaciones] = useState('');
   const registrarRetiro = useRegistrarRetiroSubproducto();
+
+  async function generar(observaciones: string) {
+    // El grupo puede tener varios lotes del mismo cliente: se registra el
+    // retiro en cada uno para que quede la constancia completa.
+    for (const ordenBeneficioId of data.ordenBeneficioIds) {
+      await registrarRetiro.mutateAsync({ ordenBeneficioId, observaciones });
+    }
+    downloadOrdenSalidaPdf({
+      references: data.references,
+      cliente: data.cliente,
+      guias: data.guias,
+      fecha: new Date().toLocaleString('es-CO'),
+      responsable: user?.fullName ?? '—',
+      observaciones: observaciones.trim() || null,
+      items: data.resumen.filter((r) => r.marcados > 0),
+    });
+  }
+
+  return { generar, isPending: registrarRetiro.isPending };
+}
+
+function SalidaPanel({ data }: { data: SubLoteDetail }) {
+  const [observaciones, setObservaciones] = useState('');
+  const salida = useGenerarSalida(data);
   const completo = data.total > 0 && data.pesados === data.total;
 
   if (data.subproductoRetiroAt) {
@@ -416,23 +441,6 @@ function SalidaPanel({ data }: { data: SubLoteDetail }) {
     );
   }
 
-  async function generar() {
-    // El grupo puede tener varios lotes del mismo cliente: se registra el
-    // retiro en cada uno para que quede la constancia completa.
-    for (const ordenBeneficioId of data.ordenBeneficioIds) {
-      await registrarRetiro.mutateAsync({ ordenBeneficioId, observaciones });
-    }
-    downloadOrdenSalidaPdf({
-      references: data.references,
-      cliente: data.cliente,
-      guias: data.guias,
-      fecha: new Date().toLocaleString('es-CO'),
-      responsable: user?.fullName ?? '—',
-      observaciones: observaciones.trim() || null,
-      items: data.resumen.filter((r) => r.marcados > 0),
-    });
-  }
-
   return (
     <div className="flex items-center gap-1.5">
       <Input
@@ -444,8 +452,8 @@ function SalidaPanel({ data }: { data: SubLoteDetail }) {
       <Button
         variant="outline"
         size="sm"
-        disabled={registrarRetiro.isPending}
-        onClick={generar}
+        disabled={salida.isPending}
+        onClick={() => salida.generar(observaciones)}
         title="Genera la constancia y el PDF de la orden de salida"
       >
         Generar orden de salida
@@ -454,10 +462,88 @@ function SalidaPanel({ data }: { data: SubLoteDetail }) {
   );
 }
 
+/** Debajo de cada columna: si el destino es Entrada, cava + botón Entrada
+ * (solo para esa categoría); si es Salida, un botón Salida sin pedir cava. */
+function CategoriaCavaFooter({
+  data,
+  categoria,
+}: {
+  data: SubLoteDetail;
+  categoria: 'viscera_roja' | 'viscera_blanca' | 'retoma';
+}) {
+  const asignar = useAsignarCavaSubproducto();
+  const salida = useGenerarSalida(data);
+  const [cava, setCava] = useState(CAVAS_SUBPRODUCTO_OPCIONES[0]);
+  const [guardado, setGuardado] = useState(false);
+
+  if (data.subproductoDestino === 'firmante') {
+    if (data.subproductoRetiroAt) {
+      return (
+        <div className="border-t border-border px-2 py-1.5 text-center text-[11px] font-medium text-emerald-700">
+          Salida generada
+        </div>
+      );
+    }
+    return (
+      <div className="border-t border-border p-1.5">
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 w-full text-xs"
+          disabled={salida.isPending}
+          onClick={() => salida.generar('')}
+        >
+          Salida
+        </Button>
+      </div>
+    );
+  }
+
+  if (guardado) {
+    return (
+      <div className="border-t border-border px-2 py-1.5 text-center text-[11px] font-medium text-emerald-700">
+        Cava asignada: {cava}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1 border-t border-border p-1.5">
+      <Select
+        value={cava}
+        onChange={(e) => setCava(e.target.value)}
+        className="h-7 flex-1 text-xs"
+      >
+        {CAVAS_SUBPRODUCTO_OPCIONES.map((c) => (
+          <option key={c} value={c}>
+            {c}
+          </option>
+        ))}
+      </Select>
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-7 shrink-0 text-xs"
+        disabled={asignar.isPending}
+        onClick={() =>
+          asignar.mutate(
+            { ordenBeneficioIds: data.ordenBeneficioIds, cava, categoria },
+            { onSuccess: () => setGuardado(true) },
+          )
+        }
+      >
+        Entrada
+      </Button>
+    </div>
+  );
+}
+
 function ChecklistView({
+  data,
   pendientes,
   pesados,
 }: {
+  data: SubLoteDetail;
   pendientes: AnimalItem[];
   pesados: AnimalItem[];
 }) {
@@ -539,6 +625,7 @@ function ChecklistView({
                       );
                     })}
                   </ul>
+                  <CategoriaCavaFooter data={data} categoria={col.key} />
                 </div>
               );
             })}

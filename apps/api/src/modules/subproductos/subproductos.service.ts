@@ -316,13 +316,15 @@ export class SubproductosService {
   }
 
   /**
-   * Asigna la cava de destino (Entrada) a todos los subproductos de un grupo
-   * de lotes (mismo cliente). Solo aplica a lotes con destino "empresa".
+   * Asigna la cava de destino (Entrada) a los subproductos de un grupo de
+   * lotes (mismo cliente). Solo aplica a lotes con destino "empresa". Si se
+   * indica categoría, solo mueve los subproductos de esa categoría.
    */
   async asignarCava(
     ctx: AuthContext,
     ordenBeneficioIds: string[],
     cava: string,
+    categoria?: string,
   ) {
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
@@ -339,8 +341,17 @@ export class SubproductosService {
       );
     }
 
+    const tipos = categoria
+      ? [...SUBPRODUCTO_ITEMS, ...SUBPRODUCTO_ITEMS_CABEZA_PATAS]
+          .filter((i) => i.categoria === categoria)
+          .map((i) => i.tipo)
+      : undefined;
+
     await this.prisma.subproductoItem.updateMany({
-      where: { evento: { ordenBeneficioId: { in: ordenBeneficioIds } } },
+      where: {
+        evento: { ordenBeneficioId: { in: ordenBeneficioIds } },
+        ...(tipos && { tipo: { in: tipos } }),
+      },
       data: { cava: cava.trim() },
     });
     return { ok: true };

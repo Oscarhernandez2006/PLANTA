@@ -124,21 +124,27 @@ export function useRegistrarRetiroSubproducto() {
   });
 }
 
-/** Asigna la cava de destino (Entrada) a todos los subproductos del grupo (cliente). */
+/** Cavas fijas para ubicar subproductos (rojas/blancas/retomas) al hacer Entrada. */
+export const CAVAS_SUBPRODUCTO_OPCIONES = ['Cava subproducto 1', 'Cava subproducto 2'];
+
+/** Asigna la cava de destino (Entrada) a los subproductos del grupo (cliente), opcionalmente solo de una categoría. */
 export function useAsignarCavaSubproducto() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
       ordenBeneficioIds,
       cava,
+      categoria,
     }: {
       ordenBeneficioIds: string[];
       cava: string;
+      categoria?: SubproductoCategoria;
     }) =>
       (
         await api.patch<{ ok: boolean }>('/subproductos/grupo/cava', {
           ordenBeneficioIds,
           cava,
+          categoria,
         })
       ).data,
     onSuccess: () => {

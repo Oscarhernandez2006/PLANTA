@@ -38,7 +38,12 @@ export class SubproductosController {
     @CurrentUser() user: AuthContext,
     @Body() dto: AsignarCavaDto,
   ) {
-    return this.service.asignarCava(user, dto.ordenBeneficioIds, dto.cava);
+    return this.service.asignarCava(
+      user,
+      dto.ordenBeneficioIds,
+      dto.cava,
+      dto.categoria,
+    );
   }
 
   @Post()
