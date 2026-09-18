@@ -353,20 +353,6 @@ export function PesoEnPiePage() {
 
         <div className="flex items-center gap-1.5">
           <Button
-            size="lg"
-            className="h-9 px-5"
-            title="Guardar registro"
-            onClick={guardar}
-            disabled={crear.isPending || guiaCompleta || processClosed}
-          >
-            {crear.isPending ? (
-              <LoaderCircle className="size-5 animate-spin" />
-            ) : (
-              <Check className="size-5" />
-            )}
-            Guardar
-          </Button>
-          <Button
             variant="outline"
             size="icon"
             className="size-9"
@@ -588,6 +574,20 @@ export function PesoEnPiePage() {
               <Gauge className="size-6" />
             )}
           </button>
+          <Button
+            size="lg"
+            className="h-14 shrink-0 px-5"
+            title="Registrar animal"
+            onClick={guardar}
+            disabled={crear.isPending || guiaCompleta || processClosed}
+          >
+            {crear.isPending ? (
+              <LoaderCircle className="size-5 animate-spin" />
+            ) : (
+              <Check className="size-5" />
+            )}
+            Registrar
+          </Button>
         </div>
       </div>
 

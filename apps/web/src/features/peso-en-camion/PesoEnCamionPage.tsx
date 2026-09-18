@@ -457,6 +457,7 @@ export function PesoEnCamionPage() {
             className="size-9"
             title="Imprimir recibo (PDF)"
             onClick={imprimir}
+            disabled={!selectedGuia && !editingId}
           >
             <Printer className="size-5" />
           </Button>
