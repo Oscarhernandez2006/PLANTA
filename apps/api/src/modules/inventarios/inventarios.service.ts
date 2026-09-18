@@ -8,38 +8,44 @@ import { SUBPRODUCTO_ITEM_BY_TIPO } from '../subproductos/subproducto-items';
 export class InventariosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Animales/canales actualmente ubicados en una cava de Canal Caliente. */
+  /** Piezas de canal (CIZQ/CDER/completa) actualmente ubicadas en una cava de Canal Caliente. */
   async cava(ctx: AuthContext, cava: string, dateStr?: string) {
     const date = dateStr ? plantDateOnly(dateStr) : undefined;
-    const eventos = await this.prisma.ordenBeneficioEvento.findMany({
+    const piezas = await this.prisma.canalPieza.findMany({
       where: {
         cava,
-        ordenBeneficio: {
-          plantId: ctx.plantId,
-          deletedAt: null,
-          ...(date && { date }),
+        evento: {
+          ordenBeneficio: {
+            plantId: ctx.plantId,
+            deletedAt: null,
+            ...(date && { date }),
+          },
         },
       },
-      orderBy: [{ stunnedAt: 'desc' }],
+      orderBy: [{ weighedAt: 'desc' }],
       include: {
-        ordenBeneficio: {
-          select: { reference: true, cliente: true, date: true },
+        evento: {
+          include: {
+            ordenBeneficio: {
+              select: { reference: true, cliente: true, date: true },
+            },
+          },
         },
-        canalPiezas: true,
       },
       take: 300,
     });
-    return eventos.map((e) => ({
-      eventoId: e.id,
-      reference: e.ordenBeneficio.reference,
-      cliente: e.ordenBeneficio.cliente,
-      date: e.ordenBeneficio.date.toISOString().slice(0, 10),
-      canalAnimalTipo: e.canalAnimalTipo,
-      bodega: e.bodega,
-      destino: e.destino,
-      observaciones: e.observaciones,
-      piezas: e.canalPiezas.length,
-      pesoTotalKg: e.canalPiezas.reduce((acc, p) => acc + Number(p.pesoKg), 0),
+    return piezas.map((p) => ({
+      piezaId: p.id,
+      eventoId: p.eventoId,
+      reference: p.evento.ordenBeneficio.reference,
+      cliente: p.evento.ordenBeneficio.cliente,
+      date: p.evento.ordenBeneficio.date.toISOString().slice(0, 10),
+      canalAnimalTipo: p.evento.canalAnimalTipo,
+      pieza: p.pieza,
+      bodega: p.bodega,
+      destino: p.destino,
+      observaciones: p.observaciones,
+      pesoKg: Number(p.pesoKg),
     }));
   }
 

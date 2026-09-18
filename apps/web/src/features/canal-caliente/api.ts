@@ -75,6 +75,10 @@ export interface CanalPiezaEstado {
   turno: CanalTurno | null;
   weighedAt: string | null;
   operatorName: string | null;
+  bodega: string | null;
+  cava: string | null;
+  destino: string | null;
+  observaciones: string | null;
 }
 
 export interface CanalAnimal {
@@ -84,10 +88,6 @@ export interface CanalAnimal {
   stunnedAt: string;
   canalTipo: CanalTipo | null;
   canalAnimalTipo: CanalAnimalTipo | null;
-  bodega: string | null;
-  cava: string | null;
-  destino: string | null;
-  observaciones: string | null;
   piezas: CanalPiezaEstado[];
 }
 
@@ -109,10 +109,6 @@ export interface CanalAnimalRow {
   cliente: string;
   canalTipo: CanalTipo | null;
   canalAnimalTipo: CanalAnimalTipo | null;
-  bodega: string | null;
-  cava: string | null;
-  destino: string | null;
-  observaciones: string | null;
   piezasPesadas: number;
   piezasEsperadas: number;
   pesoTotalKg: number;
@@ -256,14 +252,7 @@ export function useDeshacerCanal() {
 export function useClasificarAnimal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: {
-      eventoId: string;
-      tipo?: CanalAnimalTipo;
-      bodega?: string;
-      cava?: string;
-      destino?: string;
-      observaciones?: string;
-    }) => {
+    mutationFn: async (payload: { eventoId: string; tipo?: CanalAnimalTipo }) => {
       const { eventoId, ...body } = payload;
       return (
         await api.patch<{ ok: boolean }>(
@@ -274,6 +263,32 @@ export function useClasificarAnimal() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['canal-caliente'] });
+    },
+  });
+}
+
+/** Clasifica una PIEZA pesada (CIZQ, CDER o completa): cada mitad puede ir a una bodega/cava distinta. */
+export function useClasificarPieza() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: {
+      piezaId: string;
+      bodega?: string;
+      cava?: string;
+      destino?: string;
+      observaciones?: string;
+    }) => {
+      const { piezaId, ...body } = payload;
+      return (
+        await api.patch<{ ok: boolean }>(
+          `/canal-caliente/piezas/${piezaId}`,
+          body,
+        )
+      ).data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['canal-caliente'] });
+      qc.invalidateQueries({ queryKey: ['inventarios'] });
     },
   });
 }

@@ -718,40 +718,37 @@ model OrdenBeneficioEvento {
   pieladoAt      DateTime? @map("pielado_at") @db.Timestamptz(6)
   pielOperatorId String?   @map("piel_operator_id") @db.Uuid
 
-  // Clasificación del animal en Canal Caliente.
+  // Clasificación del animal en Canal Caliente (especie/categoría).
   canalAnimalTipo CanalAnimalTipo? @map("canal_animal_tipo")
-  bodega          String?
-  cava            String?
-  destino         String?
-  observaciones   String?
   // Tipo de pesaje en Canal Caliente, elegido por animal.
   canalTipo       CanalTipo?       @map("canal_tipo")
 
   ordenBeneficio OrdenBeneficio       @relation(fields: [ordenBeneficioId], references: [id])
   canalPiezas    CanalPieza[]
   subproductos   SubproductoItem[]
-  trasladosCava  CanalTraslado[]
 
   @@unique([ordenBeneficioId, sequence])
   @@index([ordenBeneficioId])
   @@map("orden_beneficio_evento")
 }
 
-// Traslado de una canal entre cavas: deja constancia de quién lo hizo, cuándo,
-// de dónde a dónde y por qué motivo, para trazabilidad real del inventario.
+// Traslado de una PIEZA de canal entre cavas: deja constancia de quién lo
+// hizo, cuándo, de dónde a dónde y por qué motivo, para trazabilidad real
+// del inventario. Es por pieza (no por animal) porque CIZQ y CDER de una
+// misma media canal pueden estar en cavas distintas.
 model CanalTraslado {
   id          String   @id @default(uuid()) @db.Uuid
   plantId     String   @map("plant_id") @db.Uuid
-  eventoId    String   @map("orden_beneficio_evento_id") @db.Uuid
+  piezaId     String   @map("canal_pieza_id") @db.Uuid
   cavaOrigen  String?  @map("cava_origen")
   cavaDestino String   @map("cava_destino")
   motivo      String
   operatorId  String   @map("operator_id") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  evento OrdenBeneficioEvento @relation(fields: [eventoId], references: [id])
+  pieza CanalPieza @relation(fields: [piezaId], references: [id])
 
-  @@index([eventoId])
+  @@index([piezaId])
   @@index([plantId, createdAt])
   @@map("canal_traslado")
 }
@@ -779,7 +776,8 @@ model SubproductoItem {
 
 // Peso del canal caliente por PIEZA de cada animal. Canal completa = 1 pieza
 // (canal); media canal = 2 piezas (cizq izquierda, cder derecha). El tipo de
-// canal vive en OrdenBeneficioEvento.canalTipo (por animal).
+// canal vive en OrdenBeneficioEvento.canalTipo (por animal). La bodega/cava/
+// destino/observaciones son por PIEZA: CIZQ y CDER pueden ir a cavas distintas.
 model CanalPieza {
   id         String         @id @default(uuid()) @db.Uuid
   eventoId   String         @map("orden_beneficio_evento_id") @db.Uuid
@@ -790,7 +788,13 @@ model CanalPieza {
   operatorId String         @map("operator_id") @db.Uuid
   createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  evento OrdenBeneficioEvento @relation(fields: [eventoId], references: [id])
+  bodega        String?
+  cava          String?
+  destino       String?
+  observaciones String?
+
+  evento         OrdenBeneficioEvento @relation(fields: [eventoId], references: [id])
+  trasladosCava  CanalTraslado[]
 
   @@unique([eventoId, pieza])
   @@index([eventoId])

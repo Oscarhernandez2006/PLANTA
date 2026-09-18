@@ -11,18 +11,25 @@ export const CAVAS_TRASLADO = [
   'CAVA DESPACHO',
 ];
 
+export interface CanalEscaneadaPieza {
+  piezaId: string;
+  pieza: 'canal' | 'cizq' | 'cder';
+  cava: string | null;
+}
+
 export interface CanalEscaneada {
   eventoId: string;
   consecutivo: number;
   reference: number;
   cliente: string;
-  cava: string | null;
+  piezas: CanalEscaneadaPieza[];
 }
 
 export interface TrasladoHistorial {
   id: string;
   reference: number;
   cliente: string;
+  pieza: 'canal' | 'cizq' | 'cder';
   cavaOrigen: string | null;
   cavaDestino: string;
   motivo: string;
@@ -51,7 +58,7 @@ export function useTrasladarCanal() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (payload: {
-      eventoId: string;
+      piezaId: string;
       cavaDestino: string;
       motivo: string;
     }) => (await api.post<{ ok: boolean }>('/canal-traslado', payload)).data,

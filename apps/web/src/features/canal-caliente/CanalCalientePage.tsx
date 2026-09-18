@@ -23,6 +23,7 @@ import {
   useRegistrarCanal,
   useDeshacerCanal,
   useClasificarAnimal,
+  useClasificarPieza,
   CANAL_TIPO_LABEL,
   CANAL_ANIMAL_TIPO_LABEL,
   PIEZA_LABEL,
@@ -500,9 +501,11 @@ function AnimalesTab({
   objetivoAnimal: CanalAnimal | null;
 }) {
   const clasificar = useClasificarAnimal();
+  const clasificarPieza = useClasificarPieza();
   const piezas = useCanalPiezas(date);
   const deshacer = useDeshacerCanal();
   const [tipo, setTipoLocal] = useState<CanalAnimalTipo | ''>('');
+  const [piezaId, setPiezaId] = useState<string | null>(null);
   const [bodega, setBodega] = useState('');
   const [cava, setCava] = useState('');
   const [destino, setDestino] = useState('');
@@ -512,19 +515,34 @@ function AnimalesTab({
 
   const eventoId = objetivoAnimal?.eventoId ?? null;
   const rows = piezas.data ?? [];
+  // Piezas YA pesadas de este animal: CIZQ y CDER se clasifican por separado,
+  // cada una con su propia bodega/cava/destino/observaciones.
+  const piezasAnimal = objetivoAnimal?.piezas.filter((p) => p.pesado) ?? [];
 
   // Los campos se editan localmente y solo se guardan al presionar "Guardar
   // clasificación": se recargan desde el animal cada vez que se cambia de
   // animal, para no arrastrar lo que se estaba editando de otro.
   useEffect(() => {
     setTipoLocal(objetivoAnimal?.canalAnimalTipo ?? '');
-    setBodega(objetivoAnimal?.bodega ?? '');
-    setCava(objetivoAnimal?.cava ?? '');
-    setDestino(objetivoAnimal?.destino ?? '');
-    setObservaciones(objetivoAnimal?.observaciones ?? '');
+    setPiezaId(null);
+    setBodega('');
+    setCava('');
+    setDestino('');
+    setObservaciones('');
     setCavaError(null);
     setGuardadoOk(false);
   }, [eventoId]);
+
+  function seleccionarPieza(p: (typeof piezasAnimal)[number]) {
+    if (!p.piezaId) return;
+    setPiezaId(p.piezaId);
+    setBodega(p.bodega ?? '');
+    setCava(p.cava ?? '');
+    setDestino(p.destino ?? '');
+    setObservaciones(p.observaciones ?? '');
+    setCavaError(null);
+    setGuardadoOk(false);
+  }
 
   if (!detail || !objetivoAnimal) {
     return (
@@ -536,15 +554,13 @@ function AnimalesTab({
     if (!eventoId) return;
     setCavaError(null);
     setGuardadoOk(false);
-    clasificar.mutate(
-      {
-        eventoId,
-        tipo: tipo || undefined,
-        bodega,
-        cava,
-        destino,
-        observaciones,
-      },
+    clasificar.mutate({ eventoId, tipo: tipo || undefined });
+    if (!piezaId) {
+      setGuardadoOk(true);
+      return;
+    }
+    clasificarPieza.mutate(
+      { piezaId, bodega, cava, destino, observaciones },
       {
         onSuccess: () => setGuardadoOk(true),
         onError: (err) => {
@@ -597,74 +613,118 @@ function AnimalesTab({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <FieldBox label="Bodegas:">
-          <select
-            value={bodega}
-            onChange={(e) => setBodega(e.target.value)}
-            className="h-9 w-full bg-transparent text-base font-medium outline-none"
-          >
-            <option value="">Seleccione...</option>
-            {BODEGAS.map((b) => (
-              <option key={b} value={b}>
-                {b}
-              </option>
-            ))}
-          </select>
-        </FieldBox>
-        <FieldBox label="Destino:">
-          <textarea
-            value={destino}
-            onChange={(e) => setDestino(e.target.value)}
-            rows={1}
-            className="w-full resize-none bg-transparent text-base outline-none"
-          />
-        </FieldBox>
-      </div>
-
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div>
-          <p className="mb-2 text-sm font-semibold text-muted-foreground">
-            Cavas de Canales:
+      <div>
+        <p className="mb-2 text-sm font-semibold text-muted-foreground">
+          Piezas de este animal (toca una para asignarle bodega/cava):
+        </p>
+        {!piezasAnimal.length ? (
+          <p className="text-sm text-muted-foreground">
+            Este animal todavía no tiene ninguna pieza pesada.
           </p>
+        ) : (
           <div className="flex flex-wrap gap-2">
-            {CAVAS.map((c) => (
+            {piezasAnimal.map((p) => (
               <button
-                key={c}
+                key={p.piezaId}
                 type="button"
-                onClick={() => setCava(c)}
+                onClick={() => seleccionarPieza(p)}
                 className={cn(
-                  'rounded-sm border-2 px-3 py-2 text-sm font-semibold uppercase',
-                  cava === c
+                  'rounded-sm border-2 px-3 py-2 text-left text-sm font-semibold uppercase',
+                  piezaId === p.piezaId
                     ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
                     : 'border-border bg-card hover:bg-muted',
                 )}
               >
-                {c}
+                {PIEZA_LABEL[p.pieza]} · {p.pesoKg?.toFixed(2)} kg
+                <span className="mt-0.5 block text-[10px] font-normal normal-case text-muted-foreground">
+                  {p.cava ?? 'Sin cava asignada'}
+                </span>
               </button>
             ))}
           </div>
-        </div>
-        <FieldBox label="Observaciones:" className="relative">
-          <textarea
-            value={observaciones}
-            onChange={(e) => setObservaciones(e.target.value)}
-            rows={1}
-            className="w-full resize-none bg-transparent pr-10 text-base outline-none"
-          />
-          <Lock className="absolute right-2 top-1 size-5 text-muted-foreground" />
-        </FieldBox>
+        )}
       </div>
+
+      <fieldset
+        disabled={!piezaId}
+        className="contents disabled:opacity-40"
+      >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <FieldBox label="Bodegas:">
+            <select
+              value={bodega}
+              onChange={(e) => setBodega(e.target.value)}
+              className="h-9 w-full bg-transparent text-base font-medium outline-none"
+            >
+              <option value="">Seleccione...</option>
+              {BODEGAS.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </FieldBox>
+          <FieldBox label="Destino:">
+            <textarea
+              value={destino}
+              onChange={(e) => setDestino(e.target.value)}
+              rows={1}
+              className="w-full resize-none bg-transparent text-base outline-none"
+            />
+          </FieldBox>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <div>
+            <p className="mb-2 text-sm font-semibold text-muted-foreground">
+              Cavas de Canales:
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {CAVAS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  onClick={() => setCava(c)}
+                  className={cn(
+                    'rounded-sm border-2 px-3 py-2 text-sm font-semibold uppercase',
+                    cava === c
+                      ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+                      : 'border-border bg-card hover:bg-muted',
+                  )}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+          </div>
+          <FieldBox label="Observaciones:" className="relative">
+            <textarea
+              value={observaciones}
+              onChange={(e) => setObservaciones(e.target.value)}
+              rows={1}
+              className="w-full resize-none bg-transparent pr-10 text-base outline-none"
+            />
+            <Lock className="absolute right-2 top-1 size-5 text-muted-foreground" />
+          </FieldBox>
+        </div>
+      </fieldset>
 
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={guardarClasificacion}
-          disabled={clasificar.isPending}
+          disabled={clasificar.isPending || clasificarPieza.isPending}
           className="rounded-sm border-2 border-emerald-600 bg-emerald-600 px-5 py-2 text-sm font-semibold uppercase text-white hover:bg-emerald-700 disabled:opacity-50"
         >
-          {clasificar.isPending ? 'Guardando…' : 'Guardar clasificación'}
+          {clasificar.isPending || clasificarPieza.isPending
+            ? 'Guardando…'
+            : 'Guardar clasificación'}
         </button>
+        {!piezaId && (
+          <p className="text-xs text-muted-foreground">
+            Selecciona una pieza pesada arriba para guardarle bodega/cava.
+          </p>
+        )}
         {cavaError && (
           <p className="text-sm font-medium text-red-600">{cavaError}</p>
         )}

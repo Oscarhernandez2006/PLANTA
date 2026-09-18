@@ -26,10 +26,26 @@ function hora(iso: string) {
   });
 }
 
+const PIEZA_LABEL: Record<string, string> = {
+  canal: 'CANAL',
+  cizq: 'CIZQ',
+  cder: 'CDER',
+};
+
+interface PendienteTraslado {
+  piezaId: string;
+  pieza: string;
+  eventoId: string;
+  consecutivo: number;
+  reference: number;
+  cliente: string;
+  cava: string | null;
+}
+
 export function CanalTrasladoPage() {
   const [date, setDate] = useState(today());
   const [consecutivo, setConsecutivo] = useState('');
-  const [pendientes, setPendientes] = useState<CanalEscaneada[]>([]);
+  const [pendientes, setPendientes] = useState<PendienteTraslado[]>([]);
   const [cavaDestino, setCavaDestino] = useState('');
   const [motivo, setMotivo] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -46,13 +62,24 @@ export function CanalTrasladoPage() {
     buscar.mutate(
       { consecutivo: valor, date },
       {
-        onSuccess: (canal) => {
+        onSuccess: (canal: CanalEscaneada) => {
           setConsecutivo('');
-          setPendientes((prev) =>
-            prev.some((p) => p.eventoId === canal.eventoId)
-              ? prev
-              : [...prev, canal],
-          );
+          // Se agregan TODAS las piezas de la canal escaneada (CIZQ y CDER si
+          // aplica): cada una puede quitarse de la lista si no se necesita.
+          setPendientes((prev) => {
+            const nuevas = canal.piezas
+              .filter((p) => !prev.some((x) => x.piezaId === p.piezaId))
+              .map((p) => ({
+                piezaId: p.piezaId,
+                pieza: p.pieza,
+                eventoId: canal.eventoId,
+                consecutivo: canal.consecutivo,
+                reference: canal.reference,
+                cliente: canal.cliente,
+                cava: p.cava,
+              }));
+            return [...prev, ...nuevas];
+          });
         },
         onError: (err) => {
           const detail = (
@@ -67,18 +94,18 @@ export function CanalTrasladoPage() {
     );
   }
 
-  function quitar(eventoId: string) {
-    setPendientes((prev) => prev.filter((p) => p.eventoId !== eventoId));
+  function quitar(piezaId: string) {
+    setPendientes((prev) => prev.filter((p) => p.piezaId !== piezaId));
   }
 
   async function confirmarTraslado() {
     if (!cavaDestino || !motivo.trim() || !pendientes.length) return;
     setError(null);
-    const restantes: CanalEscaneada[] = [];
+    const restantes: PendienteTraslado[] = [];
     for (const p of pendientes) {
       try {
         await trasladar.mutateAsync({
-          eventoId: p.eventoId,
+          piezaId: p.piezaId,
           cavaDestino,
           motivo: motivo.trim(),
         });
@@ -87,7 +114,7 @@ export function CanalTrasladoPage() {
           err as { response?: { data?: { message?: string | string[] } } }
         ).response?.data?.message;
         setError(
-          `Canal #${p.consecutivo}: ${
+          `Canal #${p.consecutivo} (${PIEZA_LABEL[p.pieza]}): ${
             Array.isArray(detail) ? detail.join(' ') : detail || 'no se pudo trasladar.'
           }`,
         );
@@ -173,6 +200,7 @@ export function CanalTrasladoPage() {
               <THead>
                 <TR>
                   <TH>Canal</TH>
+                  <TH>Pieza</TH>
                   <TH>Lote</TH>
                   <TH>Cliente</TH>
                   <TH>Cava actual</TH>
@@ -181,14 +209,17 @@ export function CanalTrasladoPage() {
               </THead>
               <TBody>
                 {pendientes.map((p) => (
-                  <TR key={p.eventoId}>
+                  <TR key={p.piezaId}>
                     <TD className="font-semibold tabular-nums">#{p.consecutivo}</TD>
+                    <TD className="font-semibold text-red-600">
+                      {PIEZA_LABEL[p.pieza]}
+                    </TD>
                     <TD className="tabular-nums">{p.reference}</TD>
                     <TD>{p.cliente}</TD>
                     <TD>{p.cava ?? '—'}</TD>
                     <TD>
                       <button
-                        onClick={() => quitar(p.eventoId)}
+                        onClick={() => quitar(p.piezaId)}
                         title="Quitar de la lista"
                         className="text-muted-foreground hover:text-red-600"
                       >
@@ -266,6 +297,7 @@ export function CanalTrasladoPage() {
                   <TH>Hora</TH>
                   <TH>Lote</TH>
                   <TH>Cliente</TH>
+                  <TH>Pieza</TH>
                   <TH>De</TH>
                   <TH>A</TH>
                   <TH>Motivo</TH>
@@ -278,6 +310,9 @@ export function CanalTrasladoPage() {
                     <TD className="tabular-nums">{hora(r.createdAt)}</TD>
                     <TD className="tabular-nums">{r.reference}</TD>
                     <TD>{r.cliente}</TD>
+                    <TD className="font-semibold text-red-600">
+                      {PIEZA_LABEL[r.pieza]}
+                    </TD>
                     <TD>
                       <Badge tone="neutral">{r.cavaOrigen ?? 'Sin cava'}</Badge>
                     </TD>

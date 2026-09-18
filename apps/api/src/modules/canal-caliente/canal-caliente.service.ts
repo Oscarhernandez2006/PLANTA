@@ -14,6 +14,7 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { plantDateOnly } from '../../common/plant-date';
 import { RegistrarCanalDto } from './dto/registrar-canal.dto';
 import { ClasificarAnimalDto } from './dto/clasificar-animal.dto';
+import { ClasificarPiezaDto } from './dto/clasificar-pieza.dto';
 import { CAVA_CAPACIDAD } from './cava-capacidad';
 
 function dateOnly(value?: string) {
@@ -145,10 +146,6 @@ export class CanalCalienteService {
           stunnedAt: e.stunnedAt.toISOString(),
           canalTipo: e.canalTipo,
           canalAnimalTipo: e.canalAnimalTipo,
-          bodega: e.bodega,
-          cava: e.cava,
-          destino: e.destino,
-          observaciones: e.observaciones,
           piezas: esperadas.map((pz) => {
             const reg = byPieza.get(pz);
             return {
@@ -159,6 +156,10 @@ export class CanalCalienteService {
               turno: reg?.turno ?? null,
               weighedAt: reg?.weighedAt.toISOString() ?? null,
               operatorName: reg ? (nameById.get(reg.operatorId) ?? '—') : null,
+              bodega: reg?.bodega ?? null,
+              cava: reg?.cava ?? null,
+              destino: reg?.destino ?? null,
+              observaciones: reg?.observaciones ?? null,
             };
           }),
         };
@@ -193,7 +194,7 @@ export class CanalCalienteService {
     return this.loteDetail(ctx, evt.ordenBeneficioId);
   }
 
-  /** Actualiza la clasificación (tipo, bodega, cava, destino, observaciones) de un animal. */
+  /** Actualiza la clasificación de ESPECIE del animal (vaca, novilla, etc.). */
   async clasificarAnimal(
     ctx: AuthContext,
     eventoId: string,
@@ -204,19 +205,47 @@ export class CanalCalienteService {
         id: eventoId,
         ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
       },
-      select: { id: true, cava: true },
+      select: { id: true },
     });
     if (!evt) throw new NotFoundException('Animal no encontrado.');
 
+    await this.prisma.ordenBeneficioEvento.update({
+      where: { id: evt.id },
+      data: {
+        ...(dto.tipo !== undefined && { canalAnimalTipo: dto.tipo }),
+      },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Actualiza la clasificación (bodega, cava, destino, observaciones) de una
+   * PIEZA pesada (CIZQ, CDER o canal completa): cada mitad puede ir a una
+   * bodega/cava distinta.
+   */
+  async clasificarPieza(
+    ctx: AuthContext,
+    piezaId: string,
+    dto: ClasificarPiezaDto,
+  ) {
+    const pieza = await this.prisma.canalPieza.findFirst({
+      where: {
+        id: piezaId,
+        evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } },
+      },
+      select: { id: true, cava: true },
+    });
+    if (!pieza) throw new NotFoundException('Pieza no encontrada.');
+
     // Si se está asignando a una cava distinta a la actual, valida el cupo
     // máximo de canales que admite esa cava antes de dejarla entrar.
-    if (dto.cava !== undefined && dto.cava && dto.cava !== evt.cava) {
+    if (dto.cava !== undefined && dto.cava && dto.cava !== pieza.cava) {
       const capacidad = CAVA_CAPACIDAD[dto.cava];
       if (capacidad) {
-        const ocupadas = await this.prisma.ordenBeneficioEvento.count({
+        const ocupadas = await this.prisma.canalPieza.count({
           where: {
             cava: dto.cava,
-            ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
+            evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } },
           },
         });
         if (ocupadas >= capacidad.max) {
@@ -227,10 +256,9 @@ export class CanalCalienteService {
       }
     }
 
-    await this.prisma.ordenBeneficioEvento.update({
-      where: { id: evt.id },
+    await this.prisma.canalPieza.update({
+      where: { id: pieza.id },
       data: {
-        ...(dto.tipo !== undefined && { canalAnimalTipo: dto.tipo }),
         ...(dto.bodega !== undefined && { bodega: dto.bodega }),
         ...(dto.cava !== undefined && { cava: dto.cava }),
         ...(dto.destino !== undefined && { destino: dto.destino }),
@@ -332,10 +360,6 @@ export class CanalCalienteService {
       cliente: string;
       canalTipo: CanalTipo | null;
       canalAnimalTipo: CanalAnimalTipo | null;
-      bodega: string | null;
-      cava: string | null;
-      destino: string | null;
-      observaciones: string | null;
       piezasPesadas: number;
       piezasEsperadas: number;
       pesoTotalKg: number;
@@ -350,10 +374,6 @@ export class CanalCalienteService {
           cliente: o.cliente,
           canalTipo: e.canalTipo,
           canalAnimalTipo: e.canalAnimalTipo,
-          bodega: e.bodega,
-          cava: e.cava,
-          destino: e.destino,
-          observaciones: e.observaciones,
           piezasPesadas: e.canalPiezas.length,
           piezasEsperadas: piezasEsperadas(e.canalTipo).length || 1,
           pesoTotalKg: e.canalPiezas.reduce(

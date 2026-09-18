@@ -2,7 +2,7 @@ import { IsNotEmpty, IsString, IsUUID, MaxLength } from 'class-validator';
 
 export class CrearTrasladoDto {
   @IsUUID()
-  eventoId!: string;
+  piezaId!: string;
 
   @IsString()
   @IsNotEmpty()

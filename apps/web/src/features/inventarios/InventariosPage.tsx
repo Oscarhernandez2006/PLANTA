@@ -107,22 +107,24 @@ function CavaTab({ cava }: { cava: string }) {
           <th>Cliente</th>
           <th>Fecha</th>
           <th>Tipo</th>
+          <th>Pieza</th>
           <th>Destino</th>
-          <th className="text-center">Piezas</th>
-          <th className="text-right">Peso total (kg)</th>
+          <th className="text-right">Peso (kg)</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
         {rows.map((r: CavaAnimalRow) => (
-          <tr key={r.eventoId} className="[&>td]:px-3 [&>td]:py-2">
+          <tr key={r.piezaId} className="[&>td]:px-3 [&>td]:py-2">
             <td className="tabular-nums">{r.reference}</td>
             <td>{r.cliente}</td>
             <td className="tabular-nums">{r.date}</td>
             <td className="text-xs uppercase">{r.canalAnimalTipo ?? '—'}</td>
+            <td className="text-xs font-semibold uppercase text-red-600">
+              {r.pieza}
+            </td>
             <td>{r.destino || '—'}</td>
-            <td className="text-center tabular-nums">{r.piezas}</td>
             <td className="text-right font-semibold tabular-nums">
-              {r.pesoTotalKg.toFixed(2)}
+              {r.pesoKg.toFixed(2)}
             </td>
           </tr>
         ))}

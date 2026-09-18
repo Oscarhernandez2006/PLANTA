@@ -32,7 +32,7 @@ export class CanalTrasladoService {
     return base;
   }
 
-  /** Busca el animal (canal) cuyo consecutivo del día coincide con el escaneado. */
+  /** Busca el animal (canal) cuyo consecutivo del día coincide con el escaneado, con cada una de sus piezas pesadas (CIZQ/CDER pueden estar en cavas distintas). */
   async buscarPorConsecutivo(
     ctx: AuthContext,
     consecutivoStr: string,
@@ -48,18 +48,27 @@ export class CanalTrasladoService {
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: { plantId: ctx.plantId, deletedAt: null, date },
       orderBy: [{ reference: 'asc' }],
-      include: { eventos: true },
+      include: { eventos: { include: { canalPiezas: true } } },
     });
     for (const o of ordenes) {
       const base = bases.get(o.id) ?? 0;
       const evento = o.eventos.find((e) => base + e.sequence === consecutivo);
       if (evento) {
+        if (!evento.canalPiezas.length) {
+          throw new BadRequestException(
+            `La canal N.º ${consecutivo} todavía no tiene ninguna pieza pesada.`,
+          );
+        }
         return {
           eventoId: evento.id,
           consecutivo,
           reference: o.reference,
           cliente: o.cliente,
-          cava: evento.cava,
+          piezas: evento.canalPiezas.map((p) => ({
+            piezaId: p.id,
+            pieza: p.pieza,
+            cava: p.cava,
+          })),
         };
       }
     }
@@ -68,26 +77,26 @@ export class CanalTrasladoService {
     );
   }
 
-  /** Traslada una canal de su cava actual a otra, dejando constancia (motivo y responsable). */
+  /** Traslada una PIEZA de canal (CIZQ, CDER o completa) de su cava actual a otra, dejando constancia (motivo y responsable). */
   async trasladar(ctx: AuthContext, dto: CrearTrasladoDto) {
-    const evt = await this.prisma.ordenBeneficioEvento.findFirst({
+    const pieza = await this.prisma.canalPieza.findFirst({
       where: {
-        id: dto.eventoId,
-        ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
+        id: dto.piezaId,
+        evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } },
       },
       select: { id: true, cava: true },
     });
-    if (!evt) throw new NotFoundException('Canal no encontrada.');
-    if (evt.cava === dto.cavaDestino) {
+    if (!pieza) throw new NotFoundException('Pieza de canal no encontrada.');
+    if (pieza.cava === dto.cavaDestino) {
       throw new BadRequestException('La canal ya está en esa cava.');
     }
 
     const capacidad = CAVA_CAPACIDAD[dto.cavaDestino];
     if (capacidad) {
-      const ocupadas = await this.prisma.ordenBeneficioEvento.count({
+      const ocupadas = await this.prisma.canalPieza.count({
         where: {
           cava: dto.cavaDestino,
-          ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
+          evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } },
         },
       });
       if (ocupadas >= capacidad.max) {
@@ -101,15 +110,15 @@ export class CanalTrasladoService {
       this.prisma.canalTraslado.create({
         data: {
           plantId: ctx.plantId,
-          eventoId: evt.id,
-          cavaOrigen: evt.cava,
+          piezaId: pieza.id,
+          cavaOrigen: pieza.cava,
           cavaDestino: dto.cavaDestino,
           motivo: dto.motivo.trim(),
           operatorId: ctx.userId,
         },
       }),
-      this.prisma.ordenBeneficioEvento.update({
-        where: { id: evt.id },
+      this.prisma.canalPieza.update({
+        where: { id: pieza.id },
         data: { cava: dto.cavaDestino },
       }),
     ]);
@@ -129,9 +138,13 @@ export class CanalTrasladoService {
       },
       orderBy: { createdAt: 'desc' },
       include: {
-        evento: {
+        pieza: {
           include: {
-            ordenBeneficio: { select: { reference: true, cliente: true } },
+            evento: {
+              include: {
+                ordenBeneficio: { select: { reference: true, cliente: true } },
+              },
+            },
           },
         },
       },
@@ -149,8 +162,9 @@ export class CanalTrasladoService {
 
     return rows.map((r) => ({
       id: r.id,
-      reference: r.evento.ordenBeneficio.reference,
-      cliente: r.evento.ordenBeneficio.cliente,
+      reference: r.pieza.evento.ordenBeneficio.reference,
+      cliente: r.pieza.evento.ordenBeneficio.cliente,
+      pieza: r.pieza.pieza,
       cavaOrigen: r.cavaOrigen,
       cavaDestino: r.cavaDestino,
       motivo: r.motivo,
