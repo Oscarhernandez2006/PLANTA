@@ -233,6 +233,23 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
     viscera_blanca: 'Víscera blanca',
     viscera_roja: 'Víscera roja',
   };
+
+  // Totalizado por categoría (unidades y kilos), sumando todo lo registrado
+  // en el lote: mismo lote + mismo cliente ya viene agregado en data.resumen.
+  const totalesPorCategoria = new Map<
+    string,
+    { totalUnidades: number; totalKg: number }
+  >();
+  for (const r of data.resumen) {
+    const acc = totalesPorCategoria.get(r.categoria) ?? {
+      totalUnidades: 0,
+      totalKg: 0,
+    };
+    if (r.unidad === 'unidad') acc.totalUnidades += r.marcados;
+    else acc.totalKg += r.totalKg ?? 0;
+    totalesPorCategoria.set(r.categoria, acc);
+  }
+
   return (
     <div className="border-t border-border">
       <div className="px-5 py-3 text-sm font-semibold">
@@ -268,6 +285,45 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Totalizado final por categoría: unidades y kilos por separado. */}
+      <div className="border-t border-border px-5 py-3 text-sm font-semibold">
+        Totalizado por categoría
+      </div>
+      <div className="overflow-auto pb-4">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
+              <th className="px-5 py-2">Categoría</th>
+              <th className="px-2 py-2 text-right">Total unidades</th>
+              <th className="px-5 py-2 text-right">Total kg</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {(['viscera_roja', 'viscera_blanca', 'retoma'] as const).map(
+              (cat) => {
+                const t = totalesPorCategoria.get(cat) ?? {
+                  totalUnidades: 0,
+                  totalKg: 0,
+                };
+                return (
+                  <tr key={cat}>
+                    <td className="px-5 py-2 font-medium">
+                      {categoriaLabel[cat]}
+                    </td>
+                    <td className="px-2 py-2 text-right tabular-nums">
+                      {t.totalUnidades}
+                    </td>
+                    <td className="px-5 py-2 text-right tabular-nums">
+                      {t.totalKg.toFixed(2)}
+                    </td>
+                  </tr>
+                );
+              },
+            )}
           </tbody>
         </table>
       </div>
