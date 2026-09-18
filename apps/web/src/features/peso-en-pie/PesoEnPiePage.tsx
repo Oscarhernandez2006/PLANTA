@@ -369,6 +369,7 @@ export function PesoEnPiePage() {
             className="size-9"
             title="Imprimir registro"
             onClick={imprimir}
+            disabled={animalesRegistrados < 1}
           >
             <Printer className="size-5" />
           </Button>
