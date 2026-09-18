@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Warehouse, LoaderCircle, Inbox } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { Warehouse, LoaderCircle, Inbox, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   useCava,
@@ -138,42 +138,143 @@ function CavaTab({ cava }: { cava: string }) {
 function CavaSubproductoTab({ cava }: { cava: string }) {
   const { data, isLoading } = useCavaSubproducto(cava);
   const nombre = cava === '3' ? 'Cava Subproducto Despacho' : `Cava Subproducto ${cava}`;
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+
+  // Una sola línea por cliente + fecha (igual que en Subproductos: los lotes
+  // del mismo cliente el mismo día quedan amarrados). Al presionar, se
+  // despliegan los productos agrupados de ese grupo en esta cava.
+  const grupos = useMemo(() => {
+    const rows = data ?? [];
+    const map = new Map<
+      string,
+      {
+        cliente: string;
+        date: string;
+        references: Set<number>;
+        items: CavaSubproductoRow[];
+      }
+    >();
+    for (const r of rows) {
+      const key = `${r.cliente}|${r.date}`;
+      const g = map.get(key);
+      if (g) {
+        g.references.add(r.reference);
+        g.items.push(r);
+      } else {
+        map.set(key, {
+          cliente: r.cliente,
+          date: r.date,
+          references: new Set([r.reference]),
+          items: [r],
+        });
+      }
+    }
+    return [...map.entries()].map(([key, g]) => ({
+      key,
+      cliente: g.cliente,
+      date: g.date,
+      references: [...g.references].sort((a, b) => a - b),
+      items: g.items,
+    }));
+  }, [data]);
+
   if (isLoading) return <Loading />;
-  const rows = data ?? [];
-  if (!rows.length)
-    return (
-      <Empty text={`No hay subproductos ubicados en la ${nombre}.`} />
-    );
+  if (!grupos.length)
+    return <Empty text={`No hay subproductos ubicados en la ${nombre}.`} />;
+
+  function toggle(key: string) {
+    setAbiertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   return (
-    <table className="w-full text-sm">
-      <thead className="sticky top-0 bg-muted/60 text-left">
-        <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-          <th>Cliente</th>
-          <th>Lote / Orden</th>
-          <th>Fecha</th>
-          <th>Producto</th>
-          <th className="text-right">Unidades</th>
-          <th className="text-right">Kilos</th>
-          <th>Fecha y hora de ingreso</th>
-        </tr>
-      </thead>
-      <tbody className="divide-y divide-border">
-        {rows.map((r: CavaSubproductoRow) => (
-          <tr key={r.itemId} className="[&>td]:px-3 [&>td]:py-2">
-            <td>{r.cliente}</td>
-            <td className="tabular-nums">{r.reference}</td>
-            <td className="tabular-nums">{r.date}</td>
-            <td>{r.label}</td>
-            <td className="text-right tabular-nums">
-              {r.unidad === 'unidad' ? (r.cantidad ?? 1) : '—'}
-            </td>
-            <td className="text-right font-semibold tabular-nums">
-              {r.unidad === 'kg' && r.pesoKg != null ? r.pesoKg.toFixed(2) : '—'}
-            </td>
-            <td className="tabular-nums">{fechaHora(r.date, r.registradoAt)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <ul className="divide-y divide-border">
+      {grupos.map((g) => {
+        const abierto = abiertos.has(g.key);
+        // Productos agrupados (uno por tipo): suma kilos o cuenta unidades.
+        const porProducto = new Map<
+          string,
+          { label: string; unidad: 'unidad' | 'kg'; unidades: number; kg: number; registradoAt: string | null }
+        >();
+        for (const it of g.items) {
+          const acc = porProducto.get(it.tipo) ?? {
+            label: it.label,
+            unidad: it.unidad,
+            unidades: 0,
+            kg: 0,
+            registradoAt: it.registradoAt,
+          };
+          if (it.unidad === 'unidad') acc.unidades += it.cantidad ?? 1;
+          else acc.kg += it.pesoKg ?? 0;
+          if (
+            it.registradoAt &&
+            (!acc.registradoAt || it.registradoAt > acc.registradoAt)
+          ) {
+            acc.registradoAt = it.registradoAt;
+          }
+          porProducto.set(it.tipo, acc);
+        }
+        const productos = [...porProducto.values()];
+
+        return (
+          <li key={g.key}>
+            <button
+              onClick={() => toggle(g.key)}
+              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left hover:bg-muted/40"
+            >
+              <div className="flex items-center gap-2">
+                {abierto ? (
+                  <ChevronDown className="size-4 text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="size-4 text-muted-foreground" />
+                )}
+                <div>
+                  <div className="font-semibold">
+                    N.º {g.references.join(', ')} · {g.cliente}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {g.date} · {productos.length} producto
+                    {productos.length === 1 ? '' : 's'}
+                  </div>
+                </div>
+              </div>
+            </button>
+            {abierto && (
+              <table className="w-full text-sm">
+                <thead className="bg-muted/40 text-left">
+                  <tr className="[&>th]:px-4 [&>th]:py-1.5 [&>th]:text-xs [&>th]:font-semibold">
+                    <th>Producto</th>
+                    <th className="text-right">Unidades</th>
+                    <th className="text-right">Kilos</th>
+                    <th>Fecha y hora de ingreso</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {productos.map((p) => (
+                    <tr key={p.label} className="[&>td]:px-4 [&>td]:py-1.5">
+                      <td>{p.label}</td>
+                      <td className="text-right tabular-nums">
+                        {p.unidad === 'unidad' ? p.unidades : '—'}
+                      </td>
+                      <td className="text-right font-semibold tabular-nums">
+                        {p.unidad === 'kg' ? p.kg.toFixed(2) : '—'}
+                      </td>
+                      <td className="tabular-nums">
+                        {fechaHora(g.date, p.registradoAt)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
+
