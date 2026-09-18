@@ -605,6 +605,8 @@ function ChecklistView({
   pesados: AnimalItem[];
 }) {
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [bulkCategoria, setBulkCategoria] = useState<string | null>(null);
+  const registrarBulk = useRegistrarSubproducto();
 
   // Selecciona automáticamente el primer ítem pendiente.
   useEffect(() => {
@@ -645,17 +647,45 @@ function ChecklistView({
                   : ai.item.categoria === col.key,
               );
               const categoriaCompleta = items.length === 0;
+              // Solo se puede marcar en masa lo que no requiere pesarse.
+              const pendientesUnidad = items.filter(
+                (ai) => ai.item.unidad !== 'kg',
+              );
+              async function marcarTodoUnidad() {
+                setBulkCategoria(col.key);
+                try {
+                  for (const ai of pendientesUnidad) {
+                    await registrarBulk.mutateAsync({
+                      eventoId: ai.animal.eventoId,
+                      tipo: ai.item.tipo,
+                    });
+                  }
+                } finally {
+                  setBulkCategoria(null);
+                }
+              }
               return (
                 <div key={col.key} className="flex min-h-0 flex-col sm:h-full sm:flex-1">
                   <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     <span>
                       {col.label} ({items.length})
                     </span>
-                    {categoriaCompleta && (
+                    {categoriaCompleta ? (
                       <CheckCircle2
                         className="size-4 text-emerald-600"
                         aria-label="Categoría completa"
                       />
+                    ) : (
+                      pendientesUnidad.length > 0 && (
+                        <button
+                          onClick={marcarTodoUnidad}
+                          disabled={bulkCategoria === col.key}
+                          title="Marca de una vez todos los items por unidad de esta categoría (los de kg se registran uno a uno)"
+                          className="rounded-sm border border-emerald-600 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold normal-case text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                        >
+                          {bulkCategoria === col.key ? '...' : 'OK'}
+                        </button>
+                      )
                     )}
                   </div>
                   <div className="flex items-center justify-between border-b border-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
