@@ -592,6 +592,10 @@ function ChecklistView({
                   <div className="bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {col.label} ({items.length})
                   </div>
+                  <div className="flex items-center justify-between border-b border-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span>Producto</span>
+                    <span>Total</span>
+                  </div>
                   <ul className="max-h-[420px] divide-y divide-border overflow-auto overscroll-contain sm:max-h-none sm:min-h-0 sm:flex-1">
                     {items.map((ai) => {
                       const key = `${ai.animal.eventoId}:${ai.item.tipo}`;
@@ -615,11 +619,14 @@ function ChecklistView({
                                 {ai.item.label}
                               </span>
                             </div>
-                            {activo && (
-                              <span className="shrink-0 text-[10px] font-medium text-emerald-700">
-                                ●
-                              </span>
-                            )}
+                            <span
+                              className={cn(
+                                'shrink-0 text-[10px] font-medium uppercase tabular-nums text-muted-foreground',
+                                activo && 'text-emerald-700',
+                              )}
+                            >
+                              {activo ? '●' : ai.item.unidad === 'kg' ? 'kg' : 'und'}
+                            </span>
                           </button>
                         </li>
                       );
