@@ -212,11 +212,7 @@ function LoteDetalle({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {data.subproductoDestino === 'firmante' ? (
-            <SalidaPanel data={data} />
-          ) : (
-            <EntradaPanel data={data} />
-          )}
+          {data.subproductoDestino === 'firmante' && <SalidaPanel data={data} />}
           <Button
             variant="outline"
             size="sm"
@@ -352,58 +348,6 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
           </tbody>
         </table>
       </div>
-    </div>
-  );
-}
-
-function EntradaPanel({ data }: { data: SubLoteDetail }) {
-  const [cava, setCava] = useState(CAVAS_SUBPRODUCTO_OPCIONES[0].value);
-  const asignar = useAsignarCavaSubproducto();
-  const completo = data.total > 0 && data.pesados === data.total;
-  // La cava queda guardada en la BD (item.cava), no en un flag local: así se
-  // mantiene igual aunque se salga y vuelva a entrar al módulo.
-  const marcados = data.animales.flatMap((a) => a.items).filter((i) => i.marcado);
-  const cavaAsignada =
-    completo && marcados.length > 0 && marcados.every((i) => i.cava === marcados[0].cava)
-      ? marcados[0].cava
-      : null;
-
-  if (!completo) {
-    return (
-      <span className="text-xs text-muted-foreground">
-        Completa el checklist para asignar la cava de entrada.
-      </span>
-    );
-  }
-  if (cavaAsignada != null) {
-    const label =
-      CAVAS_SUBPRODUCTO_OPCIONES.find((c) => c.value === cavaAsignada)?.label ??
-      cavaAsignada;
-    return <Badge tone="success">Cava asignada: {label}</Badge>;
-  }
-  return (
-    <div className="flex items-center gap-1.5">
-      <Select
-        value={cava}
-        onChange={(e) => setCava(e.target.value)}
-        className="h-8 w-40 text-xs"
-      >
-        {CAVAS_SUBPRODUCTO_OPCIONES.map((c) => (
-          <option key={c.value} value={c.value}>
-            {c.label}
-          </option>
-        ))}
-      </Select>
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={asignar.isPending}
-        onClick={() =>
-          asignar.mutate({ ordenBeneficioIds: data.ordenBeneficioIds, cava })
-        }
-      >
-        Asignar cava (Entrada)
-      </Button>
     </div>
   );
 }
