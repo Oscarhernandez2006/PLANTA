@@ -17,12 +17,19 @@ export interface CavaAnimalRow {
   pesoTotalKg: number;
 }
 
+export type CavaSubproductoCategoria =
+  | 'retoma'
+  | 'viscera_blanca'
+  | 'viscera_roja'
+  | 'cabeza_patas';
+
 export interface CavaSubproductoRow {
   itemId: string;
   tipo: string;
   codigo: string;
   label: string;
   unidad: 'unidad' | 'kg';
+  categoria: CavaSubproductoCategoria;
   cantidad: number | null;
   pesoKg: number | null;
   reference: number;

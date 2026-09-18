@@ -8,6 +8,7 @@ import {
   CAVAS_SUBPRODUCTO,
   type CavaAnimalRow,
   type CavaSubproductoRow,
+  type CavaSubproductoCategoria,
 } from './api';
 
 type Tab = `cava-${string}` | `sub-${string}`;
@@ -198,12 +199,20 @@ function CavaSubproductoTab({ cava }: { cava: string }) {
         // Productos agrupados (uno por tipo): suma kilos o cuenta unidades.
         const porProducto = new Map<
           string,
-          { label: string; unidad: 'unidad' | 'kg'; unidades: number; kg: number; registradoAt: string | null }
+          {
+            label: string;
+            unidad: 'unidad' | 'kg';
+            categoria: CavaSubproductoCategoria;
+            unidades: number;
+            kg: number;
+            registradoAt: string | null;
+          }
         >();
         for (const it of g.items) {
           const acc = porProducto.get(it.tipo) ?? {
             label: it.label,
             unidad: it.unidad,
+            categoria: it.categoria,
             unidades: 0,
             kg: 0,
             registradoAt: it.registradoAt,
@@ -219,6 +228,13 @@ function CavaSubproductoTab({ cava }: { cava: string }) {
           porProducto.set(it.tipo, acc);
         }
         const productos = [...porProducto.values()];
+        // Se divide por categoría, igual que el checklist de Subproductos:
+        // cabeza_patas se agrupa dentro de Retomas.
+        const categorias: { key: CavaSubproductoCategoria[]; label: string }[] = [
+          { key: ['viscera_roja'], label: 'Vísceras rojas' },
+          { key: ['viscera_blanca'], label: 'Vísceras blancas' },
+          { key: ['retoma', 'cabeza_patas'], label: 'Retomas' },
+        ];
 
         return (
           <li key={g.key}>
@@ -243,34 +259,44 @@ function CavaSubproductoTab({ cava }: { cava: string }) {
                 </div>
               </div>
             </button>
-            {abierto && (
-              <table className="w-full text-sm">
-                <thead className="bg-muted/40 text-left">
-                  <tr className="[&>th]:px-4 [&>th]:py-1.5 [&>th]:text-xs [&>th]:font-semibold">
-                    <th>Producto</th>
-                    <th className="text-right">Unidades</th>
-                    <th className="text-right">Kilos</th>
-                    <th>Fecha y hora de ingreso</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
-                  {productos.map((p) => (
-                    <tr key={p.label} className="[&>td]:px-4 [&>td]:py-1.5">
-                      <td>{p.label}</td>
-                      <td className="text-right tabular-nums">
-                        {p.unidad === 'unidad' ? p.unidades : '—'}
-                      </td>
-                      <td className="text-right font-semibold tabular-nums">
-                        {p.unidad === 'kg' ? p.kg.toFixed(2) : '—'}
-                      </td>
-                      <td className="tabular-nums">
-                        {fechaHora(g.date, p.registradoAt)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            {abierto &&
+              categorias.map((cat) => {
+                const items = productos.filter((p) => cat.key.includes(p.categoria));
+                if (!items.length) return null;
+                return (
+                  <div key={cat.label}>
+                    <div className="bg-muted/40 px-4 py-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                      {cat.label} ({items.length})
+                    </div>
+                    <table className="w-full text-sm">
+                      <thead className="text-left">
+                        <tr className="[&>th]:px-4 [&>th]:py-1.5 [&>th]:text-xs [&>th]:font-semibold">
+                          <th>Producto</th>
+                          <th className="text-right">Unidades</th>
+                          <th className="text-right">Kilos</th>
+                          <th>Fecha y hora de ingreso</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        {items.map((p) => (
+                          <tr key={p.label} className="[&>td]:px-4 [&>td]:py-1.5">
+                            <td>{p.label}</td>
+                            <td className="text-right tabular-nums">
+                              {p.unidad === 'unidad' ? p.unidades : '—'}
+                            </td>
+                            <td className="text-right font-semibold tabular-nums">
+                              {p.unidad === 'kg' ? p.kg.toFixed(2) : '—'}
+                            </td>
+                            <td className="tabular-nums">
+                              {fechaHora(g.date, p.registradoAt)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
           </li>
         );
       })}

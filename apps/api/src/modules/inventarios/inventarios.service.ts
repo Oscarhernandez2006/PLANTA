@@ -77,6 +77,7 @@ export class InventariosService {
         codigo: def?.codigo ?? '',
         label: def?.label ?? i.tipo,
         unidad: def?.unidad ?? 'unidad',
+        categoria: def?.categoria ?? 'retoma',
         cantidad: def?.unidad === 'unidad' ? (def?.multiplicador ?? 1) : null,
         pesoKg: i.pesoKg ? Number(i.pesoKg) : null,
         reference: i.evento.ordenBeneficio.reference,
