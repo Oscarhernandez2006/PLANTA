@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { plantDateOnly } from '../../common/plant-date';
+import { SUBPRODUCTO_ITEM_BY_TIPO } from '../subproductos/subproducto-items';
 
 @Injectable()
 export class InventariosService {
@@ -68,14 +69,21 @@ export class InventariosService {
       },
       take: 300,
     });
-    return items.map((i) => ({
-      itemId: i.id,
-      tipo: i.tipo,
-      pesoKg: i.pesoKg ? Number(i.pesoKg) : null,
-      reference: i.evento.ordenBeneficio.reference,
-      cliente: i.evento.ordenBeneficio.cliente,
-      date: i.evento.ordenBeneficio.date.toISOString().slice(0, 10),
-      registradoAt: i.registradoAt?.toISOString() ?? null,
-    }));
+    return items.map((i) => {
+      const def = SUBPRODUCTO_ITEM_BY_TIPO.get(i.tipo);
+      return {
+        itemId: i.id,
+        tipo: i.tipo,
+        codigo: def?.codigo ?? '',
+        label: def?.label ?? i.tipo,
+        unidad: def?.unidad ?? 'unidad',
+        cantidad: def?.unidad === 'unidad' ? (def?.multiplicador ?? 1) : null,
+        pesoKg: i.pesoKg ? Number(i.pesoKg) : null,
+        reference: i.evento.ordenBeneficio.reference,
+        cliente: i.evento.ordenBeneficio.cliente,
+        date: i.evento.ordenBeneficio.date.toISOString().slice(0, 10),
+        registradoAt: i.registradoAt?.toISOString() ?? null,
+      };
+    });
   }
 }

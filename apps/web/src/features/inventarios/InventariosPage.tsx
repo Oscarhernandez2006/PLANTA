@@ -20,6 +20,11 @@ function hora(iso: string | null) {
   });
 }
 
+function fechaHora(dateStr: string, iso: string | null) {
+  if (!iso) return dateStr;
+  return `${dateStr} ${hora(iso)}`;
+}
+
 function Loading() {
   return (
     <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -143,25 +148,29 @@ function CavaSubproductoTab({ cava }: { cava: string }) {
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-muted/60 text-left">
         <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-          <th>Orden</th>
           <th>Cliente</th>
+          <th>Lote / Orden</th>
           <th>Fecha</th>
-          <th>Tipo</th>
-          <th className="text-right">Peso (kg)</th>
-          <th>Hora</th>
+          <th>Producto</th>
+          <th className="text-right">Unidades</th>
+          <th className="text-right">Kilos</th>
+          <th>Fecha y hora de ingreso</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
         {rows.map((r: CavaSubproductoRow) => (
           <tr key={r.itemId} className="[&>td]:px-3 [&>td]:py-2">
-            <td className="tabular-nums">{r.reference}</td>
             <td>{r.cliente}</td>
+            <td className="tabular-nums">{r.reference}</td>
             <td className="tabular-nums">{r.date}</td>
-            <td className="text-xs uppercase">{r.tipo}</td>
-            <td className="text-right font-semibold tabular-nums">
-              {r.pesoKg != null ? r.pesoKg.toFixed(2) : '—'}
+            <td>{r.label}</td>
+            <td className="text-right tabular-nums">
+              {r.unidad === 'unidad' ? (r.cantidad ?? 1) : '—'}
             </td>
-            <td className="tabular-nums">{hora(r.registradoAt)}</td>
+            <td className="text-right font-semibold tabular-nums">
+              {r.unidad === 'kg' && r.pesoKg != null ? r.pesoKg.toFixed(2) : '—'}
+            </td>
+            <td className="tabular-nums">{fechaHora(r.date, r.registradoAt)}</td>
           </tr>
         ))}
       </tbody>

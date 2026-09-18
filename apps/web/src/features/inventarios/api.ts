@@ -20,6 +20,10 @@ export interface CavaAnimalRow {
 export interface CavaSubproductoRow {
   itemId: string;
   tipo: string;
+  codigo: string;
+  label: string;
+  unidad: 'unidad' | 'kg';
+  cantidad: number | null;
   pesoKg: number | null;
   reference: number;
   cliente: string;
