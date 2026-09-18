@@ -730,10 +730,30 @@ model OrdenBeneficioEvento {
   ordenBeneficio OrdenBeneficio       @relation(fields: [ordenBeneficioId], references: [id])
   canalPiezas    CanalPieza[]
   subproductos   SubproductoItem[]
+  trasladosCava  CanalTraslado[]
 
   @@unique([ordenBeneficioId, sequence])
   @@index([ordenBeneficioId])
   @@map("orden_beneficio_evento")
+}
+
+// Traslado de una canal entre cavas: deja constancia de quién lo hizo, cuándo,
+// de dónde a dónde y por qué motivo, para trazabilidad real del inventario.
+model CanalTraslado {
+  id          String   @id @default(uuid()) @db.Uuid
+  plantId     String   @map("plant_id") @db.Uuid
+  eventoId    String   @map("orden_beneficio_evento_id") @db.Uuid
+  cavaOrigen  String?  @map("cava_origen")
+  cavaDestino String   @map("cava_destino")
+  motivo      String
+  operatorId  String   @map("operator_id") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  evento OrdenBeneficioEvento @relation(fields: [eventoId], references: [id])
+
+  @@index([eventoId])
+  @@index([plantId, createdAt])
+  @@map("canal_traslado")
 }
 
 // Checklist de subproductos generado automáticamente al caer cada animal:
