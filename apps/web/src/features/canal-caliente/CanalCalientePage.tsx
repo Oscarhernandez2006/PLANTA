@@ -336,6 +336,9 @@ function CanalesTab({
 
   const animal = objetivo?.animal;
   const esCompleta = animal?.canalTipo === 'canal_completa';
+  const esMediaCanal =
+    animal?.canalTipo === 'media_canal_con_cola' ||
+    animal?.canalTipo === 'media_canal_sin_cola';
   const estadoDe = (p: CanalPiezaTipo) =>
     animal?.piezas.find((x) => x.pieza === p);
   const rows = piezas.data ?? [];
@@ -374,7 +377,12 @@ function CanalesTab({
               : pieza !== 'canal';
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
-          const tipoActivo = animal?.canalTipo === PANEL_TIPO[pieza];
+          // CIZQ y CDER comparten la misma clasificación (media canal), así
+          // que ambas quedan "activas" en cuanto se elige cualquiera de las dos.
+          const tipoActivo =
+            pieza === 'canal'
+              ? animal?.canalTipo === 'canal_completa'
+              : esMediaCanal;
           return (
             <button
               key={pieza}
