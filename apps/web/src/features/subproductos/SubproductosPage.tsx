@@ -228,6 +228,11 @@ function LoteDetalle({
 }
 
 function ResumenPanel({ data }: { data: SubLoteDetail }) {
+  const categoriaLabel: Record<string, string> = {
+    retoma: 'Retoma',
+    viscera_blanca: 'Víscera blanca',
+    viscera_roja: 'Víscera roja',
+  };
   return (
     <div className="border-t border-border">
       <div className="px-5 py-3 text-sm font-semibold">
@@ -240,6 +245,7 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
             <tr className="border-y border-border text-left text-xs uppercase tracking-wide text-muted-foreground">
               <th className="px-5 py-2">Código</th>
               <th className="px-2 py-2">Producto</th>
+              <th className="px-2 py-2">Categoría</th>
               <th className="px-2 py-2 text-center">Registrados</th>
               <th className="px-5 py-2 text-right">Total kg</th>
             </tr>
@@ -251,6 +257,9 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
                   {r.codigo}
                 </td>
                 <td className="px-2 py-2">{r.label}</td>
+                <td className="px-2 py-2 text-muted-foreground">
+                  {categoriaLabel[r.categoria] ?? r.categoria}
+                </td>
                 <td className="px-2 py-2 text-center tabular-nums">
                   {r.marcados}/{r.esperados}
                 </td>

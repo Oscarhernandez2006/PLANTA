@@ -3,12 +3,14 @@ import { api } from '@/lib/api';
 
 export type SubproductoUnidad = 'unidad' | 'kg';
 export type SubproductoDestino = 'empresa' | 'firmante';
+export type SubproductoCategoria = 'retoma' | 'viscera_blanca' | 'viscera_roja';
 
 export interface SubItem {
   tipo: string;
   codigo: string;
   label: string;
   unidad: SubproductoUnidad;
+  categoria: SubproductoCategoria;
   marcado: boolean;
   pesoKg: number | null;
   registradoAt: string | null;
@@ -20,6 +22,7 @@ export interface SubResumenItem {
   codigo: string;
   label: string;
   unidad: SubproductoUnidad;
+  categoria: SubproductoCategoria;
   marcados: number;
   esperados: number;
   totalKg: number | null;

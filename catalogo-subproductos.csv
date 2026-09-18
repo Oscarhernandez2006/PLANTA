@@ -1,0 +1,40 @@
+Codigo SIESA,Producto,Unidad,Categoria (blancas/rojas),Retoma (Si/No)
+3002,CACHETE,KG,, retoma 
+3003,CHINCHURRIA PRECOCIDA,KG,, viscera blancas
+3014,OJOS,UNI,, retoma
+3021,REGATON,KG,,viscera blancas
+3026,UBRES COMESTIBLE,KG/UNI,,viscera blancas
+3050,CHINCHURRIA B,KG,,viscera blancas
+3202,CANUTA COMESTIBLE,UNI,,viscera blancas
+3208,CARNECITA RES COMESTIBLE,KG,,retoma
+3207,CARNECITA DE RES INDUSTRIAL,KG,,retoma
+3210,CHINCHURRIA CRUDA,KG,,viscera blancas
+3212,CREADILLAS X KILO COMESTIBLE,UNI/KG,,viscera blancas
+3213,CUAJOS RES COMESTIBLE,UNI,,viscera blancas
+3217,DESPERDICIO RES COMESTIBLE,KG,,remota
+3219,ESOFAGO RES COMESTIBLE,KG,,retoma
+3221,FETOS RES COMESTIBLE,UNI/KG,,retoma
+3222,GANGLIOS COMESTIBLE,KG,,retoma
+3228,HUESO DE CABEZA RES,KG,, retoma
+3231,LIBROS COMESTIBLE,UNI,,viscera blancas
+3231,LIBROS MEGATIENDAS,UNI,,viscera blancas
+3235,PARES COMESTIBLE,UNI/KG,,viscera blancas
+3238,PIEL,UNI/KG,,retoma
+3241,PUYA,KG,,retoma
+3243,RECORTE LIBRO COMESTIBLE,UNI/KG,,viscera blancas
+3244,SANGRE DE FETO,UNI,,retoma
+1,SEBO COMESTIBLE,KG,,retoma
+3249,SEBO DE APROVECHAMIENTO,KG,,retoma
+3250,TRIPA ANCHA CRUDA,UNI,,viscera blancas
+3251,TRIPA ANCHA RES COMESTIBLE,UNI,,viscera blancas
+3252,TRIPA CALAMBUCO RES COMESTIBLE,KG,,viscera blancas
+3255,VENA ORTA DE RES COMESTIBLE,KG,,viscera blancas
+3258,VIRIL RES COMESTIBLE,UNI/KG,,retoma
+1618,VISCERA ROJA DE RES COMPLETA,UNI,,viscera rojas
+1635,VISCERA ROJA IMCOMPLETA,UNI,,viscera rojas
+1700,VISERA NOVILLO,UNI,,viscera blancas
+higado viscera rojas
+corazon viscera rojas
+riñones viscera rojas
+Bazo (pajarilla) viscera rojas
+lengua viscera rojas
