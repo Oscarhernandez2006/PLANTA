@@ -479,7 +479,7 @@ function ChecklistView({
     ) ?? null;
 
   return (
-    <div className="grid border-t border-border md:grid-cols-2">
+    <div className="grid border-t border-border md:grid-cols-[3fr_1fr]">
       {/* Izquierda: ítems del lote, divididos en 3 columnas por categoría */}
       <div className="md:border-r md:border-border">
         <div className="px-4 py-2 text-sm font-semibold">
@@ -608,20 +608,20 @@ function RegistroPanel({ animalItem }: { animalItem: AnimalItem | null }) {
   }
 
   return (
-    <div className="bg-muted/20 px-5 py-6 md:sticky md:top-4">
-      <div className="mb-4 flex items-center gap-3">
+    <div className="bg-muted/20 px-3 py-3 md:sticky md:top-4">
+      <div className="mb-2 flex items-center gap-2">
         {animalItem ? (
           <>
-            <span className="text-2xl font-bold tabular-nums">
+            <span className="text-lg font-bold tabular-nums">
               #{animalItem.animal.consecutivo}
             </span>
-            <span className="text-sm text-muted-foreground">
+            <span className="text-xs text-muted-foreground">
               {animalItem.item.label} · cayó{' '}
               {hora(animalItem.animal.stunnedAt)}
             </span>
           </>
         ) : (
-          <span className="text-sm text-muted-foreground">
+          <span className="text-xs text-muted-foreground">
             Selecciona un ítem de la lista para registrarlo.
           </span>
         )}
@@ -641,11 +641,11 @@ function RegistroPanel({ animalItem }: { animalItem: AnimalItem | null }) {
         </p>
       )}
       {error && (
-        <div className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-medium text-red-700">
+        <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-2 py-1.5 text-xs font-medium text-red-700">
           {error}
         </div>
       )}
-      <div className="mt-4 flex justify-end">
+      <div className="mt-3 flex justify-end">
         <Button
           size="lg"
           onClick={guardar}
