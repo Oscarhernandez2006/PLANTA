@@ -371,7 +371,12 @@ function CanalesTab({
       <div className="grid grid-cols-3 gap-3">
         {CANAL_PANELS.map(({ pieza, title }) => {
           const cizqPesado = !!estadoDe('cizq')?.pesado;
-          const aplica = !animal?.canalTipo
+          // Mientras el animal no tenga NINGUNA pieza pesada, el tipo se
+          // puede cambiar libremente (igual que permite el backend), así que
+          // las 3 opciones quedan disponibles sin importar qué se haya
+          // tocado antes.
+          const tienePiezaPesada = !!animal?.piezas.some((p) => p.pesado);
+          const aplica = !tienePiezaPesada
             ? true
             : esCompleta
               ? pieza === 'canal'
