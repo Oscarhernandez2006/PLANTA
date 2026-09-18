@@ -39,7 +39,10 @@ function Empty({ text }: { text: string }) {
 
 export function InventariosPage() {
   const tabs: { key: Tab; label: string }[] = [
-    ...CAVAS.map((c) => ({ key: `cava-${c}` as Tab, label: `CAVA ${c}` })),
+    ...CAVAS.map((c) => ({
+      key: `cava-${c}` as Tab,
+      label: c === '6' ? 'SALA DE OREO' : `CAVA ${c}`,
+    })),
     ...CAVAS_SUBPRODUCTO.map((c) => ({
       key: `sub-${c}` as Tab,
       label: c === '3' ? 'CAVA SUBPRODUCTO DESPACHO' : `CAVA SUBPRODUCTO ${c}`,
@@ -89,10 +92,11 @@ export function InventariosPage() {
 
 function CavaTab({ cava }: { cava: string }) {
   const { data, isLoading } = useCava(cava);
+  const nombre = cava === '6' ? 'Sala de Oreo' : `Cava ${cava}`;
   if (isLoading) return <Loading />;
   const rows = data ?? [];
   if (!rows.length)
-    return <Empty text={`No hay animales ubicados en la Cava ${cava}.`} />;
+    return <Empty text={`No hay animales ubicados en la ${nombre}.`} />;
   return (
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-muted/60 text-left">
