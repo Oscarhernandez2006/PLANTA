@@ -645,7 +645,7 @@ function ChecklistView({
                           onClick={marcarTodoUnidad}
                           disabled={bulkCategoria === col.key}
                           title="Marca de una vez todos los items por unidad de esta categoría (los de kg se registran uno a uno)"
-                          className="rounded-sm border border-emerald-600 bg-emerald-50 px-2 py-0.5 text-[10px] font-bold normal-case text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
+                          className="min-w-[44px] rounded-sm border border-emerald-600 bg-emerald-50 px-3 py-0.5 text-[10px] font-bold normal-case text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
                         >
                           {bulkCategoria === col.key ? '...' : 'OK'}
                         </button>
