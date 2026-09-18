@@ -502,18 +502,29 @@ function AnimalesTab({
   const clasificar = useClasificarAnimal();
   const piezas = useCanalPiezas(date);
   const deshacer = useDeshacerCanal();
+  const [tipo, setTipoLocal] = useState<CanalAnimalTipo | ''>('');
+  const [bodega, setBodega] = useState('');
+  const [cava, setCava] = useState('');
   const [destino, setDestino] = useState('');
   const [observaciones, setObservaciones] = useState('');
   const [cavaError, setCavaError] = useState<string | null>(null);
+  const [guardadoOk, setGuardadoOk] = useState(false);
 
   const eventoId = objetivoAnimal?.eventoId ?? null;
   const rows = piezas.data ?? [];
 
+  // Los campos se editan localmente y solo se guardan al presionar "Guardar
+  // clasificación": se recargan desde el animal cada vez que se cambia de
+  // animal, para no arrastrar lo que se estaba editando de otro.
   useEffect(() => {
+    setTipoLocal(objetivoAnimal?.canalAnimalTipo ?? '');
+    setBodega(objetivoAnimal?.bodega ?? '');
+    setCava(objetivoAnimal?.cava ?? '');
     setDestino(objetivoAnimal?.destino ?? '');
     setObservaciones(objetivoAnimal?.observaciones ?? '');
     setCavaError(null);
-  }, [eventoId, objetivoAnimal?.destino, objetivoAnimal?.observaciones]);
+    setGuardadoOk(false);
+  }, [eventoId]);
 
   if (!detail || !objetivoAnimal) {
     return (
@@ -521,31 +532,33 @@ function AnimalesTab({
     );
   }
 
-  function guardar(
-    campo: 'tipo' | 'bodega' | 'cava' | 'destino' | 'observaciones',
-    valor: string,
-  ) {
+  function guardarClasificacion() {
     if (!eventoId) return;
-    if (campo === 'cava') {
-      clasificar.mutate(
-        { eventoId, cava: valor },
-        {
-          onSuccess: () => setCavaError(null),
-          onError: (err) => {
-            const detail = (
-              err as { response?: { data?: { message?: string | string[] } } }
-            ).response?.data?.message;
-            setCavaError(
-              Array.isArray(detail)
-                ? detail.join(' ')
-                : detail || 'No se pudo asignar la cava.',
-            );
-          },
+    setCavaError(null);
+    setGuardadoOk(false);
+    clasificar.mutate(
+      {
+        eventoId,
+        tipo: tipo || undefined,
+        bodega,
+        cava,
+        destino,
+        observaciones,
+      },
+      {
+        onSuccess: () => setGuardadoOk(true),
+        onError: (err) => {
+          const detail = (
+            err as { response?: { data?: { message?: string | string[] } } }
+          ).response?.data?.message;
+          setCavaError(
+            Array.isArray(detail)
+              ? detail.join(' ')
+              : detail || 'No se pudo guardar la clasificación.',
+          );
         },
-      );
-      return;
-    }
-    clasificar.mutate({ eventoId, [campo]: valor });
+      },
+    );
   }
 
   return (
@@ -559,8 +572,8 @@ function AnimalesTab({
             <TipoButton
               key={t}
               tipo={t}
-              activo={objetivoAnimal.canalAnimalTipo === t}
-              onClick={() => guardar('tipo', t)}
+              activo={tipo === t}
+              onClick={() => setTipoLocal(t)}
             />
           ))}
           <div className="w-4" />
@@ -568,8 +581,8 @@ function AnimalesTab({
             <TipoButton
               key={t}
               tipo={t}
-              activo={objetivoAnimal.canalAnimalTipo === t}
-              onClick={() => guardar('tipo', t)}
+              activo={tipo === t}
+              onClick={() => setTipoLocal(t)}
             />
           ))}
           <div className="w-4" />
@@ -577,8 +590,8 @@ function AnimalesTab({
             <TipoButton
               key={t}
               tipo={t}
-              activo={objetivoAnimal.canalAnimalTipo === t}
-              onClick={() => guardar('tipo', t)}
+              activo={tipo === t}
+              onClick={() => setTipoLocal(t)}
             />
           ))}
         </div>
@@ -587,8 +600,8 @@ function AnimalesTab({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <FieldBox label="Bodegas:">
           <select
-            value={objetivoAnimal.bodega ?? ''}
-            onChange={(e) => guardar('bodega', e.target.value)}
+            value={bodega}
+            onChange={(e) => setBodega(e.target.value)}
             className="h-9 w-full bg-transparent text-base font-medium outline-none"
           >
             <option value="">Seleccione...</option>
@@ -603,7 +616,6 @@ function AnimalesTab({
           <textarea
             value={destino}
             onChange={(e) => setDestino(e.target.value)}
-            onBlur={() => guardar('destino', destino)}
             rows={1}
             className="w-full resize-none bg-transparent text-base outline-none"
           />
@@ -620,10 +632,10 @@ function AnimalesTab({
               <button
                 key={c}
                 type="button"
-                onClick={() => guardar('cava', c)}
+                onClick={() => setCava(c)}
                 className={cn(
                   'rounded-sm border-2 px-3 py-2 text-sm font-semibold uppercase',
-                  objetivoAnimal.cava === c
+                  cava === c
                     ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
                     : 'border-border bg-card hover:bg-muted',
                 )}
@@ -632,22 +644,35 @@ function AnimalesTab({
               </button>
             ))}
           </div>
-          {cavaError && (
-            <p className="mt-2 text-sm font-medium text-red-600">
-              {cavaError}
-            </p>
-          )}
         </div>
         <FieldBox label="Observaciones:" className="relative">
           <textarea
             value={observaciones}
             onChange={(e) => setObservaciones(e.target.value)}
-            onBlur={() => guardar('observaciones', observaciones)}
             rows={1}
             className="w-full resize-none bg-transparent pr-10 text-base outline-none"
           />
           <Lock className="absolute right-2 top-1 size-5 text-muted-foreground" />
         </FieldBox>
+      </div>
+
+      <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={guardarClasificacion}
+          disabled={clasificar.isPending}
+          className="rounded-sm border-2 border-emerald-600 bg-emerald-600 px-5 py-2 text-sm font-semibold uppercase text-white hover:bg-emerald-700 disabled:opacity-50"
+        >
+          {clasificar.isPending ? 'Guardando…' : 'Guardar clasificación'}
+        </button>
+        {cavaError && (
+          <p className="text-sm font-medium text-red-600">{cavaError}</p>
+        )}
+        {guardadoOk && !cavaError && (
+          <p className="text-sm font-medium text-emerald-600">
+            Clasificación guardada.
+          </p>
+        )}
       </div>
 
       {rows.length > 0 && (

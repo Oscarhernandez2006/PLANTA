@@ -8,6 +8,7 @@ export const CAVAS_TRASLADO = [
   'CAVA 4',
   'CAVA 5',
   'SALA DE OREO',
+  'CAVA DESPACHO',
 ];
 
 export interface CanalEscaneada {

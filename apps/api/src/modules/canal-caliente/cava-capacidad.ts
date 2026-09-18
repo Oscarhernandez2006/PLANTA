@@ -1,5 +1,6 @@
 // Capacidad de canales por cava (mínimo/máximo). Solo se hace cumplir el
 // máximo: si ya está llena, no se permite ingresar otra canal.
+// "CAVA DESPACHO" no tiene tope definido todavía (sin dato real de capacidad).
 export const CAVA_CAPACIDAD: Record<string, { min: number; max: number }> = {
   'CAVA 1': { min: 105, max: 120 },
   'CAVA 2': { min: 90, max: 105 },

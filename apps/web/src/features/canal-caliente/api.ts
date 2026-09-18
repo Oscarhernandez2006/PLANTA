@@ -45,7 +45,15 @@ export const CANAL_ANIMAL_TIPO_LABEL: Record<CanalAnimalTipo, string> = {
 };
 
 export const BODEGAS = ['BODEGA 1', 'BODEGA 2', 'BODEGA 3'];
-export const CAVAS = ['CAVA 1', 'CAVA 2', 'CAVA 3', 'CAVA 4', 'CAVA 5', 'SALA DE OREO'];
+export const CAVAS = [
+  'CAVA 1',
+  'CAVA 2',
+  'CAVA 3',
+  'CAVA 4',
+  'CAVA 5',
+  'SALA DE OREO',
+  'CAVA DESPACHO',
+];
 
 export interface CanalLote {
   ordenBeneficioId: string;

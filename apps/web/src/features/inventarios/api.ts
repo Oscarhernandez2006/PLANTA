@@ -1,7 +1,18 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-export const CAVAS = ['1', '2', '3', '4', '5', '6', '7'];
+// Debe coincidir EXACTO con los valores que guarda Canal Caliente/Traslado
+// en OrdenBeneficioEvento.cava (apps/web/src/features/canal-caliente/api.ts),
+// o esta pestaña nunca mostraría las canales ubicadas ahí.
+export const CAVAS = [
+  'CAVA 1',
+  'CAVA 2',
+  'CAVA 3',
+  'CAVA 4',
+  'CAVA 5',
+  'SALA DE OREO',
+  'CAVA DESPACHO',
+];
 export const CAVAS_SUBPRODUCTO = ['1', '2', '3'];
 
 export interface CavaAnimalRow {
