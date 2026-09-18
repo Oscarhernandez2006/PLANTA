@@ -611,22 +611,24 @@ function ChecklistView({
                                 : 'hover:bg-muted/40',
                             )}
                           >
-                            <div className="flex min-w-0 items-center gap-2">
-                              <span className="text-sm font-bold tabular-nums">
-                                #{ai.animal.consecutivo}
-                              </span>
+                            <div className="min-w-0 flex-1">
                               <span className="truncate text-xs text-muted-foreground">
                                 {ai.item.label}
                               </span>
                             </div>
-                            <span
-                              className={cn(
-                                'shrink-0 text-[10px] font-medium uppercase tabular-nums text-muted-foreground',
-                                activo && 'text-emerald-700',
-                              )}
-                            >
-                              {activo ? '●' : ai.item.unidad === 'kg' ? 'kg' : 'und'}
-                            </span>
+                            <div className="flex shrink-0 items-center gap-2">
+                              <span className="text-sm font-bold tabular-nums">
+                                #{ai.animal.consecutivo}
+                              </span>
+                              <span
+                                className={cn(
+                                  'text-[10px] font-medium uppercase tabular-nums text-muted-foreground',
+                                  activo && 'text-emerald-700',
+                                )}
+                              >
+                                {activo ? '●' : ai.item.unidad === 'kg' ? 'kg' : 'und'}
+                              </span>
+                            </div>
                           </button>
                         </li>
                       );
