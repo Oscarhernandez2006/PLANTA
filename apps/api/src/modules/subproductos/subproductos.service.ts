@@ -7,7 +7,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { RegistrarSubproductoDto } from './dto/registrar-subproducto.dto';
 import { plantDateOnly } from '../../common/plant-date';
-import { SUBPRODUCTO_ITEMS, SUBPRODUCTO_ITEM_BY_TIPO } from './subproducto-items';
+import {
+  SUBPRODUCTO_ITEMS,
+  SUBPRODUCTO_ITEMS_CABEZA_PATAS,
+  SUBPRODUCTO_ITEM_BY_TIPO,
+} from './subproducto-items';
 import { SubproductoDestino } from '@prisma/client';
 
 function dateOnly(value?: string) {
@@ -15,8 +19,14 @@ function dateOnly(value?: string) {
 }
 
 const TOTAL_ITEMS = SUBPRODUCTO_ITEMS.length;
+const TOTAL_ITEMS_CABEZA_PATAS = SUBPRODUCTO_ITEMS_CABEZA_PATAS.length;
 // Posición de cada tipo en el catálogo, para listar el checklist en un orden fijo.
-const ORDEN_TIPO = new Map(SUBPRODUCTO_ITEMS.map((i, idx) => [i.tipo, idx]));
+const ORDEN_TIPO = new Map(
+  [...SUBPRODUCTO_ITEMS, ...SUBPRODUCTO_ITEMS_CABEZA_PATAS].map((i, idx) => [
+    i.tipo,
+    idx,
+  ]),
+);
 
 @Injectable()
 export class SubproductosService {
@@ -79,9 +89,12 @@ export class SubproductosService {
         animalCount: o.animalCount,
         caidos: o.eventos.length,
         pesados,
-        total: o.eventos.length * TOTAL_ITEMS,
+        total:
+          o.eventos.length * TOTAL_ITEMS +
+          (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0),
         subproductoDestino: o.subproductoDestino,
         subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
+        cabezasPatas: o.cabezasPatas,
       };
     });
   }
@@ -134,8 +147,12 @@ export class SubproductosService {
         resumenPorTipo.set(s.tipo, acc);
       }
     }
-    const resumen = SUBPRODUCTO_ITEMS.map((def) => {
+    const resumen = [
+      ...SUBPRODUCTO_ITEMS,
+      ...(o.cabezasPatas ? SUBPRODUCTO_ITEMS_CABEZA_PATAS : []),
+    ].map((def) => {
       const acc = resumenPorTipo.get(def.tipo) ?? { marcados: 0, totalKg: 0 };
+      const multiplicador = def.multiplicador ?? 1;
       return {
         tipo: def.tipo,
         codigo: def.codigo,
@@ -145,6 +162,8 @@ export class SubproductosService {
         marcados: acc.marcados,
         esperados: o.eventos.length,
         totalKg: def.unidad === 'kg' ? acc.totalKg : null,
+        // Cantidad real (aplica el multiplicador, ej. patas = 4 por animal).
+        cantidadTotal: def.unidad === 'unidad' ? acc.marcados * multiplicador : null,
       };
     });
 
@@ -158,10 +177,13 @@ export class SubproductosService {
       animalCount: o.animalCount,
       caidos: o.eventos.length,
       pesados,
-      total: o.eventos.length * TOTAL_ITEMS,
+      total:
+        o.eventos.length * TOTAL_ITEMS +
+        (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0),
       subproductoDestino: o.subproductoDestino,
       subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
       subproductoRetiroObservaciones: o.subproductoRetiroObservaciones,
+      cabezasPatas: o.cabezasPatas,
       resumen,
       animales: o.eventos.map((e) => ({
         eventoId: e.id,

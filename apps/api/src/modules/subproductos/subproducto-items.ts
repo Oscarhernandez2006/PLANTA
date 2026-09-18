@@ -2,7 +2,12 @@ export type SubproductoUnidad = 'unidad' | 'kg';
 
 // Clasificación para efectos de tiquete/precinto en Insensibilización:
 // "retoma" no genera tiquete aparte; "viscera_blanca"/"viscera_roja" sí.
-export type SubproductoCategoria = 'retoma' | 'viscera_blanca' | 'viscera_roja';
+// "cabeza_patas" solo se genera si el lote lo pidió al crear la orden.
+export type SubproductoCategoria =
+  | 'retoma'
+  | 'viscera_blanca'
+  | 'viscera_roja'
+  | 'cabeza_patas';
 
 export interface SubproductoItemDef {
   tipo: string;
@@ -10,6 +15,8 @@ export interface SubproductoItemDef {
   label: string;
   unidad: SubproductoUnidad;
   categoria: SubproductoCategoria;
+  // Cuántas unidades reales representa 1 marcado (ej. "patas" = 4 por animal).
+  multiplicador?: number;
 }
 
 /**
@@ -265,9 +272,41 @@ export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
   },
 ];
 
+// Cabeza y patas: solo se generan para los lotes que se crearon con
+// "Cabezas y patas: Sí". Una res tiene 4 patas, así que "patas" cuenta
+// como 4 unidades reales por cada animal que lo marca.
+export const SUBPRODUCTO_ITEMS_CABEZA_PATAS: SubproductoItemDef[] = [
+  {
+    tipo: 'cabeza',
+    codigo: 'S/C',
+    label: 'Cabeza',
+    unidad: 'unidad',
+    categoria: 'cabeza_patas',
+    multiplicador: 1,
+  },
+  {
+    tipo: 'patas',
+    codigo: 'S/C',
+    label: 'Patas (x4)',
+    unidad: 'unidad',
+    categoria: 'cabeza_patas',
+    multiplicador: 4,
+  },
+];
+
 export const SUBPRODUCTO_ITEM_BY_TIPO = new Map(
-  SUBPRODUCTO_ITEMS.map((item) => [item.tipo, item]),
+  [...SUBPRODUCTO_ITEMS, ...SUBPRODUCTO_ITEMS_CABEZA_PATAS].map((item) => [
+    item.tipo,
+    item,
+  ]),
 );
+
+/** Checklist completo que debe generarse al caer un animal de este lote. */
+export function itemsParaAnimal(cabezasPatas: boolean): SubproductoItemDef[] {
+  return cabezasPatas
+    ? [...SUBPRODUCTO_ITEMS, ...SUBPRODUCTO_ITEMS_CABEZA_PATAS]
+    : SUBPRODUCTO_ITEMS;
+}
 
 export function itemsPorCategoria(categoria: SubproductoCategoria) {
   return SUBPRODUCTO_ITEMS.filter((i) => i.categoria === categoria);

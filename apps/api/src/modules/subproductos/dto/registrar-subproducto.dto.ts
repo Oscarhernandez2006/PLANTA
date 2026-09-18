@@ -6,9 +6,12 @@ import {
   IsUUID,
   Max,
 } from 'class-validator';
-import { SUBPRODUCTO_ITEMS } from '../subproducto-items';
+import { SUBPRODUCTO_ITEMS, SUBPRODUCTO_ITEMS_CABEZA_PATAS } from '../subproducto-items';
 
-const TIPOS_VALIDOS = SUBPRODUCTO_ITEMS.map((i) => i.tipo);
+const TIPOS_VALIDOS = [
+  ...SUBPRODUCTO_ITEMS,
+  ...SUBPRODUCTO_ITEMS_CABEZA_PATAS,
+].map((i) => i.tipo);
 
 export class RegistrarSubproductoDto {
   @IsUUID()

@@ -6,7 +6,7 @@ import {
 import { OrdenBeneficioStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
-import { SUBPRODUCTO_ITEMS } from '../subproductos/subproducto-items';
+import { itemsParaAnimal } from '../subproductos/subproducto-items';
 
 @Injectable()
 export class InsensibilizacionService {
@@ -137,10 +137,10 @@ export class InsensibilizacionService {
         data: { ordenBeneficioId, sequence, operatorId: ctx.userId },
       });
 
-      // Al caer el animal se genera de una vez su orden de subproductos:
-      // todas las vísceras rojas y blancas por unidad, y la tripa ancha por kg.
+      // Al caer el animal se genera de una vez su checklist de subproductos
+      // (y cabeza/patas si el lote lo pidió al crearse).
       await tx.subproductoItem.createMany({
-        data: SUBPRODUCTO_ITEMS.map((item) => ({
+        data: itemsParaAnimal(ob.cabezasPatas).map((item) => ({
           eventoId: evento.id,
           tipo: item.tipo,
         })),

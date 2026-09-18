@@ -3,7 +3,11 @@ import { api } from '@/lib/api';
 
 export type SubproductoUnidad = 'unidad' | 'kg';
 export type SubproductoDestino = 'empresa' | 'firmante';
-export type SubproductoCategoria = 'retoma' | 'viscera_blanca' | 'viscera_roja';
+export type SubproductoCategoria =
+  | 'retoma'
+  | 'viscera_blanca'
+  | 'viscera_roja'
+  | 'cabeza_patas';
 
 export interface SubItem {
   tipo: string;
@@ -26,6 +30,7 @@ export interface SubResumenItem {
   marcados: number;
   esperados: number;
   totalKg: number | null;
+  cantidadTotal: number | null;
 }
 
 export interface SubLote {
@@ -41,6 +46,7 @@ export interface SubLote {
   total: number;
   subproductoDestino: SubproductoDestino;
   subproductoRetiroAt: string | null;
+  cabezasPatas: boolean;
 }
 
 export interface SubAnimal {

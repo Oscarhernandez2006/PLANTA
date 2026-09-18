@@ -232,10 +232,12 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
     retoma: 'Retoma',
     viscera_blanca: 'Víscera blanca',
     viscera_roja: 'Víscera roja',
+    cabeza_patas: 'Cabeza y patas',
   };
 
   // Totalizado por categoría (unidades y kilos), sumando todo lo registrado
   // en el lote: mismo lote + mismo cliente ya viene agregado en data.resumen.
+  // Para unidades usa cantidadTotal (aplica el multiplicador: patas = x4).
   const totalesPorCategoria = new Map<
     string,
     { totalUnidades: number; totalKg: number }
@@ -245,7 +247,7 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
       totalUnidades: 0,
       totalKg: 0,
     };
-    if (r.unidad === 'unidad') acc.totalUnidades += r.marcados;
+    if (r.unidad === 'unidad') acc.totalUnidades += r.cantidadTotal ?? r.marcados;
     else acc.totalKg += r.totalKg ?? 0;
     totalesPorCategoria.set(r.categoria, acc);
   }
@@ -279,6 +281,11 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
                 </td>
                 <td className="px-2 py-2 text-center tabular-nums">
                   {r.marcados}/{r.esperados}
+                  {r.cantidadTotal != null && r.cantidadTotal !== r.marcados && (
+                    <span className="ml-1 text-xs text-muted-foreground">
+                      ({r.cantidadTotal} und.)
+                    </span>
+                  )}
                 </td>
                 <td className="px-5 py-2 text-right tabular-nums">
                   {r.unidad === 'kg' ? (r.totalKg ?? 0).toFixed(2) : '—'}
@@ -303,8 +310,11 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {(['viscera_roja', 'viscera_blanca', 'retoma'] as const).map(
-              (cat) => {
+            {(
+              ['viscera_roja', 'viscera_blanca', 'retoma'] as const
+            )
+              .concat(data.cabezasPatas ? (['cabeza_patas'] as const) : [])
+              .map((cat) => {
                 const t = totalesPorCategoria.get(cat) ?? {
                   totalUnidades: 0,
                   totalKg: 0,
