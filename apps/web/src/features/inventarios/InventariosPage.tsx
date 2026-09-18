@@ -42,7 +42,7 @@ export function InventariosPage() {
     ...CAVAS.map((c) => ({ key: `cava-${c}` as Tab, label: `CAVA ${c}` })),
     ...CAVAS_SUBPRODUCTO.map((c) => ({
       key: `sub-${c}` as Tab,
-      label: `CAVA SUBPRODUCTO ${c}`,
+      label: c === '3' ? 'CAVA SUBPRODUCTO DESPACHO' : `CAVA SUBPRODUCTO ${c}`,
     })),
   ];
   const [tab, setTab] = useState<Tab>(tabs[0].key);
@@ -127,11 +127,12 @@ function CavaTab({ cava }: { cava: string }) {
 
 function CavaSubproductoTab({ cava }: { cava: string }) {
   const { data, isLoading } = useCavaSubproducto(cava);
+  const nombre = cava === '3' ? 'Cava Subproducto Despacho' : `Cava Subproducto ${cava}`;
   if (isLoading) return <Loading />;
   const rows = data ?? [];
   if (!rows.length)
     return (
-      <Empty text={`No hay subproductos ubicados en la Cava Subproducto ${cava}.`} />
+      <Empty text={`No hay subproductos ubicados en la ${nombre}.`} />
     );
   return (
     <table className="w-full text-sm">
