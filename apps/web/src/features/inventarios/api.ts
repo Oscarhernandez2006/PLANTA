@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
-export const CAVAS = ['1', '2', '3', '4', '5', '6'];
+export const CAVAS = ['1', '2', '3', '4', '5', '6', '7'];
 export const CAVAS_SUBPRODUCTO = ['1', '2', '3'];
 
 export interface CavaAnimalRow {

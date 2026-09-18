@@ -41,7 +41,7 @@ export function InventariosPage() {
   const tabs: { key: Tab; label: string }[] = [
     ...CAVAS.map((c) => ({
       key: `cava-${c}` as Tab,
-      label: c === '6' ? 'SALA DE OREO' : `CAVA ${c}`,
+      label: c === '6' ? 'SALA DE OREO' : c === '7' ? 'CAVA DESPACHO' : `CAVA ${c}`,
     })),
     ...CAVAS_SUBPRODUCTO.map((c) => ({
       key: `sub-${c}` as Tab,
@@ -92,7 +92,8 @@ export function InventariosPage() {
 
 function CavaTab({ cava }: { cava: string }) {
   const { data, isLoading } = useCava(cava);
-  const nombre = cava === '6' ? 'Sala de Oreo' : `Cava ${cava}`;
+  const nombre =
+    cava === '6' ? 'Sala de Oreo' : cava === '7' ? 'Cava Despacho' : `Cava ${cava}`;
   if (isLoading) return <Loading />;
   const rows = data ?? [];
   if (!rows.length)
