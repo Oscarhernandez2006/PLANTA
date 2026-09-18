@@ -801,15 +801,18 @@ function RegistroPanel({ animalItem }: { animalItem: AnimalItem | null }) {
           size="lg"
           onClick={guardar}
           disabled={!animalItem || (esKg && !validoKg) || registrar.isPending}
+          title={
+            animalItem
+              ? `Marcar ${animalItem.item.label} #${animalItem.animal.consecutivo}`
+              : undefined
+          }
         >
           {registrar.isPending ? (
             <LoaderCircle className="size-5 animate-spin" />
           ) : (
             <Scale className="size-5" />
           )}
-          {animalItem
-            ? `Marcar ${animalItem.item.label} #${animalItem.animal.consecutivo}`
-            : 'Marcar'}
+          OK
         </Button>
       </div>
     </div>
