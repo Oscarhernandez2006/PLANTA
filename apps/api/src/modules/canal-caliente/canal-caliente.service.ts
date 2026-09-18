@@ -31,6 +31,17 @@ function piezasEsperadas(tipo: CanalTipo | null): CanalPiezaTipo[] {
   return [];
 }
 
+// Capacidad de canales por cava (mínimo/máximo). Solo se hace cumplir el
+// máximo: si ya está llena, no se permite ingresar otra canal.
+const CAVA_CAPACIDAD: Record<string, { min: number; max: number }> = {
+  'CAVA 1': { min: 105, max: 120 },
+  'CAVA 2': { min: 90, max: 105 },
+  'CAVA 3': { min: 90, max: 105 },
+  'CAVA 4': { min: 90, max: 105 },
+  'CAVA 5': { min: 75, max: 90 },
+  'SALA DE OREO': { min: 160, max: 180 },
+};
+
 @Injectable()
 export class CanalCalienteService {
   constructor(private readonly prisma: PrismaService) {}
@@ -203,9 +214,29 @@ export class CanalCalienteService {
         id: eventoId,
         ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
       },
-      select: { id: true },
+      select: { id: true, cava: true },
     });
     if (!evt) throw new NotFoundException('Animal no encontrado.');
+
+    // Si se está asignando a una cava distinta a la actual, valida el cupo
+    // máximo de canales que admite esa cava antes de dejarla entrar.
+    if (dto.cava !== undefined && dto.cava && dto.cava !== evt.cava) {
+      const capacidad = CAVA_CAPACIDAD[dto.cava];
+      if (capacidad) {
+        const ocupadas = await this.prisma.ordenBeneficioEvento.count({
+          where: {
+            cava: dto.cava,
+            ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
+          },
+        });
+        if (ocupadas >= capacidad.max) {
+          throw new BadRequestException(
+            `${dto.cava} llegó al máximo de ${capacidad.max} canales. Seleccione otra cava.`,
+          );
+        }
+      }
+    }
+
     await this.prisma.ordenBeneficioEvento.update({
       where: { id: evt.id },
       data: {

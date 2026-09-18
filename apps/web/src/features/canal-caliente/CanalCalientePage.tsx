@@ -487,6 +487,7 @@ function AnimalesTab({
   const deshacer = useDeshacerCanal();
   const [destino, setDestino] = useState('');
   const [observaciones, setObservaciones] = useState('');
+  const [cavaError, setCavaError] = useState<string | null>(null);
 
   const eventoId = objetivoAnimal?.eventoId ?? null;
   const rows = piezas.data ?? [];
@@ -494,6 +495,7 @@ function AnimalesTab({
   useEffect(() => {
     setDestino(objetivoAnimal?.destino ?? '');
     setObservaciones(objetivoAnimal?.observaciones ?? '');
+    setCavaError(null);
   }, [eventoId, objetivoAnimal?.destino, objetivoAnimal?.observaciones]);
 
   if (!detail || !objetivoAnimal) {
@@ -507,6 +509,25 @@ function AnimalesTab({
     valor: string,
   ) {
     if (!eventoId) return;
+    if (campo === 'cava') {
+      clasificar.mutate(
+        { eventoId, cava: valor },
+        {
+          onSuccess: () => setCavaError(null),
+          onError: (err) => {
+            const detail = (
+              err as { response?: { data?: { message?: string | string[] } } }
+            ).response?.data?.message;
+            setCavaError(
+              Array.isArray(detail)
+                ? detail.join(' ')
+                : detail || 'No se pudo asignar la cava.',
+            );
+          },
+        },
+      );
+      return;
+    }
     clasificar.mutate({ eventoId, [campo]: valor });
   }
 
@@ -594,6 +615,11 @@ function AnimalesTab({
               </button>
             ))}
           </div>
+          {cavaError && (
+            <p className="mt-2 text-sm font-medium text-red-600">
+              {cavaError}
+            </p>
+          )}
         </div>
         <FieldBox label="Observaciones:" className="relative">
           <textarea
