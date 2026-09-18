@@ -44,11 +44,11 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
       { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
-      { to: '/canal-traslado', label: 'Traslado de Canales', icon: ArrowLeftRight },
       { to: '/inventarios', label: 'Inventarios', icon: Warehouse },
+      { to: '/canal-traslado', label: 'Traslado de Canales', icon: ArrowLeftRight },
+      { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
       { to: '/rotulado-desposte', label: 'Rotulado Desposte', icon: RotuladoDesposteIcon },
       { to: '/rotulado-acondicionamiento', label: 'Rotulado Acondicionamiento', icon: RotuladoAcondicionamientoIcon },
-      { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
     ],
   },
   {
