@@ -400,14 +400,16 @@ function CanalesTab({
                   tipo: PANEL_TIPO[pieza],
                 });
               }}
-              disabled={setTipo.isPending || !animal}
-              className="flex flex-col items-center gap-2 rounded-sm border-2 border-border bg-card p-3 text-center transition-colors hover:border-emerald-400"
+              disabled={setTipo.isPending || !animal || pesado}
+              className="flex flex-col items-center gap-2 rounded-sm border-2 border-border bg-card p-3 text-center transition-colors hover:border-emerald-400 disabled:hover:border-border"
             >
               <span className="text-sm font-semibold">{title}:</span>
               <div
                 className={cn(
                   'flex h-80 items-end justify-center',
-                  !aplica && 'opacity-30 grayscale',
+                  // Ya pesada: se pone en gris para que el operario no se
+                  // confunda e intente volver a pesarla.
+                  (!aplica || pesado) && 'opacity-30 grayscale',
                 )}
               >
                 <img
