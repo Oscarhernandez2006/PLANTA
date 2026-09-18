@@ -379,13 +379,19 @@ function CanalesTab({
             <button
               key={pieza}
               type="button"
-              onClick={() =>
-                animal &&
+              onClick={() => {
+                if (!animal || tipoActivo) return;
+                // CIZQ y CDER son piezas complementarias de la misma media
+                // canal, no clasificaciones distintas: si ya se pesó una de
+                // las dos, no reintentar cambiar el tipo (el backend lo
+                // rechaza) y dejar que se pese la otra pieza directamente.
+                const yaTienePiezaPesada = animal.piezas.some((p) => p.pesado);
+                if (pieza !== 'canal' && yaTienePiezaPesada) return;
                 setTipo.mutate({
                   eventoId: animal.eventoId,
                   tipo: PANEL_TIPO[pieza],
-                })
-              }
+                });
+              }}
               disabled={setTipo.isPending || !animal}
               className={cn(
                 'flex flex-col items-center gap-2 rounded-sm border-2 bg-card p-3 text-center transition-colors hover:border-emerald-400',
