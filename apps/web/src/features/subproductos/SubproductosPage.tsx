@@ -463,13 +463,16 @@ function SalidaPanel({ data }: { data: SubLoteDetail }) {
 }
 
 /** Debajo de cada columna: si el destino es Entrada, cava + botón Entrada
- * (solo para esa categoría); si es Salida, un botón Salida sin pedir cava. */
+ * (solo para esa categoría); si es Salida, un botón Salida sin pedir cava.
+ * Ambos exigen el check verde (categoría completa) para habilitarse. */
 function CategoriaCavaFooter({
   data,
   categoria,
+  categoriaCompleta,
 }: {
   data: SubLoteDetail;
   categoria: 'viscera_roja' | 'viscera_blanca' | 'retoma';
+  categoriaCompleta: boolean;
 }) {
   const asignar = useAsignarCavaSubproducto();
   const salida = useGenerarSalida(data);
@@ -490,7 +493,12 @@ function CategoriaCavaFooter({
           size="sm"
           variant="outline"
           className="h-7 w-full text-xs"
-          disabled={salida.isPending}
+          disabled={!categoriaCompleta || salida.isPending}
+          title={
+            categoriaCompleta
+              ? undefined
+              : 'Marca el check ✓ de la categoría antes de generar la salida'
+          }
           onClick={() => salida.generar('')}
         >
           Salida
@@ -512,6 +520,7 @@ function CategoriaCavaFooter({
       <Select
         value={cava}
         onChange={(e) => setCava(e.target.value)}
+        disabled={!categoriaCompleta}
         className="h-7 flex-1 text-xs"
       >
         {CAVAS_SUBPRODUCTO_OPCIONES.map((c) => (
@@ -524,7 +533,12 @@ function CategoriaCavaFooter({
         size="sm"
         variant="outline"
         className="h-7 shrink-0 text-xs"
-        disabled={asignar.isPending}
+        disabled={!categoriaCompleta || asignar.isPending}
+        title={
+          categoriaCompleta
+            ? undefined
+            : 'Marca el check ✓ de la categoría antes de hacer el ingreso a cavas'
+        }
         onClick={() =>
           asignar.mutate(
             { ordenBeneficioIds: data.ordenBeneficioIds, cava, categoria },
@@ -587,10 +601,19 @@ function ChecklistView({
                     ai.item.categoria === 'cabeza_patas'
                   : ai.item.categoria === col.key,
               );
+              const categoriaCompleta = items.length === 0;
               return (
                 <div key={col.key} className="flex min-h-0 flex-col sm:h-full sm:flex-1">
-                  <div className="bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                    {col.label} ({items.length})
+                  <div className="flex items-center justify-between bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    <span>
+                      {col.label} ({items.length})
+                    </span>
+                    {categoriaCompleta && (
+                      <CheckCircle2
+                        className="size-4 text-emerald-600"
+                        aria-label="Categoría completa"
+                      />
+                    )}
                   </div>
                   <div className="flex items-center justify-between border-b border-border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                     <span>Producto</span>
@@ -634,7 +657,11 @@ function ChecklistView({
                       );
                     })}
                   </ul>
-                  <CategoriaCavaFooter data={data} categoria={col.key} />
+                  <CategoriaCavaFooter
+                    data={data}
+                    categoria={col.key}
+                    categoriaCompleta={categoriaCompleta}
+                  />
                 </div>
               );
             })}
