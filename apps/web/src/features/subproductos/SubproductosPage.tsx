@@ -504,7 +504,7 @@ function ChecklistView({
                   <div className="bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {col.label} ({items.length})
                   </div>
-                  <ul className="max-h-[420px] divide-y divide-border overflow-auto">
+                  <ul className="max-h-[420px] divide-y divide-border overflow-auto overscroll-contain">
                     {items.map((ai) => {
                       const key = `${ai.animal.eventoId}:${ai.item.tipo}`;
                       const activo = key === selectedKey;
@@ -548,7 +548,7 @@ function ChecklistView({
             <div className="border-t border-border px-4 py-2 text-sm font-semibold">
               Registrados ({pesados.length})
             </div>
-            <ul className="max-h-60 divide-y divide-border overflow-auto">
+            <ul className="max-h-60 divide-y divide-border overflow-auto overscroll-contain">
               {pesados.map((ai) => (
                 <li
                   key={`${ai.animal.eventoId}:${ai.item.tipo}`}
