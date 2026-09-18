@@ -2,8 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Param,
-  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -26,21 +24,21 @@ export class SubproductosController {
     return this.service.lotes(user, date);
   }
 
-  @Get('lotes/:id')
-  loteDetail(
+  @Get('grupo')
+  grupoDetail(
     @CurrentUser() user: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
+    @Query('cliente') cliente: string,
+    @Query('date') date?: string,
   ) {
-    return this.service.loteDetail(user, id);
+    return this.service.grupoDetail(user, cliente, date);
   }
 
-  @Patch('lotes/:id/cava')
+  @Patch('grupo/cava')
   asignarCava(
     @CurrentUser() user: AuthContext,
-    @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AsignarCavaDto,
   ) {
-    return this.service.asignarCava(user, id, dto.cava);
+    return this.service.asignarCava(user, dto.ordenBeneficioIds, dto.cava);
   }
 
   @Post()

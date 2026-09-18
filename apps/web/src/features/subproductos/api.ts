@@ -34,12 +34,11 @@ export interface SubResumenItem {
 }
 
 export interface SubLote {
-  ordenBeneficioId: string;
-  reference: number;
   cliente: string;
+  ordenBeneficioIds: string[];
+  references: number[];
   guias: string[];
   date: string;
-  consecutivoBase: number;
   animalCount: number;
   caidos: number;
   pesados: number;
@@ -51,6 +50,7 @@ export interface SubLote {
 
 export interface SubAnimal {
   eventoId: string;
+  reference: number;
   sequence: number;
   consecutivo: number;
   stunnedAt: string;
@@ -73,13 +73,16 @@ export function useSubproductosLotes() {
   });
 }
 
-export function useSubLoteDetail(ordenBeneficioId: string | null) {
+export function useSubLoteDetail(cliente: string | null, date: string) {
   return useQuery({
-    enabled: !!ordenBeneficioId,
-    queryKey: ['subproductos', 'lote', ordenBeneficioId],
+    enabled: !!cliente,
+    queryKey: ['subproductos', 'grupo', cliente, date],
     queryFn: async () =>
-      (await api.get<SubLoteDetail>(`/subproductos/lotes/${ordenBeneficioId}`))
-        .data,
+      (
+        await api.get<SubLoteDetail>('/subproductos/grupo', {
+          params: { cliente, date },
+        })
+      ).data,
     refetchInterval: 4000,
   });
 }
@@ -121,22 +124,22 @@ export function useRegistrarRetiroSubproducto() {
   });
 }
 
-/** Asigna la cava de destino (Entrada) a todos los subproductos del lote. */
+/** Asigna la cava de destino (Entrada) a todos los subproductos del grupo (cliente). */
 export function useAsignarCavaSubproducto() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async ({
-      ordenBeneficioId,
+      ordenBeneficioIds,
       cava,
     }: {
-      ordenBeneficioId: string;
+      ordenBeneficioIds: string[];
       cava: string;
     }) =>
       (
-        await api.patch<{ ok: boolean }>(
-          `/subproductos/lotes/${ordenBeneficioId}/cava`,
-          { cava },
-        )
+        await api.patch<{ ok: boolean }>('/subproductos/grupo/cava', {
+          ordenBeneficioIds,
+          cava,
+        })
       ).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['subproductos'] });

@@ -58,7 +58,10 @@ export class SubproductosService {
     return base;
   }
 
-  /** Lotes (órdenes) del día que ya tienen animales caídos. */
+  /**
+   * Lotes del día agrupados por cliente: si un cliente tiene varios lotes el
+   * mismo día quedan amarrados en un solo grupo y sus subproductos se suman.
+   */
   async lotes(ctx: AuthContext, dateStr?: string) {
     const date = dateOnly(dateStr);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
@@ -75,34 +78,83 @@ export class SubproductosService {
         },
       },
     });
-    const bases = await this.consecutivoBases(ctx.plantId, [date]);
-    return ordenes.map((o) => {
+
+    const porCliente = new Map<
+      string,
+      {
+        cliente: string;
+        ordenBeneficioIds: string[];
+        references: number[];
+        guias: Set<string>;
+        animalCount: number;
+        caidos: number;
+        pesados: number;
+        total: number;
+        subproductoDestino: SubproductoDestino;
+        subproductoRetiroAt: Date | null;
+        cabezasPatas: boolean;
+      }
+    >();
+    for (const o of ordenes) {
       let pesados = 0;
       for (const e of o.eventos) pesados += this.contarMarcados(e.subproductos);
-      return {
-        ordenBeneficioId: o.id,
-        reference: o.reference,
-        cliente: o.cliente,
-        guias: o.guias,
-        date: o.date.toISOString().slice(0, 10),
-        consecutivoBase: bases.get(o.id) ?? 0,
-        animalCount: o.animalCount,
-        caidos: o.eventos.length,
-        pesados,
-        total:
-          o.eventos.length * TOTAL_ITEMS +
-          (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0),
-        subproductoDestino: o.subproductoDestino,
-        subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
-        cabezasPatas: o.cabezasPatas,
-      };
-    });
+      const total =
+        o.eventos.length * TOTAL_ITEMS +
+        (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0);
+
+      const g = porCliente.get(o.cliente);
+      if (!g) {
+        porCliente.set(o.cliente, {
+          cliente: o.cliente,
+          ordenBeneficioIds: [o.id],
+          references: [o.reference],
+          guias: new Set(o.guias),
+          animalCount: o.animalCount,
+          caidos: o.eventos.length,
+          pesados,
+          total,
+          subproductoDestino: o.subproductoDestino,
+          subproductoRetiroAt: o.subproductoRetiroAt,
+          cabezasPatas: o.cabezasPatas,
+        });
+      } else {
+        g.ordenBeneficioIds.push(o.id);
+        g.references.push(o.reference);
+        for (const gu of o.guias) g.guias.add(gu);
+        g.animalCount += o.animalCount;
+        g.caidos += o.eventos.length;
+        g.pesados += pesados;
+        g.total += total;
+        // Si algún lote del cliente aún no tiene retiro, el grupo queda pendiente.
+        if (!o.subproductoRetiroAt) g.subproductoRetiroAt = null;
+        g.cabezasPatas = g.cabezasPatas || o.cabezasPatas;
+      }
+    }
+
+    return [...porCliente.values()]
+      .sort((a, b) => a.references[0] - b.references[0])
+      .map((g) => ({
+        cliente: g.cliente,
+        ordenBeneficioIds: g.ordenBeneficioIds,
+        references: g.references,
+        guias: [...g.guias],
+        date: date.toISOString().slice(0, 10),
+        animalCount: g.animalCount,
+        caidos: g.caidos,
+        pesados: g.pesados,
+        total: g.total,
+        subproductoDestino: g.subproductoDestino,
+        subproductoRetiroAt: g.subproductoRetiroAt?.toISOString() ?? null,
+        cabezasPatas: g.cabezasPatas,
+      }));
   }
 
-  /** Detalle de un lote con sus animales caídos y su estado de pesaje. */
-  async loteDetail(ctx: AuthContext, ordenBeneficioId: string) {
-    const o = await this.prisma.ordenBeneficio.findFirst({
-      where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+  /** Detalle combinado de todos los lotes de un cliente el mismo día. */
+  async grupoDetail(ctx: AuthContext, cliente: string, dateStr?: string) {
+    const date = dateOnly(dateStr);
+    const ordenes = await this.prisma.ordenBeneficio.findMany({
+      where: { plantId: ctx.plantId, deletedAt: null, date, cliente },
+      orderBy: [{ reference: 'asc' }],
       include: {
         eventos: {
           orderBy: { sequence: 'asc' },
@@ -110,14 +162,14 @@ export class SubproductosService {
         },
       },
     });
-    if (!o) throw new NotFoundException('Lote no encontrado.');
+    if (!ordenes.length) throw new NotFoundException('Lote no encontrado.');
 
-    const bases = await this.consecutivoBases(ctx.plantId, [o.date]);
-    const base = bases.get(o.id) ?? 0;
+    const bases = await this.consecutivoBases(ctx.plantId, [date]);
 
     const operatorIds = [
       ...new Set(
-        o.eventos
+        ordenes
+          .flatMap((o) => o.eventos)
           .flatMap((e) => e.subproductos.map((s) => s.operatorId))
           .filter((x): x is string => !!x),
       ),
@@ -131,25 +183,30 @@ export class SubproductosService {
     const nameById = new Map(users.map((u) => [u.id, u.fullName]));
 
     let pesados = 0;
-    // Resumen por producto: suma de todo lo registrado en el lote (mismo
-    // cliente, mismo lote), para verificar que la información sea consistente.
+    let caidos = 0;
+    const cabezasPatas = ordenes.some((o) => o.cabezasPatas);
+    // Resumen por producto: suma de todos los animales de todos los lotes de
+    // este cliente el mismo día, para verificar que la información sea real.
     const resumenPorTipo = new Map<
       string,
       { marcados: number; totalKg: number }
     >();
-    for (const e of o.eventos) {
-      pesados += this.contarMarcados(e.subproductos);
-      for (const s of e.subproductos) {
-        if (!s.marcado) continue;
-        const acc = resumenPorTipo.get(s.tipo) ?? { marcados: 0, totalKg: 0 };
-        acc.marcados += 1;
-        acc.totalKg += s.pesoKg != null ? Number(s.pesoKg) : 0;
-        resumenPorTipo.set(s.tipo, acc);
+    for (const o of ordenes) {
+      caidos += o.eventos.length;
+      for (const e of o.eventos) {
+        pesados += this.contarMarcados(e.subproductos);
+        for (const s of e.subproductos) {
+          if (!s.marcado) continue;
+          const acc = resumenPorTipo.get(s.tipo) ?? { marcados: 0, totalKg: 0 };
+          acc.marcados += 1;
+          acc.totalKg += s.pesoKg != null ? Number(s.pesoKg) : 0;
+          resumenPorTipo.set(s.tipo, acc);
+        }
       }
     }
     const resumen = [
       ...SUBPRODUCTO_ITEMS,
-      ...(o.cabezasPatas ? SUBPRODUCTO_ITEMS_CABEZA_PATAS : []),
+      ...(cabezasPatas ? SUBPRODUCTO_ITEMS_CABEZA_PATAS : []),
     ].map((def) => {
       const acc = resumenPorTipo.get(def.tipo) ?? { marcados: 0, totalKg: 0 };
       const multiplicador = def.multiplicador ?? 1;
@@ -160,58 +217,70 @@ export class SubproductosService {
         unidad: def.unidad,
         categoria: def.categoria,
         marcados: acc.marcados,
-        esperados: o.eventos.length,
+        esperados: caidos,
         totalKg: def.unidad === 'kg' ? acc.totalKg : null,
-        // Cantidad real (aplica el multiplicador, ej. patas = 4 por animal).
         cantidadTotal: def.unidad === 'unidad' ? acc.marcados * multiplicador : null,
       };
     });
 
-    return {
-      ordenBeneficioId: o.id,
-      reference: o.reference,
-      cliente: o.cliente,
-      guias: o.guias,
-      date: o.date.toISOString().slice(0, 10),
-      consecutivoBase: base,
-      animalCount: o.animalCount,
-      caidos: o.eventos.length,
-      pesados,
-      total:
-        o.eventos.length * TOTAL_ITEMS +
-        (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0),
-      subproductoDestino: o.subproductoDestino,
-      subproductoRetiroAt: o.subproductoRetiroAt?.toISOString() ?? null,
-      subproductoRetiroObservaciones: o.subproductoRetiroObservaciones,
-      cabezasPatas: o.cabezasPatas,
-      resumen,
-      animales: o.eventos.map((e) => ({
-        eventoId: e.id,
-        sequence: e.sequence,
-        consecutivo: base + e.sequence,
-        stunnedAt: e.stunnedAt.toISOString(),
-        items: [...e.subproductos]
-          .sort(
-            (a, b) =>
-              (ORDEN_TIPO.get(a.tipo) ?? 0) - (ORDEN_TIPO.get(b.tipo) ?? 0),
+    const total =
+      caidos * TOTAL_ITEMS +
+      (cabezasPatas
+        ? ordenes.reduce(
+            (acc, o) =>
+              acc + (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0),
+            0,
           )
-          .map((s) => {
-            const def = SUBPRODUCTO_ITEM_BY_TIPO.get(s.tipo);
-            return {
-              tipo: s.tipo,
-              codigo: def?.codigo ?? '',
-              label: def?.label ?? s.tipo,
-              unidad: def?.unidad ?? 'unidad',
-              categoria: def?.categoria ?? 'retoma',
-              marcado: s.marcado,
-              pesoKg: s.pesoKg != null ? Number(s.pesoKg) : null,
-              registradoAt: s.registradoAt?.toISOString() ?? null,
-              operatorName: s.operatorId
-                ? (nameById.get(s.operatorId) ?? '—')
-                : null,
-            };
-          }),
-      })),
+        : 0);
+
+    return {
+      cliente,
+      ordenBeneficioIds: ordenes.map((o) => o.id),
+      references: ordenes.map((o) => o.reference),
+      guias: [...new Set(ordenes.flatMap((o) => o.guias))],
+      date: date.toISOString().slice(0, 10),
+      animalCount: ordenes.reduce((acc, o) => acc + o.animalCount, 0),
+      caidos,
+      pesados,
+      total,
+      subproductoDestino: ordenes[0].subproductoDestino,
+      subproductoRetiroAt: ordenes.every((o) => o.subproductoRetiroAt)
+        ? (ordenes[0].subproductoRetiroAt?.toISOString() ?? null)
+        : null,
+      subproductoRetiroObservaciones: ordenes[0].subproductoRetiroObservaciones,
+      cabezasPatas,
+      resumen,
+      animales: ordenes.flatMap((o) => {
+        const base = bases.get(o.id) ?? 0;
+        return o.eventos.map((e) => ({
+          eventoId: e.id,
+          reference: o.reference,
+          sequence: e.sequence,
+          consecutivo: base + e.sequence,
+          stunnedAt: e.stunnedAt.toISOString(),
+          items: [...e.subproductos]
+            .sort(
+              (a, b) =>
+                (ORDEN_TIPO.get(a.tipo) ?? 0) - (ORDEN_TIPO.get(b.tipo) ?? 0),
+            )
+            .map((s) => {
+              const def = SUBPRODUCTO_ITEM_BY_TIPO.get(s.tipo);
+              return {
+                tipo: s.tipo,
+                codigo: def?.codigo ?? '',
+                label: def?.label ?? s.tipo,
+                unidad: def?.unidad ?? 'unidad',
+                categoria: def?.categoria ?? 'retoma',
+                marcado: s.marcado,
+                pesoKg: s.pesoKg != null ? Number(s.pesoKg) : null,
+                registradoAt: s.registradoAt?.toISOString() ?? null,
+                operatorName: s.operatorId
+                  ? (nameById.get(s.operatorId) ?? '—')
+                  : null,
+              };
+            }),
+        }));
+      }),
     };
   }
 
@@ -247,22 +316,31 @@ export class SubproductosService {
   }
 
   /**
-   * Asigna la cava de destino (Entrada) a todos los subproductos del lote.
-   * Solo aplica a lotes cuyo destino es "empresa" (Entrada a cavas frío).
+   * Asigna la cava de destino (Entrada) a todos los subproductos de un grupo
+   * de lotes (mismo cliente). Solo aplica a lotes con destino "empresa".
    */
-  async asignarCava(ctx: AuthContext, ordenBeneficioId: string, cava: string) {
-    const o = await this.prisma.ordenBeneficio.findFirst({
-      where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+  async asignarCava(
+    ctx: AuthContext,
+    ordenBeneficioIds: string[],
+    cava: string,
+  ) {
+    const ordenes = await this.prisma.ordenBeneficio.findMany({
+      where: {
+        id: { in: ordenBeneficioIds },
+        plantId: ctx.plantId,
+        deletedAt: null,
+      },
+      select: { id: true, subproductoDestino: true },
     });
-    if (!o) throw new NotFoundException('Lote no encontrado.');
-    if (o.subproductoDestino !== SubproductoDestino.empresa) {
+    if (!ordenes.length) throw new NotFoundException('Lote no encontrado.');
+    if (ordenes.some((o) => o.subproductoDestino !== SubproductoDestino.empresa)) {
       throw new BadRequestException(
-        'Este lote no tiene destino Entrada (cavas frío).',
+        'Este grupo no tiene destino Entrada (cavas frío).',
       );
     }
 
     await this.prisma.subproductoItem.updateMany({
-      where: { evento: { ordenBeneficioId } },
+      where: { evento: { ordenBeneficioId: { in: ordenBeneficioIds } } },
       data: { cava: cava.trim() },
     });
     return { ok: true };

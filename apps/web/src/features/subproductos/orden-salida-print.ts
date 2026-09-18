@@ -10,7 +10,7 @@ export interface OrdenSalidaItem {
 }
 
 export interface OrdenSalidaData {
-  reference: number;
+  references: number[];
   cliente: string;
   guias: string[];
   fecha: string;
@@ -39,7 +39,7 @@ export function downloadOrdenSalidaPdf(d: OrdenSalidaData) {
     body: [
       [
         { content: 'Lote N.º', styles: { fontStyle: 'bold' as const } },
-        String(d.reference),
+        String(d.references.join(', ')),
         { content: 'Fecha', styles: { fontStyle: 'bold' as const } },
         d.fecha,
       ],
@@ -90,5 +90,5 @@ export function downloadOrdenSalidaPdf(d: OrdenSalidaData) {
   doc.line(pageW - margin - 70, afterTable + 30, pageW - margin, afterTable + 30);
   doc.text('Firma del responsable de planta', pageW - margin - 70, afterTable + 34);
 
-  doc.save(`orden-salida-lote-${d.reference}.pdf`);
+  doc.save(`orden-salida-lote-${d.references.join('-')}.pdf`);
 }

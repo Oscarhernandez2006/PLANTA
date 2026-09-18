@@ -59,9 +59,10 @@ interface AnimalItem {
 }
 
 export function SubproductosPage() {
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedCliente, setSelectedCliente] = useState<string | null>(null);
+  const date = today();
   const lotes = useSubproductosLotes();
-  const detail = useSubLoteDetail(selectedId);
+  const detail = useSubLoteDetail(selectedCliente, date);
 
   const lista = lotes.data ?? [];
   const refrescando = lotes.isFetching || detail.isFetching;
@@ -77,8 +78,9 @@ export function SubproductosPage() {
               Subproductos
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Elige un lote para marcar el checklist de subproductos
-              (códigos SIESA) de cada animal.
+              Elige un cliente para marcar el checklist de subproductos
+              (códigos SIESA) de cada animal. Si un cliente tiene varios
+              lotes el mismo día, quedan amarrados y sus subproductos se suman.
             </p>
           </div>
         </div>
@@ -89,7 +91,7 @@ export function SubproductosPage() {
             size="sm"
             onClick={() => {
               lotes.refetch();
-              if (selectedId) detail.refetch();
+              if (selectedCliente) detail.refetch();
             }}
             disabled={refrescando}
           >
@@ -99,7 +101,7 @@ export function SubproductosPage() {
         </div>
       </div>
 
-      {!selectedId ? (
+      {!selectedCliente ? (
         <Card className="flex flex-col overflow-hidden">
           <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
             <SubproductosIcon className="size-4" /> Lotes con animales
@@ -115,14 +117,14 @@ export function SubproductosPage() {
                 const pct = l.total ? Math.round((l.pesados / l.total) * 100) : 0;
                 const completo = l.total > 0 && l.pesados === l.total;
                 return (
-                  <li key={l.ordenBeneficioId}>
+                  <li key={l.cliente}>
                     <button
-                      onClick={() => setSelectedId(l.ordenBeneficioId)}
+                      onClick={() => setSelectedCliente(l.cliente)}
                       className="flex w-full flex-col gap-2 px-5 py-4 text-left transition-colors hover:bg-muted/40"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="font-semibold">
-                          N.º {l.reference} · {l.cliente}
+                          N.º {l.references.join(', ')} · {l.cliente}
                           {completo && (
                             <CheckCircle2 className="ml-2 inline size-4 text-emerald-600" />
                           )}
@@ -135,6 +137,8 @@ export function SubproductosPage() {
                         <span>
                           {l.guias.length ? l.guias.join(', ') : '—'} ·{' '}
                           {l.caidos} caídos de {l.animalCount}
+                          {l.references.length > 1 &&
+                            ` · ${l.references.length} lotes amarrados`}
                         </span>
                         {l.subproductoDestino === 'firmante' && (
                           <Badge tone={l.subproductoRetiroAt ? 'success' : 'info'}>
@@ -160,7 +164,7 @@ export function SubproductosPage() {
           <Loading />
         </Card>
       ) : (
-        <LoteDetalle data={detail.data} onBack={() => setSelectedId(null)} />
+        <LoteDetalle data={detail.data} onBack={() => setSelectedCliente(null)} />
       )}
     </div>
   );
@@ -191,7 +195,7 @@ function LoteDetalle({
           </Button>
           <div>
             <div className="text-xs text-muted-foreground">
-              Lote N.º {data.reference} · {data.date}
+              Lote N.º {data.references.join(', ')} · {data.date}
             </div>
             <div className="text-lg font-semibold">
               {data.cliente}
@@ -263,7 +267,7 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
   return (
     <div className="border-t border-border">
       <div className="px-5 py-3 text-sm font-semibold">
-        Resumen por producto (lote {data.reference} · {data.cliente}) — suma
+        Resumen por producto (lotes {data.references.join(', ')} · {data.cliente}) — suma
         de todos los animales, para verificar que la información sea real.
       </div>
       <div className="overflow-auto">
@@ -379,7 +383,7 @@ function EntradaPanel({ data }: { data: SubLoteDetail }) {
         disabled={!cava.trim() || asignar.isPending}
         onClick={() =>
           asignar.mutate(
-            { ordenBeneficioId: data.ordenBeneficioId, cava: cava.trim() },
+            { ordenBeneficioIds: data.ordenBeneficioIds, cava: cava.trim() },
             { onSuccess: () => setGuardado(true) },
           )
         }
@@ -412,23 +416,21 @@ function SalidaPanel({ data }: { data: SubLoteDetail }) {
     );
   }
 
-  function generar() {
-    registrarRetiro.mutate(
-      { ordenBeneficioId: data.ordenBeneficioId, observaciones },
-      {
-        onSuccess: () => {
-          downloadOrdenSalidaPdf({
-            reference: data.reference,
-            cliente: data.cliente,
-            guias: data.guias,
-            fecha: new Date().toLocaleString('es-CO'),
-            responsable: user?.fullName ?? '—',
-            observaciones: observaciones.trim() || null,
-            items: data.resumen.filter((r) => r.marcados > 0),
-          });
-        },
-      },
-    );
+  async function generar() {
+    // El grupo puede tener varios lotes del mismo cliente: se registra el
+    // retiro en cada uno para que quede la constancia completa.
+    for (const ordenBeneficioId of data.ordenBeneficioIds) {
+      await registrarRetiro.mutateAsync({ ordenBeneficioId, observaciones });
+    }
+    downloadOrdenSalidaPdf({
+      references: data.references,
+      cliente: data.cliente,
+      guias: data.guias,
+      fecha: new Date().toLocaleString('es-CO'),
+      responsable: user?.fullName ?? '—',
+      observaciones: observaciones.trim() || null,
+      items: data.resumen.filter((r) => r.marcados > 0),
+    });
   }
 
   return (
