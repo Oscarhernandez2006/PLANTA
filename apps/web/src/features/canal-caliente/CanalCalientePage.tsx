@@ -403,7 +403,9 @@ function CanalesTab({
               disabled={setTipo.isPending || !animal}
               className={cn(
                 'flex flex-col items-center gap-2 rounded-sm border-2 bg-card p-3 text-center transition-colors hover:border-emerald-400',
-                tipoActivo
+                // El recuadro verde solo marca la pieza YA pesada; estar
+                // "seleccionada" (lista para pesar) no debe verse igual.
+                pesado
                   ? 'border-emerald-500 ring-2 ring-emerald-200'
                   : 'border-border',
               )}
