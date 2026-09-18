@@ -44,6 +44,14 @@ function hora(iso: string | null) {
   });
 }
 
+// Columnas del checklist "Por registrar": las cabeza/patas se agrupan
+// dentro de retomas para mantener solo 3 columnas.
+const CATEGORIA_COLUMNAS: { key: 'viscera_roja' | 'viscera_blanca' | 'retoma'; label: string }[] = [
+  { key: 'viscera_roja', label: 'Vísceras rojas' },
+  { key: 'viscera_blanca', label: 'Vísceras blancas' },
+  { key: 'retoma', label: 'Retomas' },
+];
+
 // Un animal + un ítem puntual de su checklist (para trabajar la lista aplanada).
 interface AnimalItem {
   animal: SubAnimal;
@@ -472,9 +480,9 @@ function ChecklistView({
 
   return (
     <div className="grid border-t border-border md:grid-cols-2">
-      {/* Izquierda: ítems del lote */}
+      {/* Izquierda: ítems del lote, divididos en 3 columnas por categoría */}
       <div className="md:border-r md:border-border">
-        <div className="px-5 py-3 text-sm font-semibold">
+        <div className="px-4 py-2 text-sm font-semibold">
           Por registrar ({pendientes.length})
         </div>
         {!pendientes.length ? (
@@ -483,53 +491,70 @@ function ChecklistView({
             subproductos de este lote ya fueron registrados.
           </div>
         ) : (
-          <ul className="divide-y divide-border">
-            {pendientes.map((ai) => {
-              const key = `${ai.animal.eventoId}:${ai.item.tipo}`;
-              const activo = key === selectedKey;
+          <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+            {CATEGORIA_COLUMNAS.map((col) => {
+              const items = pendientes.filter((ai) =>
+                col.key === 'retoma'
+                  ? ai.item.categoria === 'retoma' ||
+                    ai.item.categoria === 'cabeza_patas'
+                  : ai.item.categoria === col.key,
+              );
               return (
-                <li key={key}>
-                  <button
-                    onClick={() => setSelectedKey(key)}
-                    className={cn(
-                      'flex w-full items-center justify-between gap-3 px-5 py-3 text-left transition-colors',
-                      activo
-                        ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-300'
-                        : 'hover:bg-muted/40',
-                    )}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-lg font-bold tabular-nums">
-                        #{ai.animal.consecutivo}
-                      </span>
-                      <span className="text-sm text-muted-foreground">
-                        {ai.item.label}
-                      </span>
-                    </div>
-                    {activo && (
-                      <span className="text-xs font-medium text-emerald-700">
-                        Seleccionado
-                      </span>
-                    )}
-                  </button>
-                </li>
+                <div key={col.key} className="flex flex-col">
+                  <div className="bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                    {col.label} ({items.length})
+                  </div>
+                  <ul className="max-h-[420px] divide-y divide-border overflow-auto">
+                    {items.map((ai) => {
+                      const key = `${ai.animal.eventoId}:${ai.item.tipo}`;
+                      const activo = key === selectedKey;
+                      return (
+                        <li key={key}>
+                          <button
+                            onClick={() => setSelectedKey(key)}
+                            className={cn(
+                              'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left transition-colors',
+                              activo
+                                ? 'bg-emerald-50 ring-1 ring-inset ring-emerald-300'
+                                : 'hover:bg-muted/40',
+                            )}
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <span className="text-sm font-bold tabular-nums">
+                                #{ai.animal.consecutivo}
+                              </span>
+                              <span className="truncate text-xs text-muted-foreground">
+                                {ai.item.label}
+                              </span>
+                            </div>
+                            {activo && (
+                              <span className="shrink-0 text-[10px] font-medium text-emerald-700">
+                                ●
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               );
             })}
-          </ul>
+          </div>
         )}
 
         {pesados.length > 0 && (
           <>
-            <div className="border-t border-border px-5 py-3 text-sm font-semibold">
+            <div className="border-t border-border px-4 py-2 text-sm font-semibold">
               Registrados ({pesados.length})
             </div>
-            <ul className="divide-y divide-border">
+            <ul className="max-h-60 divide-y divide-border overflow-auto">
               {pesados.map((ai) => (
                 <li
                   key={`${ai.animal.eventoId}:${ai.item.tipo}`}
-                  className="flex items-center justify-between gap-3 px-5 py-3 text-sm"
+                  className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2">
                     <span className="font-semibold tabular-nums">
                       #{ai.animal.consecutivo}
                     </span>
