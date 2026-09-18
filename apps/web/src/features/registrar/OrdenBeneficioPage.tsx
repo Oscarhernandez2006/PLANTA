@@ -363,8 +363,8 @@ function GuiaLoteRow({
           className="h-8 w-full text-xs"
           title="Si se debe imprimir tiquete de cabeza y patas por cada animal al insensibilizar"
         >
-          <option value="no">Cabezas y patas: No</option>
-          <option value="si">Cabezas y patas: Sí</option>
+          <option value="no">No</option>
+          <option value="si">Sí</option>
         </Select>
       </TD>
       <TD>
