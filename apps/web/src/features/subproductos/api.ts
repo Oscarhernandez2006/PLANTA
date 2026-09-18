@@ -17,6 +17,7 @@ export interface SubItem {
   categoria: SubproductoCategoria;
   marcado: boolean;
   pesoKg: number | null;
+  cava: string | null;
   registradoAt: string | null;
   operatorName: string | null;
 }

@@ -359,8 +359,14 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
 function EntradaPanel({ data }: { data: SubLoteDetail }) {
   const [cava, setCava] = useState(CAVAS_SUBPRODUCTO_OPCIONES[0].value);
   const asignar = useAsignarCavaSubproducto();
-  const [guardado, setGuardado] = useState(false);
   const completo = data.total > 0 && data.pesados === data.total;
+  // La cava queda guardada en la BD (item.cava), no en un flag local: así se
+  // mantiene igual aunque se salga y vuelva a entrar al módulo.
+  const marcados = data.animales.flatMap((a) => a.items).filter((i) => i.marcado);
+  const cavaAsignada =
+    completo && marcados.length > 0 && marcados.every((i) => i.cava === marcados[0].cava)
+      ? marcados[0].cava
+      : null;
 
   if (!completo) {
     return (
@@ -369,9 +375,10 @@ function EntradaPanel({ data }: { data: SubLoteDetail }) {
       </span>
     );
   }
-  if (guardado) {
+  if (cavaAsignada != null) {
     const label =
-      CAVAS_SUBPRODUCTO_OPCIONES.find((c) => c.value === cava)?.label ?? cava;
+      CAVAS_SUBPRODUCTO_OPCIONES.find((c) => c.value === cavaAsignada)?.label ??
+      cavaAsignada;
     return <Badge tone="success">Cava asignada: {label}</Badge>;
   }
   return (
@@ -392,10 +399,7 @@ function EntradaPanel({ data }: { data: SubLoteDetail }) {
         size="sm"
         disabled={asignar.isPending}
         onClick={() =>
-          asignar.mutate(
-            { ordenBeneficioIds: data.ordenBeneficioIds, cava },
-            { onSuccess: () => setGuardado(true) },
-          )
+          asignar.mutate({ ordenBeneficioIds: data.ordenBeneficioIds, cava })
         }
       >
         Asignar cava (Entrada)
@@ -478,15 +482,19 @@ function CategoriaCavaFooter({
   data,
   categoria,
   categoriaCompleta,
+  cavaAsignada,
 }: {
   data: SubLoteDetail;
   categoria: 'viscera_roja' | 'viscera_blanca' | 'retoma';
   categoriaCompleta: boolean;
+  cavaAsignada: string | null;
 }) {
   const asignar = useAsignarCavaSubproducto();
   const salida = useGenerarSalida(data);
   const [cava, setCava] = useState(CAVAS_SUBPRODUCTO_OPCIONES[0].value);
-  const [guardado, setGuardado] = useState(false);
+  // El estado "asignado" viene de la BD (item.cava), no de un flag local: así
+  // se mantiene igual aunque se salga y vuelva a entrar al módulo.
+  const guardado = cavaAsignada != null;
 
   if (data.subproductoDestino === 'firmante') {
     if (data.subproductoRetiroAt) {
@@ -518,7 +526,8 @@ function CategoriaCavaFooter({
 
   if (guardado) {
     const label =
-      CAVAS_SUBPRODUCTO_OPCIONES.find((c) => c.value === cava)?.label ?? cava;
+      CAVAS_SUBPRODUCTO_OPCIONES.find((c) => c.value === cavaAsignada)?.label ??
+      cavaAsignada;
     return (
       <div className="border-t border-border px-2 py-1.5 text-center text-[11px] font-medium text-emerald-700">
         Cava asignada: {label}
@@ -551,10 +560,11 @@ function CategoriaCavaFooter({
             : 'Marca el check ✓ de la categoría antes de hacer el ingreso a cavas'
         }
         onClick={() =>
-          asignar.mutate(
-            { ordenBeneficioIds: data.ordenBeneficioIds, cava, categoria },
-            { onSuccess: () => setGuardado(true) },
-          )
+          asignar.mutate({
+            ordenBeneficioIds: data.ordenBeneficioIds,
+            cava,
+            categoria,
+          })
         }
       >
         Entrada
@@ -620,6 +630,16 @@ function ChecklistView({
               // Se muestran primero los pendientes y luego los ya registrados con su chulo.
               const filas = [...items, ...registrados];
               const categoriaCompleta = items.length === 0;
+              // La cava queda guardada en la BD (item.cava): si todos los
+              // registrados de la categoría ya tienen la misma cava, el
+              // "Entrada" ya se hizo y debe seguir mostrándose así aunque se
+              // salga y vuelva a entrar al módulo.
+              const cavaAsignada =
+                categoriaCompleta &&
+                registrados.length > 0 &&
+                registrados.every((ai) => ai.item.cava === registrados[0].item.cava)
+                  ? registrados[0].item.cava
+                  : null;
               // Solo se puede marcar en masa lo que no requiere pesarse.
               const pendientesUnidad = items.filter(
                 (ai) => ai.item.unidad !== 'kg',
@@ -746,6 +766,7 @@ function ChecklistView({
                     data={data}
                     categoria={col.key}
                     categoriaCompleta={categoriaCompleta}
+                    cavaAsignada={cavaAsignada}
                   />
                 </div>
               );

@@ -273,6 +273,7 @@ export class SubproductosService {
                 categoria: def?.categoria ?? 'retoma',
                 marcado: s.marcado,
                 pesoKg: s.pesoKg != null ? Number(s.pesoKg) : null,
+                cava: s.cava ?? null,
                 registradoAt: s.registradoAt?.toISOString() ?? null,
                 operatorName: s.operatorId
                   ? (nameById.get(s.operatorId) ?? '—')
