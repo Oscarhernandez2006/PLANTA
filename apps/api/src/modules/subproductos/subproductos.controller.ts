@@ -13,6 +13,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SubproductosService } from './subproductos.service';
 import { RegistrarSubproductoDto } from './dto/registrar-subproducto.dto';
 import { AsignarCavaDto } from './dto/asignar-cava.dto';
+import { DeshacerSubproductoDto } from './dto/deshacer-subproducto.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('subproductos')
@@ -52,5 +53,13 @@ export class SubproductosController {
     @Body() dto: RegistrarSubproductoDto,
   ) {
     return this.service.registrar(user, dto);
+  }
+
+  @Post('deshacer')
+  deshacer(
+    @CurrentUser() user: AuthContext,
+    @Body() dto: DeshacerSubproductoDto,
+  ) {
+    return this.service.deshacer(user, dto.eventoId, dto.tipo);
   }
 }

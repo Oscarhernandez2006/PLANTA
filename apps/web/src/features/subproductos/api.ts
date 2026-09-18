@@ -101,6 +101,19 @@ export function useRegistrarSubproducto() {
   });
 }
 
+/** Deshace (desmarca) un ítem del checklist registrado por error. */
+export function useDeshacerSubproducto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { eventoId: string; tipo: string }) =>
+      (await api.post<{ ok: boolean }>('/subproductos/deshacer', payload))
+        .data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subproductos'] });
+    },
+  });
+}
+
 export function useRegistrarRetiroSubproducto() {
   const qc = useQueryClient();
   return useMutation({

@@ -6,6 +6,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Scale,
+  Undo2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -23,6 +24,7 @@ import {
   useSubproductosLotes,
   useSubLoteDetail,
   useRegistrarSubproducto,
+  useDeshacerSubproducto,
   useRegistrarRetiroSubproducto,
   useAsignarCavaSubproducto,
   CAVAS_SUBPRODUCTO_OPCIONES,
@@ -552,6 +554,47 @@ function CategoriaCavaFooter({
   );
 }
 
+/** Fila de un ítem ya registrado, con opción de deshacer si se marcó por error. */
+function RegistradoRow({ animalItem }: { animalItem: AnimalItem }) {
+  const deshacer = useDeshacerSubproducto();
+  const ai = animalItem;
+  return (
+    <li className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs">
+      <div className="flex items-center gap-2">
+        <span className="font-semibold tabular-nums">
+          #{ai.animal.consecutivo}
+        </span>
+        <span className="text-muted-foreground">
+          {ai.item.label} · {hora(ai.item.registradoAt)} ·{' '}
+          {ai.item.operatorName ?? '—'}
+        </span>
+      </div>
+      <div className="flex items-center gap-2">
+        {ai.item.unidad === 'kg' ? (
+          <span className="font-semibold tabular-nums">
+            {ai.item.pesoKg?.toFixed(2)} kg
+          </span>
+        ) : (
+          <CheckCircle2 className="size-4 text-emerald-600" />
+        )}
+        <button
+          onClick={() =>
+            deshacer.mutate({
+              eventoId: ai.animal.eventoId,
+              tipo: ai.item.tipo,
+            })
+          }
+          disabled={deshacer.isPending}
+          title="Deshacer (se registró por error)"
+          className="text-muted-foreground hover:text-red-600 disabled:opacity-50"
+        >
+          <Undo2 className="size-4" />
+        </button>
+      </div>
+    </li>
+  );
+}
+
 function ChecklistView({
   data,
   pendientes,
@@ -675,27 +718,10 @@ function ChecklistView({
             </div>
             <ul className="max-h-60 divide-y divide-border overflow-auto overscroll-contain">
               {pesados.map((ai) => (
-                <li
+                <RegistradoRow
                   key={`${ai.animal.eventoId}:${ai.item.tipo}`}
-                  className="flex items-center justify-between gap-3 px-3 py-1.5 text-xs"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="font-semibold tabular-nums">
-                      #{ai.animal.consecutivo}
-                    </span>
-                    <span className="text-muted-foreground">
-                      {ai.item.label} · {hora(ai.item.registradoAt)} ·{' '}
-                      {ai.item.operatorName ?? '—'}
-                    </span>
-                  </div>
-                  {ai.item.unidad === 'kg' ? (
-                    <span className="font-semibold tabular-nums">
-                      {ai.item.pesoKg?.toFixed(2)} kg
-                    </span>
-                  ) : (
-                    <CheckCircle2 className="size-4 text-emerald-600" />
-                  )}
-                </li>
+                  animalItem={ai}
+                />
               ))}
             </ul>
           </>

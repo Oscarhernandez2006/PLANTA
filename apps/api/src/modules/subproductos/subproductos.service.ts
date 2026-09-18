@@ -315,6 +315,33 @@ export class SubproductosService {
     return { ok: true };
   }
 
+  /** Deshace (desmarca) un ítem ya registrado por error. */
+  async deshacer(ctx: AuthContext, eventoId: string, tipo: string) {
+    const item = await this.prisma.subproductoItem.findFirst({
+      where: {
+        eventoId,
+        tipo,
+        evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } },
+      },
+    });
+    if (!item) throw new NotFoundException('Ítem no encontrado.');
+    if (!item.marcado) {
+      throw new BadRequestException('Este ítem aún no está registrado.');
+    }
+
+    await this.prisma.subproductoItem.update({
+      where: { id: item.id },
+      data: {
+        marcado: false,
+        pesoKg: null,
+        registradoAt: null,
+        operatorId: null,
+        cava: null,
+      },
+    });
+    return { ok: true };
+  }
+
   /**
    * Asigna la cava de destino (Entrada) a los subproductos de un grupo de
    * lotes (mismo cliente). Solo aplica a lotes con destino "empresa". Si se
