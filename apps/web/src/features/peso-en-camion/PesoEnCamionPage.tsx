@@ -268,8 +268,13 @@ export function PesoEnCamionPage() {
       // Limpia enseguida para poder capturar la siguiente guía.
       resetForm();
       showNotice(`Guía ${formatReferencia(ref)} guardada. Listo para la siguiente.`);
-    } catch {
-      setSaveError('No se pudo guardar la guía.');
+    } catch (err) {
+      const detail = (
+        err as { response?: { data?: { message?: string | string[] } } }
+      ).response?.data?.message;
+      setSaveError(
+        Array.isArray(detail) ? detail.join(' ') : detail || 'No se pudo guardar la guía.',
+      );
     }
   }
 
@@ -547,6 +552,7 @@ export function PesoEnCamionPage() {
                 value={guia}
                 onChange={(e) => setGuia(e.target.value)}
                 onDoubleClick={keyboard.open}
+                autoComplete="off"
               />
             </KeyboardField>
           </div>

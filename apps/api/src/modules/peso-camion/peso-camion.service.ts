@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PesoCamion, PesoCamionStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
@@ -74,7 +74,32 @@ export class PesoCamionService {
     };
   }
 
+  /** Verifica que la guía (número real, no TEMP-) no se haya usado antes en la planta. */
+  private async assertGuiaDisponible(
+    ctx: AuthContext,
+    guia: string | null | undefined,
+    excludeId?: string,
+  ) {
+    const valor = guia?.trim();
+    if (!valor || valor.toUpperCase().startsWith('TEMP-')) return;
+    const repetida = await this.prisma.pesoCamion.findFirst({
+      where: {
+        plantId: ctx.plantId,
+        deletedAt: null,
+        guia: { equals: valor, mode: 'insensitive' },
+        ...(excludeId && { id: { not: excludeId } }),
+      },
+      select: { reference: true },
+    });
+    if (repetida) {
+      throw new BadRequestException(
+        `La guía "${valor}" ya se usó en la referencia ${repetida.reference}.`,
+      );
+    }
+  }
+
   async create(ctx: AuthContext, dto: SavePesoCamionDto) {
+    await this.assertGuiaDisponible(ctx, dto.guia);
     const { date } = dateOnly(dto.date);
     return this.prisma.$transaction(async (tx) => {
       // Serializa el consecutivo global de referencia por planta.
@@ -102,6 +127,7 @@ export class PesoCamionService {
       where: { id, plantId: ctx.plantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Guía no encontrada.');
+    await this.assertGuiaDisponible(ctx, dto.guia, id);
 
     const rec = await this.prisma.pesoCamion.update({
       where: { id },
