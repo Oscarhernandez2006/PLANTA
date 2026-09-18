@@ -8,6 +8,7 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { RegistrarSubproductoDto } from './dto/registrar-subproducto.dto';
 import { plantDateOnly } from '../../common/plant-date';
 import { SUBPRODUCTO_ITEMS, SUBPRODUCTO_ITEM_BY_TIPO } from './subproducto-items';
+import { SubproductoDestino } from '@prisma/client';
 
 function dateOnly(value?: string) {
   return plantDateOnly(value);
@@ -217,6 +218,28 @@ export class SubproductosService {
         registradoAt: new Date(),
         operatorId: ctx.userId,
       },
+    });
+    return { ok: true };
+  }
+
+  /**
+   * Asigna la cava de destino (Entrada) a todos los subproductos del lote.
+   * Solo aplica a lotes cuyo destino es "empresa" (Entrada a cavas frío).
+   */
+  async asignarCava(ctx: AuthContext, ordenBeneficioId: string, cava: string) {
+    const o = await this.prisma.ordenBeneficio.findFirst({
+      where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+    });
+    if (!o) throw new NotFoundException('Lote no encontrado.');
+    if (o.subproductoDestino !== SubproductoDestino.empresa) {
+      throw new BadRequestException(
+        'Este lote no tiene destino Entrada (cavas frío).',
+      );
+    }
+
+    await this.prisma.subproductoItem.updateMany({
+      where: { evento: { ordenBeneficioId } },
+      data: { cava: cava.trim() },
     });
     return { ok: true };
   }

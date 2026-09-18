@@ -60,8 +60,8 @@ const destinoMeta: Record<
   SubproductoDestino,
   { label: string; tone: 'neutral' | 'info' | 'success' }
 > = {
-  empresa: { label: 'Cavas frío', tone: 'success' },
-  firmante: { label: 'Se las lleva el firmante', tone: 'info' },
+  empresa: { label: 'Entrada', tone: 'success' },
+  firmante: { label: 'Salida', tone: 'info' },
 };
 
 export function OrdenBeneficioPage() {
@@ -351,8 +351,8 @@ function GuiaLoteRow({
           className="h-8 w-full text-xs"
           title="Quién se queda con las vísceras (rojas y blancas) de este lote"
         >
-          <option value="empresa">Cavas frío</option>
-          <option value="firmante">Se las lleva el firmante</option>
+          <option value="empresa">Entrada</option>
+          <option value="firmante">Salida</option>
         </Select>
       </TD>
       <TD>
@@ -463,8 +463,8 @@ function OrderRow({
               }
               className="h-7 text-xs"
             >
-              <option value="empresa">Cavas frío</option>
-              <option value="firmante">Se las lleva el firmante</option>
+              <option value="empresa">Entrada</option>
+              <option value="firmante">Salida</option>
             </Select>
           ) : (
             <Badge tone={dMeta.tone}>{dMeta.label}</Badge>

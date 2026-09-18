@@ -112,3 +112,26 @@ export function useRegistrarRetiroSubproducto() {
   });
 }
 
+/** Asigna la cava de destino (Entrada) a todos los subproductos del lote. */
+export function useAsignarCavaSubproducto() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      ordenBeneficioId,
+      cava,
+    }: {
+      ordenBeneficioId: string;
+      cava: string;
+    }) =>
+      (
+        await api.patch<{ ok: boolean }>(
+          `/subproductos/lotes/${ordenBeneficioId}/cava`,
+          { cava },
+        )
+      ).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['subproductos'] });
+    },
+  });
+}
+

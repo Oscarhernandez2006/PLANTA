@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
 import {
   BasculaConexion,
@@ -17,15 +18,18 @@ import {
   useBascula,
 } from '@/components/bascula/Bascula';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/features/auth/auth-context';
 import {
   useSubproductosLotes,
   useSubLoteDetail,
   useRegistrarSubproducto,
   useRegistrarRetiroSubproducto,
+  useAsignarCavaSubproducto,
   type SubAnimal,
   type SubItem,
   type SubLoteDetail,
 } from './api';
+import { downloadOrdenSalidaPdf } from './orden-salida-print';
 
 function today() {
   return new Date().toISOString().slice(0, 10);
@@ -126,9 +130,7 @@ export function SubproductosPage() {
                         </span>
                         {l.subproductoDestino === 'firmante' && (
                           <Badge tone={l.subproductoRetiroAt ? 'success' : 'info'}>
-                            {l.subproductoRetiroAt
-                              ? 'Retirado por firmante'
-                              : 'Se lo lleva el firmante'}
+                            {l.subproductoRetiroAt ? 'Salida generada' : 'Salida'}
                           </Badge>
                         )}
                       </div>
@@ -195,8 +197,10 @@ function LoteDetalle({
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {data.subproductoDestino === 'firmante' && (
-            <RetiroBadge data={data} />
+          {data.subproductoDestino === 'firmante' ? (
+            <SalidaPanel data={data} />
+          ) : (
+            <EntradaPanel data={data} />
           )}
           <Button
             variant="outline"
@@ -262,28 +266,106 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
   );
 }
 
-function RetiroBadge({ data }: { data: SubLoteDetail }) {
+function EntradaPanel({ data }: { data: SubLoteDetail }) {
+  const [cava, setCava] = useState('');
+  const asignar = useAsignarCavaSubproducto();
+  const [guardado, setGuardado] = useState(false);
+  const completo = data.total > 0 && data.pesados === data.total;
+
+  if (!completo) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Completa el checklist para asignar la cava de entrada.
+      </span>
+    );
+  }
+  if (guardado) {
+    return <Badge tone="success">Cava asignada: {cava}</Badge>;
+  }
+  return (
+    <div className="flex items-center gap-1.5">
+      <Input
+        value={cava}
+        onChange={(e) => setCava(e.target.value)}
+        placeholder="Cava"
+        className="h-8 w-28"
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={!cava.trim() || asignar.isPending}
+        onClick={() =>
+          asignar.mutate(
+            { ordenBeneficioId: data.ordenBeneficioId, cava: cava.trim() },
+            { onSuccess: () => setGuardado(true) },
+          )
+        }
+      >
+        Asignar cava (Entrada)
+      </Button>
+    </div>
+  );
+}
+
+function SalidaPanel({ data }: { data: SubLoteDetail }) {
+  const { user } = useAuth();
+  const [observaciones, setObservaciones] = useState('');
   const registrarRetiro = useRegistrarRetiroSubproducto();
+  const completo = data.total > 0 && data.pesados === data.total;
+
   if (data.subproductoRetiroAt) {
     return (
       <Badge tone="success">
-        Retirado por el firmante ·{' '}
+        Orden de salida generada ·{' '}
         {new Date(data.subproductoRetiroAt).toLocaleString('es-CO')}
       </Badge>
     );
   }
+  if (!completo) {
+    return (
+      <span className="text-xs text-muted-foreground">
+        Completa el checklist para generar la orden de salida.
+      </span>
+    );
+  }
+
+  function generar() {
+    registrarRetiro.mutate(
+      { ordenBeneficioId: data.ordenBeneficioId, observaciones },
+      {
+        onSuccess: () => {
+          downloadOrdenSalidaPdf({
+            reference: data.reference,
+            cliente: data.cliente,
+            guias: data.guias,
+            fecha: new Date().toLocaleString('es-CO'),
+            responsable: user?.fullName ?? '—',
+            observaciones: observaciones.trim() || null,
+            items: data.resumen.filter((r) => r.marcados > 0),
+          });
+        },
+      },
+    );
+  }
+
   return (
-    <Button
-      variant="outline"
-      size="sm"
-      disabled={registrarRetiro.isPending}
-      onClick={() =>
-        registrarRetiro.mutate({ ordenBeneficioId: data.ordenBeneficioId })
-      }
-      title="Deja constancia de que el firmante retiró estas vísceras"
-    >
-      Registrar retiro del firmante
-    </Button>
+    <div className="flex items-center gap-1.5">
+      <Input
+        value={observaciones}
+        onChange={(e) => setObservaciones(e.target.value)}
+        placeholder="Observaciones (opcional)"
+        className="h-8 w-48"
+      />
+      <Button
+        variant="outline"
+        size="sm"
+        disabled={registrarRetiro.isPending}
+        onClick={generar}
+        title="Genera la constancia y el PDF de la orden de salida"
+      >
+        Generar orden de salida
+      </Button>
+    </div>
   );
 }
 
