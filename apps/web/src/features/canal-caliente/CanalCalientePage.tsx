@@ -370,11 +370,12 @@ function CanalesTab({
 
       <div className="grid grid-cols-3 gap-3">
         {CANAL_PANELS.map(({ pieza, title }) => {
+          const cizqPesado = !!estadoDe('cizq')?.pesado;
           const aplica = !animal?.canalTipo
             ? true
             : esCompleta
               ? pieza === 'canal'
-              : pieza !== 'canal';
+              : pieza !== 'canal' && (pieza === 'cizq' || cizqPesado);
           const estado = estadoDe(pieza);
           const pesado = !!estado?.pesado;
           // CIZQ y CDER comparten la misma clasificación (media canal), así
@@ -400,7 +401,7 @@ function CanalesTab({
                   tipo: PANEL_TIPO[pieza],
                 });
               }}
-              disabled={setTipo.isPending || !animal || pesado}
+              disabled={setTipo.isPending || !animal || pesado || !aplica}
               className="flex flex-col items-center gap-2 rounded-sm border-2 border-border bg-card p-3 text-center transition-colors hover:border-emerald-400 disabled:hover:border-border"
             >
               <span className="text-sm font-semibold">{title}:</span>
