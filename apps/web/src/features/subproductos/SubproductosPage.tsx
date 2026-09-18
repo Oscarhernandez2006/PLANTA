@@ -357,7 +357,7 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
 }
 
 function EntradaPanel({ data }: { data: SubLoteDetail }) {
-  const [cava, setCava] = useState('');
+  const [cava, setCava] = useState(CAVAS_SUBPRODUCTO_OPCIONES[0].value);
   const asignar = useAsignarCavaSubproducto();
   const [guardado, setGuardado] = useState(false);
   const completo = data.total > 0 && data.pesados === data.total;
@@ -370,23 +370,30 @@ function EntradaPanel({ data }: { data: SubLoteDetail }) {
     );
   }
   if (guardado) {
-    return <Badge tone="success">Cava asignada: {cava}</Badge>;
+    const label =
+      CAVAS_SUBPRODUCTO_OPCIONES.find((c) => c.value === cava)?.label ?? cava;
+    return <Badge tone="success">Cava asignada: {label}</Badge>;
   }
   return (
     <div className="flex items-center gap-1.5">
-      <Input
+      <Select
         value={cava}
         onChange={(e) => setCava(e.target.value)}
-        placeholder="Cava"
-        className="h-8 w-28"
-      />
+        className="h-8 w-40 text-xs"
+      >
+        {CAVAS_SUBPRODUCTO_OPCIONES.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </Select>
       <Button
         variant="outline"
         size="sm"
-        disabled={!cava.trim() || asignar.isPending}
+        disabled={asignar.isPending}
         onClick={() =>
           asignar.mutate(
-            { ordenBeneficioIds: data.ordenBeneficioIds, cava: cava.trim() },
+            { ordenBeneficioIds: data.ordenBeneficioIds, cava },
             { onSuccess: () => setGuardado(true) },
           )
         }
@@ -478,7 +485,7 @@ function CategoriaCavaFooter({
 }) {
   const asignar = useAsignarCavaSubproducto();
   const salida = useGenerarSalida(data);
-  const [cava, setCava] = useState(CAVAS_SUBPRODUCTO_OPCIONES[0]);
+  const [cava, setCava] = useState(CAVAS_SUBPRODUCTO_OPCIONES[0].value);
   const [guardado, setGuardado] = useState(false);
 
   if (data.subproductoDestino === 'firmante') {
@@ -510,9 +517,11 @@ function CategoriaCavaFooter({
   }
 
   if (guardado) {
+    const label =
+      CAVAS_SUBPRODUCTO_OPCIONES.find((c) => c.value === cava)?.label ?? cava;
     return (
       <div className="border-t border-border px-2 py-1.5 text-center text-[11px] font-medium text-emerald-700">
-        Cava asignada: {cava}
+        Cava asignada: {label}
       </div>
     );
   }
@@ -526,8 +535,8 @@ function CategoriaCavaFooter({
         className="h-7 flex-1 text-xs"
       >
         {CAVAS_SUBPRODUCTO_OPCIONES.map((c) => (
-          <option key={c} value={c}>
-            {c}
+          <option key={c.value} value={c.value}>
+            {c.label}
           </option>
         ))}
       </Select>

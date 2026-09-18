@@ -137,8 +137,17 @@ export function useRegistrarRetiroSubproducto() {
   });
 }
 
-/** Cavas fijas para ubicar subproductos (rojas/blancas/retomas) al hacer Entrada. */
-export const CAVAS_SUBPRODUCTO_OPCIONES = ['Cava subproducto 1', 'Cava subproducto 2'];
+/**
+ * Cavas fijas para ubicar subproductos al hacer Entrada. El "value" debe
+ * coincidir exactamente con el id que usa el módulo de Inventarios
+ * (CAVAS_SUBPRODUCTO = ['1','2','3']) para que lo que se guarde aquí
+ * aparezca en esa pestaña.
+ */
+export const CAVAS_SUBPRODUCTO_OPCIONES: { value: string; label: string }[] = [
+  { value: '1', label: 'Cava Subproducto 1' },
+  { value: '2', label: 'Cava Subproducto 2' },
+  { value: '3', label: 'Cava Subproducto Despacho' },
+];
 
 /** Asigna la cava de destino (Entrada) a los subproductos del grupo (cliente), opcionalmente solo de una categoría. */
 export function useAsignarCavaSubproducto() {
