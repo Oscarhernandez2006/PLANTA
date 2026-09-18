@@ -377,10 +377,11 @@ function GuiaLoteRow({
             disabled={sinCupo}
             placeholder={sinCupo ? '0' : String(g.disponibles)}
             onChange={(e) => setValue(e.target.value)}
-            className="h-8 w-16 rounded-md border border-border bg-background px-2 text-center text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+            className="h-8 w-11 rounded-md border border-border bg-background px-1 text-center text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
           />
           <Button
-            size="sm"
+            size="icon"
+            className="size-8"
             disabled={sinCupo || invalid || crear.isPending}
             onClick={() =>
               crear.mutate(
@@ -411,7 +412,6 @@ function GuiaLoteRow({
             ) : (
               <Plus className="size-4" />
             )}
-            Crear
           </Button>
         </div>
       </TD>
