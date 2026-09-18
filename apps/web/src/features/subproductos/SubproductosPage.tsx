@@ -579,7 +579,7 @@ function ChecklistView({
             subproductos de este lote ya fueron registrados.
           </div>
         ) : (
-          <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0">
+          <div className="grid grid-cols-1 divide-y divide-border sm:grid-cols-3 sm:divide-x sm:divide-y-0 sm:h-[460px]">
             {CATEGORIA_COLUMNAS.map((col) => {
               const items = pendientes.filter((ai) =>
                 col.key === 'retoma'
@@ -588,11 +588,11 @@ function ChecklistView({
                   : ai.item.categoria === col.key,
               );
               return (
-                <div key={col.key} className="flex flex-col">
+                <div key={col.key} className="flex flex-col sm:h-full">
                   <div className="bg-muted/40 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                     {col.label} ({items.length})
                   </div>
-                  <ul className="max-h-[420px] divide-y divide-border overflow-auto overscroll-contain">
+                  <ul className="max-h-[420px] divide-y divide-border overflow-auto overscroll-contain sm:max-h-none sm:flex-1">
                     {items.map((ai) => {
                       const key = `${ai.animal.eventoId}:${ai.item.tipo}`;
                       const activo = key === selectedKey;
