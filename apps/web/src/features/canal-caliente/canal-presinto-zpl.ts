@@ -232,4 +232,3 @@ export async function imprimirPresintoDirecto(
     error: resultado.error || 'No se pudo imprimir directo.',
   };
 }
-}
