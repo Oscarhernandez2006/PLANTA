@@ -832,21 +832,11 @@ function AnimalesTab({
       </fieldset>
 
       <div className="flex items-center gap-3">
-        <button
-          type="button"
-          onClick={() => guardarClasificacion()}
-          disabled={clasificar.isPending || clasificarPieza.isPending}
-          className="rounded-sm border-2 border-emerald-600 bg-emerald-600 px-5 py-2 text-sm font-semibold uppercase text-white hover:bg-emerald-700 disabled:opacity-50"
-        >
+        <p className="text-xs text-muted-foreground">
           {clasificar.isPending || clasificarPieza.isPending
             ? 'Guardando…'
-            : 'Guardar clasificación'}
-        </button>
-        {!piezaId && (
-          <p className="text-xs text-muted-foreground">
-            Selecciona una pieza pesada arriba para guardarle bodega/cava.
-          </p>
-        )}
+            : 'Usa el botón de etiqueta del pie para guardar la clasificación.'}
+        </p>
         {cavaError && (
           <p className="text-sm font-medium text-red-600">{cavaError}</p>
         )}
