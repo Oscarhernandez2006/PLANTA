@@ -114,6 +114,11 @@ export function CanalCalientePage() {
   // dispare "guardar clasificación + imprimir presinto" cuando se está en
   // la pestaña ANIMALES.
   const animalesImprimirRef = useRef<(() => void) | null>(null);
+  // Animal que se acaba de pesar: al redirigir a ANIMALES tras pesarlo, debe
+  // mostrarse ESE animal (para clasificarlo), no el siguiente pendiente de
+  // pesar (que todavía no tiene ninguna pieza y por eso no deja elegir
+  // bodega/cava). Se limpia si el operario cambia de pestaña manualmente.
+  const [ultimoPesadoId, setUltimoPesadoId] = useState<string | null>(null);
 
   const lista = lotes.data ?? [];
   const selectedLote = lista.find((l) => l.ordenBeneficioId === selectedId);
@@ -123,6 +128,12 @@ export function CanalCalientePage() {
     () => siguienteObjetivo(detail.data),
     [detail.data],
   );
+  // Prioriza el animal recién pesado (para clasificarlo); si no hay uno
+  // reciente, cae al comportamiento normal (siguiente pendiente / último).
+  const animalParaClasificar =
+    detail.data?.animales.find((a) => a.eventoId === ultimoPesadoId) ??
+    objetivo?.animal ??
+    siguienteObjetivoAnimal(detail.data);
 
   function seleccionarOrden(ordenBeneficioId: string, _tipo: CanalTipo | null) {
     setSelectedId(ordenBeneficioId);
@@ -163,7 +174,10 @@ export function CanalCalientePage() {
         {TABS.map((t) => (
           <button
             key={t.key}
-            onClick={() => setTab(t.key)}
+            onClick={() => {
+              setUltimoPesadoId(null);
+              setTab(t.key);
+            }}
             className={cn(
               'flex-1 border-r-2 border-border px-3 py-3 text-center text-sm font-semibold uppercase tracking-wide transition-colors last:border-r-0',
               tab === t.key
@@ -196,7 +210,7 @@ export function CanalCalientePage() {
           <AnimalesTab
             date={date}
             detail={detail.data}
-            objetivoAnimal={objetivo?.animal ?? siguienteObjetivoAnimal(detail.data)}
+            objetivoAnimal={animalParaClasificar}
             registerGuardarEImprimir={(fn) => {
               animalesImprimirRef.current = fn;
             }}
@@ -232,6 +246,7 @@ export function CanalCalientePage() {
         turno={turno}
         setTurno={setTurno}
         onEtiquetaAnimales={() => animalesImprimirRef.current?.()}
+        onPesado={setUltimoPesadoId}
       />
     </div>
   );
@@ -945,6 +960,7 @@ function FooterBascula({
   turno,
   setTurno,
   onEtiquetaAnimales,
+  onPesado,
 }: {
   tab: Tab;
   setTab: (t: Tab) => void;
@@ -953,6 +969,7 @@ function FooterBascula({
   turno: CanalTurno;
   setTurno: (t: CanalTurno) => void;
   onEtiquetaAnimales: () => void;
+  onPesado: (eventoId: string) => void;
 }) {
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
   const registrar = useRegistrarCanal();
@@ -965,9 +982,10 @@ function FooterBascula({
   // animal (tipo, expendio, bodega, cava) y desde ahí imprimir el presinto.
   function guardar() {
     if (!objetivo?.pieza || !puedePesar || registrar.isPending) return;
+    const eventoId = objetivo.animal.eventoId;
     registrar.mutate(
       {
-        eventoId: objetivo.animal.eventoId,
+        eventoId,
         pieza: objetivo.pieza,
         pesoKg: valor,
         turno,
@@ -975,6 +993,7 @@ function FooterBascula({
       {
         onSuccess: () => {
           setPeso('0.0');
+          onPesado(eventoId);
           setTab('animales');
         },
       },
