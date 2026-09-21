@@ -42,6 +42,11 @@ function sanear(texto: string) {
   return texto.replace(/[\^~]/g, ' ');
 }
 
+/** Recorta valores muy largos (ej. nombres de cliente, guías largas) para que no se encimen con el siguiente campo. */
+function truncar(texto: string, max: number) {
+  return texto.length > max ? `${texto.slice(0, max - 1)}.` : texto;
+}
+
 /** Comandos ZPL de UNA copia del presinto, dentro del bloque [anchoOffsetMM, anchoOffsetMM+anchoBloqueMM]. */
 function bloqueZPL(
   d: PresintoTicketData,
@@ -63,8 +68,8 @@ function bloqueZPL(
   };
 
   const campo = (largoMM: number, label: string, valor: string) => {
-    texto(largoMM, 1, Math.round(45 * s), `${label}:`);
-    texto(largoMM, 6.5, Math.round(45 * s), valor || '-');
+    texto(largoMM, 1, Math.round(28 * s), `${label}:`);
+    texto(largoMM, 6.5, Math.round(28 * s), truncar(valor || '-', 16));
   };
 
   // Código de barras (Code128), rotado, altura a lo largo del rollo.
@@ -79,7 +84,7 @@ function bloqueZPL(
   // columnas lado a lado no cabían y se encimaban con la copia vecina).
   // Los 8 campos van uno debajo del otro a lo largo del rollo, donde sí
   // sobra espacio.
-  let y = 40;
+  let y = 50;
   const lineH = 20;
 
   campo(y, 'Fecha Sacrificio', d.fechaSacrificio);
