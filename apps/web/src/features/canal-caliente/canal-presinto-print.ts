@@ -36,11 +36,22 @@ function codigoBarras(d: PresintoTicketData): string {
 }
 
 /**
- * Dibuja el presinto en la página actual del documento (todo en mm, dentro
- * de un lienzo de W x H).
+ * Dibuja una copia del presinto dentro de un bloque de W x blockH mm,
+ * desplazado verticalmente por yOffset (para apilar 2 copias dentro de la
+ * misma tira de 2.5cm de alto). Todo se escala verticalmente por
+ * `blockH / 25` respecto del diseño original a página completa.
  */
-function dibujarTicket(doc: jsPDF, d: PresintoTicketData, W: number, H: number) {
-  // Código de barras: se dibuja sobre un canvas y se inserta como imagen.
+function dibujarTicket(
+  doc: jsPDF,
+  d: PresintoTicketData,
+  W: number,
+  blockH: number,
+  yOffset: number,
+) {
+  const s = blockH / 25;
+
+  // Código de barras: se dibuja sobre un canvas y se inserta como imagen,
+  // calculando el ancho a partir del alto deseado para que siempre encaje.
   const canvas = document.createElement('canvas');
   const codigo = codigoBarras(d);
   JsBarcode(canvas, codigo, {
@@ -51,18 +62,25 @@ function dibujarTicket(doc: jsPDF, d: PresintoTicketData, W: number, H: number) 
     margin: 0,
   });
   const barcodeDataUrl = canvas.toDataURL('image/png');
-  const barcodeW = 52;
-  const barcodeH = (canvas.height / canvas.width) * barcodeW;
-  doc.addImage(barcodeDataUrl, 'PNG', 2, (H - barcodeH) / 2, barcodeW, barcodeH);
+  const barcodeH = blockH - 4 * s;
+  const barcodeW = barcodeH * (canvas.width / canvas.height);
+  doc.addImage(
+    barcodeDataUrl,
+    'PNG',
+    2,
+    yOffset + (blockH - barcodeH) / 2,
+    barcodeW,
+    barcodeH,
+  );
 
   // Datos: dos columnas de campo/valor.
   const labelX1 = 58;
   const valueX1 = 82;
   const labelX2 = 128;
   const valueX2 = 146;
-  let y1 = 6;
-  let y2 = 6;
-  const lineH = 4.4;
+  let y1 = yOffset + 6 * s;
+  let y2 = yOffset + 6 * s;
+  const lineH = 4.4 * s;
 
   const campo = (
     labelX: number,
@@ -72,10 +90,10 @@ function dibujarTicket(doc: jsPDF, d: PresintoTicketData, W: number, H: number) 
     value: string,
   ) => {
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.5 * s);
     doc.text(`${label}:`, labelX, y);
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.5 * s);
     doc.text(value || '—', valueX, y);
   };
 
@@ -98,58 +116,68 @@ function dibujarTicket(doc: jsPDF, d: PresintoTicketData, W: number, H: number) 
   // Recuadro PESO (kg).
   const pesoBoxX = 170;
   const boxW = 26;
-  const boxY = 2;
-  const boxH = H - 4;
+  const boxY = yOffset + 2 * s;
+  const boxH = blockH - 4 * s;
   doc.setLineWidth(0.4);
   doc.rect(pesoBoxX, boxY, boxW, boxH);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(6.5);
-  doc.text('PESO (kg)', pesoBoxX + boxW / 2, boxY + 5, { align: 'center' });
-  doc.setFontSize(15);
-  doc.text(d.pesoKg.toFixed(0), pesoBoxX + boxW / 2, boxY + boxH - 5, {
+  doc.setFontSize(6.5 * s);
+  doc.text('PESO (kg)', pesoBoxX + boxW / 2, boxY + 5 * s, { align: 'center' });
+  doc.setFontSize(15 * s);
+  doc.text(d.pesoKg.toFixed(0), pesoBoxX + boxW / 2, boxY + boxH - 5 * s, {
     align: 'center',
   });
 
   // Recuadro TURNO.
   const turnoBoxX = pesoBoxX + boxW + 3;
   doc.rect(turnoBoxX, boxY, boxW, boxH);
-  doc.setFontSize(6.5);
-  doc.text('TURNO', turnoBoxX + boxW / 2, boxY + 5, { align: 'center' });
-  doc.setFontSize(15);
-  doc.text(String(TURNO_DIGITO[d.turno]), turnoBoxX + boxW / 2, boxY + boxH - 5, {
-    align: 'center',
-  });
+  doc.setFontSize(6.5 * s);
+  doc.text('TURNO', turnoBoxX + boxW / 2, boxY + 5 * s, { align: 'center' });
+  doc.setFontSize(15 * s);
+  doc.text(
+    String(TURNO_DIGITO[d.turno]),
+    turnoBoxX + boxW / 2,
+    boxY + boxH - 5 * s,
+    { align: 'center' },
+  );
 
   // Título del tipo de canal, a la derecha.
   const tituloX = turnoBoxX + boxW + 4;
   const titulo = CANAL_TIPO_TITULO[d.canalTipo];
   const palabras = titulo.split(' ');
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  const midY = H / 2;
+  doc.setFontSize(15 * s);
+  const midY = yOffset + blockH / 2;
   if (palabras.length > 1) {
     const mitad = Math.ceil(palabras.length / 2);
-    doc.text(palabras.slice(0, mitad).join(' '), tituloX, midY - 2);
-    doc.text(palabras.slice(mitad).join(' '), tituloX, midY + 6);
+    doc.text(palabras.slice(0, mitad).join(' '), tituloX, midY - 2 * s);
+    doc.text(palabras.slice(mitad).join(' '), tituloX, midY + 6 * s);
   } else {
-    doc.text(titulo, tituloX, midY + 2);
+    doc.text(titulo, tituloX, midY + 2 * s);
   }
 }
 
 /**
  * Genera e imprime el presinto de Canal Caliente: tira de 26.5cm x 2.5cm con
  * los datos del animal/pieza pesada y un código de barras real (Code128)
- * para trazabilidad de inventario/despacho. Se imprimen 2 copias iguales
- * (una por página) para pegar una en la canal y conservar la otra.
+ * para trazabilidad de inventario/despacho. Se imprimen 2 copias iguales,
+ * apiladas dentro de la MISMA tira de 2.5cm de alto (no se duplica el
+ * tamaño del papel), para pegar una en la canal y conservar la otra.
  */
 export function imprimirPresinto(d: PresintoTicketData) {
   const W = 265;
   const H = 25;
   const doc = new jsPDF({ unit: 'mm', format: [W, H], orientation: 'landscape' });
 
-  dibujarTicket(doc, d, W, H);
-  doc.addPage([W, H], 'landscape');
-  dibujarTicket(doc, d, W, H);
+  const blockH = H / 2;
+  dibujarTicket(doc, d, W, blockH, 0);
+  dibujarTicket(doc, d, W, blockH, blockH);
+
+  // Línea punteada de corte entre las 2 copias.
+  doc.setLineWidth(0.15);
+  doc.setLineDashPattern([1, 1], 0);
+  doc.line(0, blockH, W, blockH);
+  doc.setLineDashPattern([], 0);
 
   doc.autoPrint();
   const blobUrl = doc.output('bloburl');
