@@ -69,8 +69,8 @@ function bloqueZPL(
     label: string,
     valor: string,
   ) => {
-    texto(largoMM, anchoLabelMM, Math.round(13 * s), `${label}:`);
-    texto(largoMM, anchoValueMM, Math.round(13 * s), valor || '-');
+    texto(largoMM, anchoLabelMM, Math.round(30 * s), `${label}:`);
+    texto(largoMM, anchoValueMM, Math.round(30 * s), valor || '-');
   };
 
   // Código de barras (Code128), rotado, altura a lo largo del rollo.
