@@ -722,6 +722,8 @@ model OrdenBeneficioEvento {
   canalAnimalTipo CanalAnimalTipo? @map("canal_animal_tipo")
   // Tipo de pesaje en Canal Caliente, elegido por animal.
   canalTipo       CanalTipo?       @map("canal_tipo")
+  // Expendio del animal (para el presinto/etiqueta de Canal Caliente).
+  expendio        String?
 
   ordenBeneficio OrdenBeneficio       @relation(fields: [ordenBeneficioId], references: [id])
   canalPiezas    CanalPieza[]

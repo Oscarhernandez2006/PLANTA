@@ -146,6 +146,7 @@ export class CanalCalienteService {
           stunnedAt: e.stunnedAt.toISOString(),
           canalTipo: e.canalTipo,
           canalAnimalTipo: e.canalAnimalTipo,
+          expendio: e.expendio,
           piezas: esperadas.map((pz) => {
             const reg = byPieza.get(pz);
             return {
@@ -213,6 +214,7 @@ export class CanalCalienteService {
       where: { id: evt.id },
       data: {
         ...(dto.tipo !== undefined && { canalAnimalTipo: dto.tipo }),
+        ...(dto.expendio !== undefined && { expendio: dto.expendio }),
       },
     });
     return { ok: true };

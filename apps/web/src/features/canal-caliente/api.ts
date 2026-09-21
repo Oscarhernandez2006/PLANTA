@@ -88,6 +88,7 @@ export interface CanalAnimal {
   stunnedAt: string;
   canalTipo: CanalTipo | null;
   canalAnimalTipo: CanalAnimalTipo | null;
+  expendio: string | null;
   piezas: CanalPiezaEstado[];
 }
 
@@ -252,7 +253,11 @@ export function useDeshacerCanal() {
 export function useClasificarAnimal() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (payload: { eventoId: string; tipo?: CanalAnimalTipo }) => {
+    mutationFn: async (payload: {
+      eventoId: string;
+      tipo?: CanalAnimalTipo;
+      expendio?: string;
+    }) => {
       const { eventoId, ...body } = payload;
       return (
         await api.patch<{ ok: boolean }>(

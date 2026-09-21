@@ -1,4 +1,4 @@
-import { IsEnum, IsOptional } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
 import { CanalAnimalTipo } from '@prisma/client';
 
 // Clasificación por ANIMAL (especie/categoría). La bodega/cava/destino/
@@ -7,4 +7,10 @@ export class ClasificarAnimalDto {
   @IsOptional()
   @IsEnum(CanalAnimalTipo)
   tipo?: CanalAnimalTipo;
+
+  // Expendio del animal, para el presinto/etiqueta de Canal Caliente.
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  expendio?: string;
 }

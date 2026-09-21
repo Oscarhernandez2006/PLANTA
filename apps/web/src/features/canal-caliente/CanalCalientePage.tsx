@@ -40,6 +40,7 @@ import {
 import canalTodoImg from './canal-todo.png';
 import canalCizqImg from './canal-cizq.png';
 import canalCderImg from './canal-cder.png';
+import { imprimirPresinto } from './canal-presinto-print';
 
 const CANAL_IMG: Record<CanalPiezaTipo, string> = {
   canal: canalTodoImg,
@@ -213,6 +214,7 @@ export function CanalCalientePage() {
 
       {/* Pie: báscula */}
       <FooterBascula
+        date={date}
         detail={detail.data}
         objetivo={objetivo}
         turno={turno}
@@ -505,6 +507,7 @@ function AnimalesTab({
   const piezas = useCanalPiezas(date);
   const deshacer = useDeshacerCanal();
   const [tipo, setTipoLocal] = useState<CanalAnimalTipo | ''>('');
+  const [expendio, setExpendio] = useState('');
   const [piezaId, setPiezaId] = useState<string | null>(null);
   const [bodega, setBodega] = useState('');
   const [cava, setCava] = useState('');
@@ -524,6 +527,7 @@ function AnimalesTab({
   // animal, para no arrastrar lo que se estaba editando de otro.
   useEffect(() => {
     setTipoLocal(objetivoAnimal?.canalAnimalTipo ?? '');
+    setExpendio(objetivoAnimal?.expendio ?? '');
     setPiezaId(null);
     setBodega('');
     setCava('');
@@ -554,7 +558,7 @@ function AnimalesTab({
     if (!eventoId) return;
     setCavaError(null);
     setGuardadoOk(false);
-    clasificar.mutate({ eventoId, tipo: tipo || undefined });
+    clasificar.mutate({ eventoId, tipo: tipo || undefined, expendio });
     if (!piezaId) {
       setGuardadoOk(true);
       return;
@@ -612,6 +616,15 @@ function AnimalesTab({
           ))}
         </div>
       </div>
+
+      <FieldBox label="Expendio:" className="max-w-xs">
+        <input
+          value={expendio}
+          onChange={(e) => setExpendio(e.target.value)}
+          placeholder="Ej: PIPO F"
+          className="h-9 w-full bg-transparent text-base font-medium outline-none"
+        />
+      </FieldBox>
 
       <div>
         <p className="mb-2 text-sm font-semibold text-muted-foreground">
@@ -879,11 +892,13 @@ function ReporteTab({ date }: { date: string }) {
 }
 
 function FooterBascula({
+  date,
   detail,
   objetivo,
   turno,
   setTurno,
 }: {
+  date: string;
   detail: CanalLoteDetail | undefined;
   objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo | null } | null;
   turno: CanalTurno;
@@ -898,9 +913,11 @@ function FooterBascula({
 
   function guardar(imprimir = false) {
     if (!objetivo?.pieza || !puedePesar || registrar.isPending) return;
+    const animal = objetivo.animal;
+    const canalTipo = animal.canalTipo;
     registrar.mutate(
       {
-        eventoId: objetivo.animal.eventoId,
+        eventoId: animal.eventoId,
         pieza: objetivo.pieza,
         pesoKg: valor,
         turno,
@@ -908,7 +925,23 @@ function FooterBascula({
       {
         onSuccess: () => {
           setPeso('0.0');
-          if (imprimir) window.print();
+          if (imprimir && detail && canalTipo) {
+            const [y, m, d] = date.split('-');
+            imprimirPresinto({
+              fechaSacrificio: `${d}/${m}/${y}`,
+              lote: detail.reference,
+              guia: detail.guias.join(', ') || '—',
+              expendio: animal.expendio ?? '',
+              cliente: detail.cliente,
+              tipoAnimal: animal.canalAnimalTipo
+                ? CANAL_ANIMAL_TIPO_LABEL[animal.canalAnimalTipo]
+                : '—',
+              ref: animal.consecutivo,
+              turno,
+              pesoKg: valor,
+              canalTipo,
+            });
+          }
         },
       },
     );

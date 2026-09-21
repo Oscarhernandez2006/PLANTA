@@ -14,3 +14,7 @@ onlyBuiltDependencies:
   - electron
   - electron-builder
   - "@serialport/bindings-cpp"
+
+allowBuilds:
+  '@serialport/bindings-cpp': set this to true or false
+  core-js: set this to true or false
