@@ -109,7 +109,7 @@ function bloqueZPL(
   // Recuadro PESO (kg): ^GB no rota con ^A/^BC, así que su w/h físicos van
   // intercambiados respecto al diseño "de pantalla".
   const pesoBoxLargo = 170; // posición a lo largo del rollo
-  const boxLargoAncho = 26; // "ancho" del recuadro en el diseño original (a lo largo del rollo)
+  const boxLargoAncho = 12; // "ancho" del recuadro en el diseño original (a lo largo del rollo): casi cuadrado con el ancho físico real
   const boxAnchoMM = anchoBloqueMM - 4 * s; // "alto" original -> ancho físico real
   const boxAnchoOffset = anchoOffsetMM + 2 * s;
   cmds.push(
