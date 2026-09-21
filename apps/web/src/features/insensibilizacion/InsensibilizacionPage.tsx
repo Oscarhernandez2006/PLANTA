@@ -185,20 +185,30 @@ export function InsensibilizacionPage() {
                           if (isNext) {
                             stun.mutate(selectedId, {
                               onSuccess: (data) => {
-                                if (!data.cabezasPatas) return;
-                                const ultimo = data.eventos[data.eventos.length - 1];
-                                if (!ultimo) return;
-                                downloadCabezaPatasTicket({
-                                  cliente: data.cliente,
-                                  reference: data.reference,
-                                  guias: data.guias,
-                                  consecutivo:
-                                    (data.consecutivoBase ?? 0) + ultimo.sequence,
-                                  fecha: data.date,
-                                  hora: new Date(ultimo.stunnedAt).toLocaleTimeString(
-                                    'es-CO',
-                                  ),
-                                });
+                                if (data.cabezasPatas) {
+                                  const ultimo =
+                                    data.eventos[data.eventos.length - 1];
+                                  if (ultimo) {
+                                    downloadCabezaPatasTicket({
+                                      cliente: data.cliente,
+                                      reference: data.reference,
+                                      guias: data.guias,
+                                      consecutivo:
+                                        (data.consecutivoBase ?? 0) +
+                                        ultimo.sequence,
+                                      fecha: data.date,
+                                      hora: new Date(
+                                        ultimo.stunnedAt,
+                                      ).toLocaleTimeString('es-CO'),
+                                    });
+                                  }
+                                }
+                                // Lote completado: vuelve sola a la lista de
+                                // pendientes, que ya no la muestra (pasó a
+                                // "procesado"), dejando ver las siguientes.
+                                if (data.insensibilizados >= data.animalCount) {
+                                  setSelectedId(null);
+                                }
                               },
                             });
                           }
