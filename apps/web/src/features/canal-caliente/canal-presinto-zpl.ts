@@ -69,15 +69,15 @@ function bloqueZPL(
     label: string,
     valor: string,
   ) => {
-    texto(largoMM, anchoLabelMM, Math.round(9 * s), `${label}:`);
-    texto(largoMM, anchoValueMM, Math.round(9 * s), valor || '-');
+    texto(largoMM, anchoLabelMM, Math.round(13 * s), `${label}:`);
+    texto(largoMM, anchoValueMM, Math.round(13 * s), valor || '-');
   };
 
   // Código de barras (Code128), rotado, altura a lo largo del rollo.
   const codigo = codigoBarras(d);
-  const barcodeH = Math.round(50 * s); // dots, a lo largo del rollo
+  const barcodeH = Math.round(70 * s); // dots, a lo largo del rollo
   cmds.push(
-    `^FO${px(anchoOffsetMM + 2)},${py(2)}^BY2,3,${Math.round(60 * s)}` +
+    `^FO${px(anchoOffsetMM + 2)},${py(2)}^BY3,3,${Math.round(80 * s)}` +
       `^BCR,${barcodeH},Y,N,N^FD${codigo}^FS`,
   );
 
@@ -88,7 +88,7 @@ function bloqueZPL(
   const valueA2 = 21;
   let y1 = 58;
   let y2 = 58;
-  const lineH = 12;
+  const lineH = 14;
 
   campo(y1, labelA1, valueA1, 'Fecha Sacrificio', d.fechaSacrificio);
   y1 += lineH;
@@ -115,19 +115,19 @@ function bloqueZPL(
   cmds.push(
     `^FO${px(boxAnchoOffset)},${py(pesoBoxLargo)}^GB${px(boxAnchoMM)},${py(boxLargoAncho)},2^FS`,
   );
-  texto(pesoBoxLargo + 5, 4 * s, Math.round(8 * s), 'PESO (kg)');
-  texto(pesoBoxLargo + 5, anchoBloqueMM - 14 * s, Math.round(18 * s), d.pesoKg.toFixed(0));
+  texto(pesoBoxLargo + 5, 4 * s, Math.round(10 * s), 'PESO (kg)');
+  texto(pesoBoxLargo + 5, anchoBloqueMM - 14 * s, Math.round(24 * s), d.pesoKg.toFixed(0));
 
   // Recuadro TURNO.
   const turnoBoxLargo = pesoBoxLargo + boxLargoAncho + 3;
   cmds.push(
     `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAnchoMM)},${py(boxLargoAncho)},2^FS`,
   );
-  texto(turnoBoxLargo + 5, 4 * s, Math.round(8 * s), 'TURNO');
+  texto(turnoBoxLargo + 5, 4 * s, Math.round(10 * s), 'TURNO');
   texto(
     turnoBoxLargo + 5,
     anchoBloqueMM - 14 * s,
-    Math.round(18 * s),
+    Math.round(24 * s),
     String(TURNO_DIGITO[d.turno]),
   );
 
@@ -138,8 +138,8 @@ function bloqueZPL(
   const mitad = Math.ceil(palabras.length / 2);
   const linea1 = palabras.slice(0, mitad).join(' ');
   const linea2 = palabras.slice(mitad).join(' ');
-  texto(tituloLargo, 1 * s, Math.round(11 * s), linea1);
-  if (linea2) texto(tituloLargo, 13 * s, Math.round(11 * s), linea2);
+  texto(tituloLargo, 1 * s, Math.round(15 * s), linea1);
+  if (linea2) texto(tituloLargo, 13 * s, Math.round(15 * s), linea2);
 
   return cmds.join('\n');
 }
