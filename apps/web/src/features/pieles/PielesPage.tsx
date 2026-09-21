@@ -135,7 +135,11 @@ export function PielesPage() {
           <Loading />
         </Card>
       ) : (
-        <LoteDetalle data={detail.data} onBack={() => setSelectedId(null)} />
+        <LoteDetalle
+          key={detail.data.ordenBeneficioId}
+          data={detail.data}
+          onBack={() => setSelectedId(null)}
+        />
       )}
     </div>
   );
@@ -151,6 +155,19 @@ function LoteDetalle({
   const [modo, setModo] = useState<'individual' | 'lote'>('individual');
   const pendientes = data.animales.filter((a) => !a.pesado);
   const pesados = data.animales.filter((a) => a.pesado);
+
+  // Si el lote ya estaba completo al abrirlo, no se auto-regresa (el
+  // operario lo abrió a propósito para consultarlo).
+  const yaCompletoAlAbrir = useRef(data.caidos > 0 && data.pesados >= data.caidos);
+  useEffect(() => {
+    if (
+      !yaCompletoAlAbrir.current &&
+      data.caidos > 0 &&
+      data.pesados >= data.caidos
+    ) {
+      onBack();
+    }
+  }, [data.pesados, data.caidos, onBack]);
 
   return (
     <Card className="flex flex-col overflow-hidden">
