@@ -360,13 +360,23 @@ function CanalesTab({
   const piezas = useCanalPiezas(date);
   const deshacer = useDeshacerCanal();
   const setTipo = useSetCanalTipo();
+  // Animal cuyo TIPO de canal se está editando: por defecto el siguiente
+  // pendiente de pesar (objetivo), pero el operario puede elegir cualquier
+  // otro animal que aún no tenga NINGUNA pieza pesada (el backend permite
+  // cambiar el tipo libremente en ese caso) para corregirlo sin depender de
+  // que "objetivo" avance hasta ahí.
+  const [overrideId, setOverrideId] = useState<string | null>(null);
 
   if (!detail)
     return (
       <Empty text="Selecciona una orden en la pestaña ORDENES para ver los canales." />
     );
 
-  const animal = objetivo?.animal;
+  const editables = detail.animales.filter((a) =>
+    a.piezas.every((p) => !p.pesado),
+  );
+  const animal =
+    editables.find((a) => a.eventoId === overrideId) ?? objetivo?.animal;
   const esCompleta = animal?.canalTipo === 'canal_completa';
   const esMediaCanal =
     animal?.canalTipo === 'media_canal_con_cola' ||
@@ -377,6 +387,28 @@ function CanalesTab({
 
   return (
     <div className="flex flex-col gap-3 p-3">
+      {editables.length > 1 && (
+        <div className="flex flex-wrap items-center justify-center gap-1.5">
+          <span className="text-xs text-muted-foreground">
+            Corregir tipo de:
+          </span>
+          {editables.map((a) => (
+            <button
+              key={a.eventoId}
+              type="button"
+              onClick={() => setOverrideId(a.eventoId)}
+              className={cn(
+                'rounded-sm border-2 px-2 py-0.5 text-xs font-semibold transition-colors',
+                a.eventoId === animal?.eventoId
+                  ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                  : 'border-border bg-card hover:bg-muted/50',
+              )}
+            >
+              #{a.consecutivo}
+            </button>
+          ))}
+        </div>
+      )}
       <p className="text-center text-sm text-muted-foreground">
         {!animal ? (
           <>Todas las piezas de la orden fueron pesadas.</>
