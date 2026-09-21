@@ -62,15 +62,9 @@ function bloqueZPL(
     );
   };
 
-  const campo = (
-    largoMM: number,
-    anchoLabelMM: number,
-    anchoValueMM: number,
-    label: string,
-    valor: string,
-  ) => {
-    texto(largoMM, anchoLabelMM, Math.round(30 * s), `${label}:`);
-    texto(largoMM, anchoValueMM, Math.round(30 * s), valor || '-');
+  const campo = (largoMM: number, label: string, valor: string) => {
+    texto(largoMM, 1, Math.round(45 * s), `${label}:`);
+    texto(largoMM, 6.5, Math.round(45 * s), valor || '-');
   };
 
   // Código de barras (Code128), rotado, altura a lo largo del rollo.
@@ -81,55 +75,50 @@ function bloqueZPL(
       `^BCR,${barcodeH},Y,N,N^FD${codigo}^FS`,
   );
 
-  // Datos: dos columnas de campo/valor (posiciones "largo" = a lo largo del rollo).
-  const labelA1 = 4;
-  const valueA1 = 10;
-  const labelA2 = 15;
-  const valueA2 = 21;
-  let y1 = 40;
-  let y2 = 40;
-  const lineH = 14;
+  // Datos: UNA sola columna (cada copia solo tiene 12.5mm de ancho; 2
+  // columnas lado a lado no cabían y se encimaban con la copia vecina).
+  // Los 8 campos van uno debajo del otro a lo largo del rollo, donde sí
+  // sobra espacio.
+  let y = 40;
+  const lineH = 20;
 
-  campo(y1, labelA1, valueA1, 'Fecha Sacrificio', d.fechaSacrificio);
-  y1 += lineH;
-  campo(y1, labelA1, valueA1, 'Lote', String(d.lote));
-  y1 += lineH;
-  campo(y1, labelA1, valueA1, 'Guia', d.guia);
-  y1 += lineH;
-  campo(y1, labelA1, valueA1, 'Expendio', d.expendio);
-  y1 += lineH;
-  campo(y1, labelA1, valueA1, 'Cliente', d.cliente);
-
-  campo(y2, labelA2, valueA2, 'Tipo', d.tipoAnimal);
-  y2 += lineH;
-  campo(y2, labelA2, valueA2, 'Ref', String(d.ref));
-  y2 += lineH;
-  campo(y2, labelA2, valueA2, 'Turno', String(TURNO_DIGITO[d.turno]));
+  campo(y, 'Fecha Sacrificio', d.fechaSacrificio);
+  y += lineH;
+  campo(y, 'Lote', String(d.lote));
+  y += lineH;
+  campo(y, 'Guia', d.guia);
+  y += lineH;
+  campo(y, 'Expendio', d.expendio);
+  y += lineH;
+  campo(y, 'Cliente', d.cliente);
+  y += lineH;
+  campo(y, 'Tipo', d.tipoAnimal);
+  y += lineH;
+  campo(y, 'Ref', String(d.ref));
+  y += lineH;
+  campo(y, 'Turno', String(TURNO_DIGITO[d.turno]));
+  y += lineH;
 
   // Recuadro PESO (kg): ^GB no rota con ^A/^BC, así que su w/h físicos van
-  // intercambiados respecto al diseño "de pantalla".
-  const pesoBoxLargo = 130; // posición a lo largo del rollo
-  const boxLargoAncho = 12; // "ancho" del recuadro en el diseño original (a lo largo del rollo): casi cuadrado con el ancho físico real
-  const boxAnchoMM = anchoBloqueMM - 4 * s; // "alto" original -> ancho físico real
+  // intercambiados respecto al diseño "de pantalla". Se hacen CUADRADOS de
+  // verdad: mismo ancho físico (boxAnchoMM) que largo (boxLargoAncho).
+  const boxAnchoMM = anchoBloqueMM - 4 * s; // "alto" original -> ancho físico real (~10.5mm)
   const boxAnchoOffset = anchoOffsetMM + 2 * s;
+  const pesoBoxLargo = y; // posición a lo largo del rollo
+  const boxLargoAncho = boxAnchoMM; // mismo tamaño que el ancho -> recuadro cuadrado
   cmds.push(
     `^FO${px(boxAnchoOffset)},${py(pesoBoxLargo)}^GB${px(boxAnchoMM)},${py(boxLargoAncho)},2^FS`,
   );
-  texto(pesoBoxLargo + 5, 4 * s, Math.round(10 * s), 'PESO (kg)');
-  texto(pesoBoxLargo + 5, anchoBloqueMM - 14 * s, Math.round(24 * s), d.pesoKg.toFixed(0));
+  texto(pesoBoxLargo + 3, 1, Math.round(9 * s), 'PESO(kg)');
+  texto(pesoBoxLargo + 3, 5.5, Math.round(30 * s), d.pesoKg.toFixed(0));
 
   // Recuadro TURNO.
   const turnoBoxLargo = pesoBoxLargo + boxLargoAncho + 3;
   cmds.push(
     `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAnchoMM)},${py(boxLargoAncho)},2^FS`,
   );
-  texto(turnoBoxLargo + 5, 4 * s, Math.round(10 * s), 'TURNO');
-  texto(
-    turnoBoxLargo + 5,
-    anchoBloqueMM - 14 * s,
-    Math.round(24 * s),
-    String(TURNO_DIGITO[d.turno]),
-  );
+  texto(turnoBoxLargo + 3, 1, Math.round(9 * s), 'TURNO');
+  texto(turnoBoxLargo + 3, 5.5, Math.round(30 * s), String(TURNO_DIGITO[d.turno]));
 
   // Título del tipo de canal.
   const tituloLargo = turnoBoxLargo + boxLargoAncho + 4;
@@ -138,8 +127,8 @@ function bloqueZPL(
   const mitad = Math.ceil(palabras.length / 2);
   const linea1 = palabras.slice(0, mitad).join(' ');
   const linea2 = palabras.slice(mitad).join(' ');
-  texto(tituloLargo, 1 * s, Math.round(15 * s), linea1);
-  if (linea2) texto(tituloLargo, 13 * s, Math.round(15 * s), linea2);
+  texto(tituloLargo, 1, Math.round(20 * s), linea1);
+  if (linea2) texto(tituloLargo, 6.5, Math.round(20 * s), linea2);
 
   return cmds.join('\n');
 }
