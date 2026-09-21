@@ -36,15 +36,10 @@ function codigoBarras(d: PresintoTicketData): string {
 }
 
 /**
- * Genera e imprime el presinto de Canal Caliente: tira de 26.5cm x 2.5cm con
- * los datos del animal/pieza pesada y un código de barras real (Code128)
- * para trazabilidad de inventario/despacho.
+ * Dibuja el presinto en la página actual del documento (todo en mm, dentro
+ * de un lienzo de W x H).
  */
-export function imprimirPresinto(d: PresintoTicketData) {
-  const W = 265;
-  const H = 25;
-  const doc = new jsPDF({ unit: 'mm', format: [W, H], orientation: 'landscape' });
-
+function dibujarTicket(doc: jsPDF, d: PresintoTicketData, W: number, H: number) {
   // Código de barras: se dibuja sobre un canvas y se inserta como imagen.
   const canvas = document.createElement('canvas');
   const codigo = codigoBarras(d);
@@ -139,6 +134,22 @@ export function imprimirPresinto(d: PresintoTicketData) {
   } else {
     doc.text(titulo, tituloX, midY + 2);
   }
+}
+
+/**
+ * Genera e imprime el presinto de Canal Caliente: tira de 26.5cm x 2.5cm con
+ * los datos del animal/pieza pesada y un código de barras real (Code128)
+ * para trazabilidad de inventario/despacho. Se imprimen 2 copias iguales
+ * (una por página) para pegar una en la canal y conservar la otra.
+ */
+export function imprimirPresinto(d: PresintoTicketData) {
+  const W = 265;
+  const H = 25;
+  const doc = new jsPDF({ unit: 'mm', format: [W, H], orientation: 'landscape' });
+
+  dibujarTicket(doc, d, W, H);
+  doc.addPage([W, H], 'landscape');
+  dibujarTicket(doc, d, W, H);
 
   doc.autoPrint();
   const blobUrl = doc.output('bloburl');
