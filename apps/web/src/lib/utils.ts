@@ -5,11 +5,17 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-/** Fecha de hoy (YYYY-MM-DD) en la zona horaria de la planta (America/Bogota), no UTC. */
+/**
+ * Fecha de hoy (YYYY-MM-DD) según el día de negocio de la planta
+ * (America/Bogota): la jornada corre de 4:00 a. m. a 4:00 a. m. del día
+ * siguiente, no de medianoche a medianoche (los turnos/consecutivos se
+ * reinician a las 4:00 a. m.).
+ */
 export function plantToday(): string {
+  const shifted = new Date(Date.now() - 4 * 60 * 60 * 1000);
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Bogota',
-  }).format(new Date());
+  }).format(shifted);
 }
 
 /** Formatea kilogramos con separador de miles y 2-3 decimales. */
