@@ -86,8 +86,8 @@ function bloqueZPL(
   const valueA1 = 10;
   const labelA2 = 15;
   const valueA2 = 21;
-  let y1 = 58;
-  let y2 = 58;
+  let y1 = 40;
+  let y2 = 40;
   const lineH = 14;
 
   campo(y1, labelA1, valueA1, 'Fecha Sacrificio', d.fechaSacrificio);
@@ -108,7 +108,7 @@ function bloqueZPL(
 
   // Recuadro PESO (kg): ^GB no rota con ^A/^BC, así que su w/h físicos van
   // intercambiados respecto al diseño "de pantalla".
-  const pesoBoxLargo = 170; // posición a lo largo del rollo
+  const pesoBoxLargo = 130; // posición a lo largo del rollo
   const boxLargoAncho = 12; // "ancho" del recuadro en el diseño original (a lo largo del rollo): casi cuadrado con el ancho físico real
   const boxAnchoMM = anchoBloqueMM - 4 * s; // "alto" original -> ancho físico real
   const boxAnchoOffset = anchoOffsetMM + 2 * s;
