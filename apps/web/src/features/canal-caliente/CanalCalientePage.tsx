@@ -547,6 +547,7 @@ function AnimalesTab({
   const [cavaError, setCavaError] = useState<string | null>(null);
   const [guardadoOk, setGuardadoOk] = useState(false);
   const [printError, setPrintError] = useState<string | null>(null);
+  const [printOk, setPrintOk] = useState<string | null>(null);
 
   const eventoId = objetivoAnimal?.eventoId ?? null;
   const rows = piezas.data ?? [];
@@ -624,6 +625,7 @@ function AnimalesTab({
         if (pieza?.pesoKg == null) return;
         const [y, m, d] = date.split('-');
         setPrintError(null);
+        setPrintOk(null);
         imprimirPresintoDirecto({
           fechaSacrificio: `${d}/${m}/${y}`,
           lote: detail.reference,
@@ -636,9 +638,11 @@ function AnimalesTab({
           pesoKg: pieza.pesoKg,
           canalTipo: objetivoAnimal.canalTipo,
         }).then((r) => {
-          if (!r.ok) {
+          if (r.ok && r.directo) {
+            setPrintOk('Presinto enviado a la impresora.');
+          } else {
             setPrintError(
-              `No se pudo imprimir directo (se descargó el .zpl): ${r.error ?? ''}`,
+              `Se descargó el .zpl (no se imprimió directo): ${r.error ?? ''}`,
             );
           }
         });
@@ -816,6 +820,9 @@ function AnimalesTab({
         )}
         {printError && (
           <p className="text-sm font-medium text-amber-600">{printError}</p>
+        )}
+        {printOk && (
+          <p className="text-sm font-medium text-emerald-600">{printOk}</p>
         )}
         {guardadoOk && !cavaError && (
           <p className="text-sm font-medium text-emerald-600">

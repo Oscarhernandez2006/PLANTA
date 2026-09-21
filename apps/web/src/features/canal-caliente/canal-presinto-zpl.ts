@@ -202,20 +202,34 @@ export async function imprimirPresintoDirecto(
 ): Promise<ImprimirPresintoResultado> {
   const zpl = generarZPL(d);
 
-  if (isDesktop()) {
-    const printerName = getSavedPrinterName();
-    if (printerName) {
-      const resultado = await printRaw(printerName, zpl);
-      if (resultado.ok) return { ok: true, directo: true };
-      descargarPresintoZPL(d);
-      return {
-        ok: false,
-        directo: false,
-        error: resultado.error || 'No se pudo imprimir directo.',
-      };
-    }
+  if (!isDesktop()) {
+    descargarPresintoZPL(d);
+    return {
+      ok: false,
+      directo: false,
+      error:
+        'No se detectó la app de escritorio (esto se ve como navegador web).',
+    };
   }
 
+  const printerName = getSavedPrinterName();
+  if (!printerName) {
+    descargarPresintoZPL(d);
+    return {
+      ok: false,
+      directo: false,
+      error: 'No hay impresora configurada (abre "Impresora de presintos").',
+    };
+  }
+
+  const resultado = await printRaw(printerName, zpl);
+  if (resultado.ok) return { ok: true, directo: true };
+
   descargarPresintoZPL(d);
-  return { ok: true, directo: false };
+  return {
+    ok: false,
+    directo: false,
+    error: resultado.error || 'No se pudo imprimir directo.',
+  };
+}
 }
