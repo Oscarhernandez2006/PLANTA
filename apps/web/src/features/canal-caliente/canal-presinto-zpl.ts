@@ -96,7 +96,9 @@ function bloqueZPL(
   y += lineH;
   campo(y, 'Ref', String(d.ref));
   y += lineH;
-  campo(y, 'Turno', String(TURNO_DIGITO[d.turno]));
+  // El usuario usa "Gancho" como sinónimo de "Turno" (mismo valor que el
+  // recuadro TURNO de más abajo).
+  campo(y, 'Gancho', String(TURNO_DIGITO[d.turno]));
   y += lineH;
 
   // Recuadro PESO (kg): ^GB no rota con ^A/^BC, así que su w/h físicos van
