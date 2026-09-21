@@ -110,6 +110,10 @@ export function CanalCalientePage() {
   const lotes = useCanalLotes(date);
   const detail = useCanalLoteDetail(selectedId);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Puente para que el botón de etiqueta del pie (compartido entre pestañas)
+  // dispare "guardar clasificación + imprimir presinto" cuando se está en
+  // la pestaña ANIMALES.
+  const animalesImprimirRef = useRef<(() => void) | null>(null);
 
   const lista = lotes.data ?? [];
   const selectedLote = lista.find((l) => l.ordenBeneficioId === selectedId);
@@ -189,7 +193,14 @@ export function CanalCalientePage() {
           <CanalesTab date={date} detail={detail.data} objetivo={objetivo} />
         )}
         {tab === 'animales' && (
-          <AnimalesTab date={date} detail={detail.data} objetivoAnimal={objetivo?.animal ?? siguienteObjetivoAnimal(detail.data)} />
+          <AnimalesTab
+            date={date}
+            detail={detail.data}
+            objetivoAnimal={objetivo?.animal ?? siguienteObjetivoAnimal(detail.data)}
+            registerGuardarEImprimir={(fn) => {
+              animalesImprimirRef.current = fn;
+            }}
+          />
         )}
         {tab === 'reporte' && <ReporteTab date={date} />}
       </div>
@@ -214,11 +225,13 @@ export function CanalCalientePage() {
 
       {/* Pie: báscula */}
       <FooterBascula
-        date={date}
+        tab={tab}
+        setTab={setTab}
         detail={detail.data}
         objetivo={objetivo}
         turno={turno}
         setTurno={setTurno}
+        onEtiquetaAnimales={() => animalesImprimirRef.current?.()}
       />
     </div>
   );
@@ -497,10 +510,12 @@ function AnimalesTab({
   date,
   detail,
   objetivoAnimal,
+  registerGuardarEImprimir,
 }: {
   date: string;
   detail: CanalLoteDetail | undefined;
   objetivoAnimal: CanalAnimal | null;
+  registerGuardarEImprimir: (fn: () => void) => void;
 }) {
   const clasificar = useClasificarAnimal();
   const clasificarPieza = useClasificarPieza();
@@ -548,25 +563,24 @@ function AnimalesTab({
     setGuardadoOk(false);
   }
 
-  if (!detail || !objetivoAnimal) {
-    return (
-      <Empty text="Selecciona una orden en la pestaña ORDENES para clasificar sus animales." />
-    );
-  }
-
-  function guardarClasificacion() {
+  /** Guarda tipo/expendio/bodega/cava; onDone se llama solo si todo salió bien. */
+  function guardarClasificacion(onDone?: () => void) {
     if (!eventoId) return;
     setCavaError(null);
     setGuardadoOk(false);
     clasificar.mutate({ eventoId, tipo: tipo || undefined, expendio });
     if (!piezaId) {
       setGuardadoOk(true);
+      onDone?.();
       return;
     }
     clasificarPieza.mutate(
       { piezaId, bodega, cava, destino, observaciones },
       {
-        onSuccess: () => setGuardadoOk(true),
+        onSuccess: () => {
+          setGuardadoOk(true);
+          onDone?.();
+        },
         onError: (err) => {
           const detail = (
             err as { response?: { data?: { message?: string | string[] } } }
@@ -578,6 +592,38 @@ function AnimalesTab({
           );
         },
       },
+    );
+  }
+
+  // El botón de etiqueta del pie de página (compartido entre pestañas)
+  // dispara esta acción cuando se está en ANIMALES: guarda la clasificación
+  // y, si hay una pieza seleccionada con peso, imprime su presinto.
+  useEffect(() => {
+    registerGuardarEImprimir(() => {
+      guardarClasificacion(() => {
+        if (!detail || !objetivoAnimal?.canalTipo || !piezaId) return;
+        const pieza = piezasAnimal.find((p) => p.piezaId === piezaId);
+        if (pieza?.pesoKg == null) return;
+        const [y, m, d] = date.split('-');
+        imprimirPresinto({
+          fechaSacrificio: `${d}/${m}/${y}`,
+          lote: detail.reference,
+          guia: detail.guias.join(', ') || '—',
+          expendio,
+          cliente: detail.cliente,
+          tipoAnimal: tipo ? CANAL_ANIMAL_TIPO_LABEL[tipo] : '—',
+          ref: objetivoAnimal.consecutivo,
+          turno: pieza.turno ?? 'manana',
+          pesoKg: pieza.pesoKg,
+          canalTipo: objetivoAnimal.canalTipo,
+        });
+      });
+    });
+  });
+
+  if (!detail || !objetivoAnimal) {
+    return (
+      <Empty text="Selecciona una orden en la pestaña ORDENES para clasificar sus animales." />
     );
   }
 
@@ -725,7 +771,7 @@ function AnimalesTab({
       <div className="flex items-center gap-3">
         <button
           type="button"
-          onClick={guardarClasificacion}
+          onClick={() => guardarClasificacion()}
           disabled={clasificar.isPending || clasificarPieza.isPending}
           className="rounded-sm border-2 border-emerald-600 bg-emerald-600 px-5 py-2 text-sm font-semibold uppercase text-white hover:bg-emerald-700 disabled:opacity-50"
         >
@@ -892,17 +938,21 @@ function ReporteTab({ date }: { date: string }) {
 }
 
 function FooterBascula({
-  date,
+  tab,
+  setTab,
   detail,
   objetivo,
   turno,
   setTurno,
+  onEtiquetaAnimales,
 }: {
-  date: string;
+  tab: Tab;
+  setTab: (t: Tab) => void;
   detail: CanalLoteDetail | undefined;
   objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo | null } | null;
   turno: CanalTurno;
   setTurno: (t: CanalTurno) => void;
+  onEtiquetaAnimales: () => void;
 }) {
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
   const registrar = useRegistrarCanal();
@@ -911,13 +961,13 @@ function FooterBascula({
   const puedePesar =
     !!objetivo?.pieza && peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
 
-  function guardar(imprimir = false) {
+  // Apenas se captura el peso, se redirige a ANIMALES para clasificar el
+  // animal (tipo, expendio, bodega, cava) y desde ahí imprimir el presinto.
+  function guardar() {
     if (!objetivo?.pieza || !puedePesar || registrar.isPending) return;
-    const animal = objetivo.animal;
-    const canalTipo = animal.canalTipo;
     registrar.mutate(
       {
-        eventoId: animal.eventoId,
+        eventoId: objetivo.animal.eventoId,
         pieza: objetivo.pieza,
         pesoKg: valor,
         turno,
@@ -925,26 +975,21 @@ function FooterBascula({
       {
         onSuccess: () => {
           setPeso('0.0');
-          if (imprimir && detail && canalTipo) {
-            const [y, m, d] = date.split('-');
-            imprimirPresinto({
-              fechaSacrificio: `${d}/${m}/${y}`,
-              lote: detail.reference,
-              guia: detail.guias.join(', ') || '—',
-              expendio: animal.expendio ?? '',
-              cliente: detail.cliente,
-              tipoAnimal: animal.canalAnimalTipo
-                ? CANAL_ANIMAL_TIPO_LABEL[animal.canalAnimalTipo]
-                : '—',
-              ref: animal.consecutivo,
-              turno,
-              pesoKg: valor,
-              canalTipo,
-            });
-          }
+          setTab('animales');
         },
       },
     );
+  }
+
+  // El botón de etiqueta hace doble función: en ANIMALES guarda la
+  // clasificación e imprime el presinto; en las demás pestañas registra el
+  // peso (igual que el lápiz) y redirige a ANIMALES.
+  function etiqueta() {
+    if (tab === 'animales') {
+      onEtiquetaAnimales();
+    } else {
+      guardar();
+    }
   }
 
   const piezaLabel = objetivo?.pieza ? PIEZA_LABEL[objetivo.pieza] : '—';
@@ -985,7 +1030,7 @@ function FooterBascula({
           value={peso}
           onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') guardar(false);
+            if (e.key === 'Enter') guardar();
           }}
           inputMode="decimal"
           placeholder="0.0"
@@ -1007,7 +1052,7 @@ function FooterBascula({
         )}
       </button>
       <button
-        onClick={() => guardar(false)}
+        onClick={() => guardar()}
         disabled={!puedePesar || registrar.isPending}
         title="Registrar peso"
         className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
@@ -1019,9 +1064,13 @@ function FooterBascula({
         )}
       </button>
       <button
-        onClick={() => guardar(true)}
-        disabled={!puedePesar || registrar.isPending}
-        title="Registrar e imprimir rótulo"
+        onClick={etiqueta}
+        disabled={tab === 'animales' ? false : !puedePesar || registrar.isPending}
+        title={
+          tab === 'animales'
+            ? 'Guardar clasificación e imprimir presinto'
+            : 'Registrar peso e ir a Animales'
+        }
         className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
       >
         <Tag className="size-6" />
