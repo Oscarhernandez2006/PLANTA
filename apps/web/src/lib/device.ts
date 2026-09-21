@@ -26,6 +26,17 @@ export interface ScalePortInfo {
   serialNumber: string | null;
 }
 
+export interface PrinterInfo {
+  name: string;
+  isDefault: boolean;
+}
+
+export interface PrintRawResult {
+  ok: boolean;
+  output?: string;
+  error?: string;
+}
+
 /** Puente expuesto por la app de escritorio (Electron) vía preload. */
 interface FrigoDesktopBridge {
   getDeviceInfo: () => Promise<LocalDeviceInfo>;
@@ -36,6 +47,8 @@ interface FrigoDesktopBridge {
     baudRate?: number;
   }) => Promise<ScaleReadResult>;
   listScalePorts?: () => Promise<ScalePortInfo[]>;
+  listPrinters?: () => Promise<PrinterInfo[]>;
+  printRaw?: (printerName: string, content: string) => Promise<PrintRawResult>;
 }
 declare global {
   interface Window {
@@ -148,6 +161,49 @@ export function setSavedScaleBaud(baud: number | null): void {
   try {
     if (baud) window.localStorage.setItem(SCALE_BAUD_KEY, String(baud));
     else window.localStorage.removeItem(SCALE_BAUD_KEY);
+  } catch {
+    /* almacenamiento no disponible */
+  }
+}
+
+/** Lista las impresoras instaladas en Windows (solo en la app de escritorio). */
+export async function listPrinters(): Promise<PrinterInfo[]> {
+  if (window.frigoDesktop?.listPrinters) {
+    try {
+      return await window.frigoDesktop.listPrinters();
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+/** Envía contenido crudo (ej. ZPL) directo a una impresora de Windows, sin pasar por el driver. */
+export async function printRaw(
+  printerName: string,
+  content: string,
+): Promise<PrintRawResult> {
+  if (window.frigoDesktop?.printRaw) {
+    return window.frigoDesktop.printRaw(printerName, content);
+  }
+  return { ok: false, error: 'not_supported' };
+}
+
+const PRINTER_NAME_KEY = 'frigo.printer.name';
+
+/** Impresora de presintos guardada por el usuario (persistente). */
+export function getSavedPrinterName(): string | null {
+  try {
+    return window.localStorage.getItem(PRINTER_NAME_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function setSavedPrinterName(name: string | null): void {
+  try {
+    if (name) window.localStorage.setItem(PRINTER_NAME_KEY, name);
+    else window.localStorage.removeItem(PRINTER_NAME_KEY);
   } catch {
     /* almacenamiento no disponible */
   }

@@ -13,6 +13,7 @@ import {
 import { Dialog } from '@/components/ui/dialog';
 import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { useBascula } from '@/components/bascula/Bascula';
+import { PrinterConexion } from '@/components/printer/PrinterConexion';
 import { cn } from '@/lib/utils';
 import {
   useCanalLotes,
@@ -40,7 +41,7 @@ import {
 import canalTodoImg from './canal-todo.png';
 import canalCizqImg from './canal-cizq.png';
 import canalCderImg from './canal-cder.png';
-import { descargarPresintoZPL } from './canal-presinto-zpl';
+import { imprimirPresintoDirecto } from './canal-presinto-zpl';
 
 const CANAL_IMG: Record<CanalPiezaTipo, string> = {
   canal: canalTodoImg,
@@ -545,6 +546,7 @@ function AnimalesTab({
   const [observaciones, setObservaciones] = useState('');
   const [cavaError, setCavaError] = useState<string | null>(null);
   const [guardadoOk, setGuardadoOk] = useState(false);
+  const [printError, setPrintError] = useState<string | null>(null);
 
   const eventoId = objetivoAnimal?.eventoId ?? null;
   const rows = piezas.data ?? [];
@@ -612,7 +614,8 @@ function AnimalesTab({
 
   // El botón de etiqueta del pie de página (compartido entre pestañas)
   // dispara esta acción cuando se está en ANIMALES: guarda la clasificación
-  // y, si hay una pieza seleccionada con peso, imprime su presinto.
+  // y, si hay una pieza seleccionada con peso, imprime su presinto (directo
+  // a la impresora configurada, o descarga el .zpl si no hay una).
   useEffect(() => {
     registerGuardarEImprimir(() => {
       guardarClasificacion(() => {
@@ -620,7 +623,8 @@ function AnimalesTab({
         const pieza = piezasAnimal.find((p) => p.piezaId === piezaId);
         if (pieza?.pesoKg == null) return;
         const [y, m, d] = date.split('-');
-        descargarPresintoZPL({
+        setPrintError(null);
+        imprimirPresintoDirecto({
           fechaSacrificio: `${d}/${m}/${y}`,
           lote: detail.reference,
           guia: detail.guias.join(', ') || '—',
@@ -631,6 +635,12 @@ function AnimalesTab({
           turno: pieza.turno ?? 'manana',
           pesoKg: pieza.pesoKg,
           canalTipo: objetivoAnimal.canalTipo,
+        }).then((r) => {
+          if (!r.ok) {
+            setPrintError(
+              `No se pudo imprimir directo (se descargó el .zpl): ${r.error ?? ''}`,
+            );
+          }
         });
       });
     });
@@ -643,7 +653,9 @@ function AnimalesTab({
   }
 
   return (
-    <div className="flex h-full flex-col gap-4 p-4">
+    <div className="flex h-full flex-col gap-4">
+      <PrinterConexion />
+      <div className="flex flex-1 flex-col gap-4 p-4">
       <div>
         <p className="mb-2 text-sm font-semibold text-muted-foreground">
           Tipos:
@@ -802,6 +814,9 @@ function AnimalesTab({
         {cavaError && (
           <p className="text-sm font-medium text-red-600">{cavaError}</p>
         )}
+        {printError && (
+          <p className="text-sm font-medium text-amber-600">{printError}</p>
+        )}
         {guardadoOk && !cavaError && (
           <p className="text-sm font-medium text-emerald-600">
             Clasificación guardada.
@@ -848,6 +863,7 @@ function AnimalesTab({
           </tbody>
         </table>
       )}
+      </div>
     </div>
   );
 }

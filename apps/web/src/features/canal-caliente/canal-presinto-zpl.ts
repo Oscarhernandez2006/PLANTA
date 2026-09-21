@@ -4,6 +4,7 @@ import {
   codigoBarras,
   type PresintoTicketData,
 } from './canal-presinto-print';
+import { getSavedPrinterName, isDesktop, printRaw } from '@/lib/device';
 
 /**
  * Generador de ZPL para el presinto de Canal Caliente, pensado para una
@@ -181,4 +182,40 @@ export function descargarPresintoZPL(d: PresintoTicketData) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+export interface ImprimirPresintoResultado {
+  ok: boolean;
+  /** true si se envió directo a la impresora (app de escritorio); false si se descargó el .zpl como respaldo. */
+  directo: boolean;
+  error?: string;
+}
+
+/**
+ * Imprime el presinto DIRECTO en la impresora configurada (app de
+ * escritorio, sin diálogos ni pasos manuales). Si no hay app de escritorio,
+ * no hay impresora configurada, o falla el envío, cae de respaldo a
+ * descargar el .zpl para arrastrarlo manualmente.
+ */
+export async function imprimirPresintoDirecto(
+  d: PresintoTicketData,
+): Promise<ImprimirPresintoResultado> {
+  const zpl = generarZPL(d);
+
+  if (isDesktop()) {
+    const printerName = getSavedPrinterName();
+    if (printerName) {
+      const resultado = await printRaw(printerName, zpl);
+      if (resultado.ok) return { ok: true, directo: true };
+      descargarPresintoZPL(d);
+      return {
+        ok: false,
+        directo: false,
+        error: resultado.error || 'No se pudo imprimir directo.',
+      };
+    }
+  }
+
+  descargarPresintoZPL(d);
+  return { ok: true, directo: false };
 }

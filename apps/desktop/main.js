@@ -219,6 +219,78 @@ ipcMain.handle('scale:read-stable', async (_, options = {}) => {
 
 ipcMain.handle('scale:list-ports', () => listSerialPortsDetailed());
 
+/** Lista las impresoras instaladas en Windows (nombre exacto para imprimir RAW). */
+ipcMain.handle('printer:list', async () => {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win) return [];
+  try {
+    const printers = await win.webContents.getPrintersAsync();
+    return printers.map((p) => ({ name: p.name, isDefault: !!p.isDefault }));
+  } catch {
+    return [];
+  }
+});
+
+/**
+ * Envía ZPL (u otro texto crudo) directo al spooler de Windows en modo RAW,
+ * sin pasar por el driver (necesario para que la Zebra lo interprete como
+ * ZPL y no como texto/gráfico). Escribe el contenido a un archivo temporal
+ * y lo manda vía `print-raw.ps1` (WinSpool RAW), evitando compartir la
+ * impresora o depender del puerto exacto (USB001, etc.).
+ */
+ipcMain.handle('printer:print-raw', async (_, { printerName, content } = {}) => {
+  if (process.platform !== 'win32') {
+    return { ok: false, error: 'solo_windows' };
+  }
+  if (!printerName || !content) {
+    return { ok: false, error: 'faltan_datos' };
+  }
+  const tempFile = path.join(
+    os.tmpdir(),
+    `presinto-${Date.now()}-${Math.random().toString(36).slice(2)}.zpl`,
+  );
+  try {
+    fs.writeFileSync(tempFile, content, 'utf8');
+  } catch (e) {
+    return { ok: false, error: `no_se_pudo_escribir_temp: ${String(e)}` };
+  }
+
+  return new Promise((resolve) => {
+    const script = path.join(__dirname, 'print-raw.ps1');
+    const child = spawn(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-ExecutionPolicy',
+        'Bypass',
+        '-File',
+        script,
+        '-PrinterName',
+        printerName,
+        '-FilePath',
+        tempFile,
+      ],
+      { windowsHide: true },
+    );
+    let stdout = '';
+    let stderr = '';
+    child.stdout.on('data', (d) => (stdout += d.toString()));
+    child.stderr.on('data', (d) => (stderr += d.toString()));
+    child.on('close', (code) => {
+      fs.unlink(tempFile, () => {});
+      if (code === 0) {
+        resolve({ ok: true, output: stdout.trim() });
+      } else {
+        resolve({ ok: false, error: stderr.trim() || `codigo_salida_${code}` });
+      }
+    });
+    child.on('error', (err) => {
+      fs.unlink(tempFile, () => {});
+      resolve({ ok: false, error: String(err) });
+    });
+  });
+});
+
 function createWindow() {
   const win = new BrowserWindow({
     width: 1280,

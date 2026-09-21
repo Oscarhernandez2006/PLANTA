@@ -26,10 +26,12 @@
       "main.js",
       "preload.js",
       "open-touch-keyboard.ps1",
+      "print-raw.ps1",
       "web/**"
     ],
     "asarUnpack": [
-      "open-touch-keyboard.ps1"
+      "open-touch-keyboard.ps1",
+      "print-raw.ps1"
     ],
     "win": {
       "target": "nsis"
