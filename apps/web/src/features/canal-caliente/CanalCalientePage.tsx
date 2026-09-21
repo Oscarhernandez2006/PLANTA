@@ -470,7 +470,12 @@ function CanalesTab({
                 });
               }}
               disabled={setTipo.isPending || !animal || pesado || !aplica}
-              className="flex flex-col items-center gap-2 rounded-sm border-2 border-border bg-card p-3 text-center transition-colors hover:border-emerald-400 disabled:hover:border-border"
+              className={cn(
+                'flex flex-col items-center gap-2 rounded-sm border-2 p-3 text-center transition-colors hover:border-emerald-400 disabled:hover:border-border',
+                tipoActivo
+                  ? 'border-emerald-500 bg-emerald-50'
+                  : 'border-border bg-card',
+              )}
             >
               <span className="text-sm font-semibold">{title}:</span>
               <div
