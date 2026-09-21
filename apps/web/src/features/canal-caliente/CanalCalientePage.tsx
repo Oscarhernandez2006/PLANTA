@@ -40,7 +40,7 @@ import {
 import canalTodoImg from './canal-todo.png';
 import canalCizqImg from './canal-cizq.png';
 import canalCderImg from './canal-cder.png';
-import { imprimirPresinto } from './canal-presinto-print';
+import { descargarPresintoZPL } from './canal-presinto-zpl';
 
 const CANAL_IMG: Record<CanalPiezaTipo, string> = {
   canal: canalTodoImg,
@@ -620,7 +620,7 @@ function AnimalesTab({
         const pieza = piezasAnimal.find((p) => p.piezaId === piezaId);
         if (pieza?.pesoKg == null) return;
         const [y, m, d] = date.split('-');
-        imprimirPresinto({
+        descargarPresintoZPL({
           fechaSacrificio: `${d}/${m}/${y}`,
           lote: detail.reference,
           guia: detail.guias.join(', ') || '—',

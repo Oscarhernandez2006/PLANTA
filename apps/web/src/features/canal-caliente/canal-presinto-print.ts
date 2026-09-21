@@ -15,23 +15,23 @@ export interface PresintoTicketData {
   canalTipo: CanalTipo;
 }
 
-const TURNO_DIGITO: Record<CanalTurno, 1 | 2> = { manana: 1, tarde: 2 };
+export const TURNO_DIGITO: Record<CanalTurno, 1 | 2> = { manana: 1, tarde: 2 };
 
 /** Dígito del tipo de canal para el código de barras del presinto (acordado con planta). */
-const CANAL_TIPO_DIGITO: Record<CanalTipo, 1 | 2 | 3> = {
+export const CANAL_TIPO_DIGITO: Record<CanalTipo, 1 | 2 | 3> = {
   canal_completa: 1,
   media_canal_con_cola: 2,
   media_canal_sin_cola: 3,
 };
 
-const CANAL_TIPO_TITULO: Record<CanalTipo, string> = {
+export const CANAL_TIPO_TITULO: Record<CanalTipo, string> = {
   canal_completa: 'CANAL COMPLETA',
   media_canal_con_cola: 'MEDIA CANAL CON COLA',
   media_canal_sin_cola: 'MEDIA CANAL SIN COLA',
 };
 
 /** Código de barras del presinto: {lote}-{turno}{tipoCanal}, ej. lote 1, turno mañana, media sin cola -> "1-13". */
-function codigoBarras(d: PresintoTicketData): string {
+export function codigoBarras(d: PresintoTicketData): string {
   return `${d.lote}-${TURNO_DIGITO[d.turno]}${CANAL_TIPO_DIGITO[d.canalTipo]}`;
 }
 
@@ -44,7 +44,7 @@ function codigoBarras(d: PresintoTicketData): string {
 function dibujarTicket(
   doc: jsPDF,
   d: PresintoTicketData,
-  W: number,
+  _W: number,
   blockH: number,
   yOffset: number,
 ) {
