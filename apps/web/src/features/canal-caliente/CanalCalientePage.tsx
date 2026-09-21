@@ -6,7 +6,6 @@ import {
   Inbox,
   LoaderCircle,
   Lock,
-  Pencil,
   Tag,
   Undo2,
 } from 'lucide-react';
@@ -1113,18 +1112,6 @@ function FooterBascula({
           <LoaderCircle className="size-6 animate-spin" />
         ) : (
           <Gauge className="size-6" />
-        )}
-      </button>
-      <button
-        onClick={() => guardar()}
-        disabled={!puedePesar || registrar.isPending}
-        title="Registrar peso"
-        className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
-      >
-        {registrar.isPending ? (
-          <LoaderCircle className="size-6 animate-spin" />
-        ) : (
-          <Pencil className="size-6" />
         )}
       </button>
       <button
