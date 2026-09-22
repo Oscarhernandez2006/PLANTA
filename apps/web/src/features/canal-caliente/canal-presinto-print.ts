@@ -98,15 +98,15 @@ function dibujarTicket(
     doc.text(value || '—', valueX, y);
   };
 
-  campo(labelX1, valueX1, y1, 'Cliente', d.cliente);
-  y1 += lineH;
-  campo(labelX1, valueX1, y1, 'Expendio', d.expendio);
-  y1 += lineH;
-  campo(labelX1, valueX1, y1, 'Guia', d.guia);
+  campo(labelX1, valueX1, y1, 'Fecha de Sacrificio', d.fechaSacrificio);
   y1 += lineH;
   campo(labelX1, valueX1, y1, 'Lote', String(d.lote));
   y1 += lineH;
-  campo(labelX1, valueX1, y1, 'Fecha de Sacrificio', d.fechaSacrificio);
+  campo(labelX1, valueX1, y1, 'Guia', d.guia);
+  y1 += lineH;
+  campo(labelX1, valueX1, y1, 'Expendio', d.expendio);
+  y1 += lineH;
+  campo(labelX1, valueX1, y1, 'Cliente', d.cliente);
 
   campo(labelX2, valueX2, y2, 'Tipo', d.tipoAnimal);
   y2 += lineH;

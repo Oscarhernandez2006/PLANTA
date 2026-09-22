@@ -29,7 +29,13 @@ const DPMM = DPI / 25.4;
 // costa de una tira más larga (es rollo continuo, no hay problema en cortar
 // una tira más larga).
 const ESCALA = 2.2;
-const LARGO_MM = Math.round(265 * ESCALA); // a lo largo del rollo (antes "ancho" en el PDF)
+// `LARGO_MM` es el largo FÍSICO real que la impresora corta (no un simple
+// límite de contenido) — 26cm es el requisito real del usuario. Antes se
+// había subido a 420mm para que el título no se cortara, pero eso hacía
+// que la impresora cortara la tira real a 42cm, mucho más de lo pedido.
+// La solución correcta es comprimir los márgenes (más abajo) para que TODO
+// entre dentro de estos 260mm reales, no agrandar el largo de corte.
+const LARGO_MM = 260;
 // A través del cabezal (antes "alto" en el PDF): 5cm TOTAL, repartidos en
 // las 2 copias apiladas (2.5cm cada una, confirmado con el usuario contra
 // la impresión real). El cabezal de la ZD230 imprime hasta ~10cm, así que
@@ -104,91 +110,154 @@ function bloqueZPL(
   };
 
   const labelH = pt(10.5);
-  // Una "columna" tiene una posición FIJA a lo largo del rollo (largoMM);
-  // sus campos se apilan a través del cabezal (anchoMM, fila a fila).
+  // Columna 2 (Tipo/Ref/Gancho) con letra más grande que la columna 1.
+  const labelH2 = pt(13);
+  // Ancho de letra NORMAL (0.6, el mismo default de `texto`) para que la
+  // etiqueta se siga leyendo bien; achicar este valor la hacía ver borrosa
+  // al imprimir. El acercamiento del valor se logra solo con el margen fijo
+  // (más abajo), no angostando la letra.
+  const labelWDots = Math.round(labelH * 0.6);
+  const labelCharMM = labelWDots / DPMM;
+  const anchoEtiqueta = (label: string, hDots: number = labelH) =>
+    (label.length + 1) * (Math.round(hDots * 0.6) / DPMM);
   const campo = (
     largoLabelMM: number,
     largoValorMM: number,
     anchoMM: number,
     label: string,
     valor: string,
+    hDots: number = labelH,
   ) => {
-    texto(largoLabelMM, anchoMM, labelH, `${label}:`);
-    texto(largoValorMM, anchoMM, labelH, truncar(valor || '-', 16));
+    texto(largoLabelMM, anchoMM, hDots, `${label}:`);
+    texto(largoValorMM, anchoMM, hDots, truncar(valor || '-', 16));
   };
 
-  // Código de barras (Code128), a la izquierda, altura = casi todo el
-  // ancho del bloque (igual que el PDF, que lo hace de alto = blockH-4mm).
+  // Código de barras (Code128): posición a lo largo del rollo corrida más
+  // a la derecha (antes casi pegado al borde izquierdo). Altura reducida
+  // (~65% del bloque) y CENTRADO en el ancho del bloque (antes pegado
+  // arriba) para que se vea más prolijo.
   const codigo = codigoBarras(d);
-  const barcodeH = px(anchoBloqueMM - 4);
+  const barcodeHmm = (anchoBloqueMM - 4) * 0.65;
+  const barcodeH = px(barcodeHmm);
+  const barcodeAnchoOffset = anchoOffsetMM + (anchoBloqueMM - barcodeHmm) / 2;
+  const barcodeLargo = 23 * sx; // corrido a la derecha (antes 12) a pedido del usuario
+  // Largo real del código (Code128, subset B): 11 módulos por carácter +
+  // 11 (start) + 11 (checksum) + 13 (stop), a 3 dots de módulo. Se necesita
+  // para saber DÓNDE termina y no tapar el texto de al lado.
+  const barcodeModulos = 11 * (codigo.length + 2) + 13;
+  const barcodeLargoAncho = (barcodeModulos * 3) / DPMM;
   cmds.push(
-    `^FO${px(anchoOffsetMM + 2)},${py(2 * sx)}^BY3,3,${barcodeH}` +
+    `^FO${px(barcodeAnchoOffset)},${py(barcodeLargo)}^BY3,3,${barcodeH}` +
       `^BCR,${barcodeH},Y,N,N^FD${codigo}^FS`,
   );
 
   // Columna 1 (Cliente / Expendio / Guia / Lote / Fecha de Sacrificio,
-  // orden invertido a pedido del usuario): fija a lo largo del rollo,
-  // apilada a través del cabezal (interlineado `lineH`, ajustable acá si
-  // hace falta más o menos separación).
-  const largoLabel1 = 58 * sx;
-  const largoValor1 = 82 * sx;
+  // orden ORIGINAL, pedido de vuelta por el usuario): pegada al código de
+  // barras (~0.5cm de separación DESPUÉS de donde termina el código, no
+  // desde donde empieza, para no montarse encima). El valor va a una
+  // columna fija (basada en la etiqueta más larga, "Fecha de Sacrificio:")
+  // para que las 5 filas queden alineadas parejo.
+  const largoLabel1 = barcodeLargo + barcodeLargoAncho + 8;
+  const largoValor1 = largoLabel1 + anchoEtiqueta('Fecha de Sacrificio') - 22;
   const lineH = 4.0;
   let anchoFila = 3;
-  campo(largoLabel1, largoValor1, anchoFila, 'Cliente', d.cliente);
-  anchoFila += lineH;
-  campo(largoLabel1, largoValor1, anchoFila, 'Expendio', d.expendio);
-  anchoFila += lineH;
-  campo(largoLabel1, largoValor1, anchoFila, 'Guia', d.guia);
+  campo(largoLabel1, largoValor1, anchoFila, 'Fecha de Sacrificio', d.fechaSacrificio);
   anchoFila += lineH;
   campo(largoLabel1, largoValor1, anchoFila, 'Lote', String(d.lote));
   anchoFila += lineH;
-  campo(largoLabel1, largoValor1, anchoFila, 'Fecha de Sacrificio', d.fechaSacrificio);
+  campo(largoLabel1, largoValor1, anchoFila, 'Guia', d.guia);
+  anchoFila += lineH;
+  campo(largoLabel1, largoValor1, anchoFila, 'Expendio', d.expendio);
+  anchoFila += lineH;
+  campo(largoLabel1, largoValor1, anchoFila, 'Cliente', d.cliente);
 
-  // Columna 2 (Tipo / Ref / Turno), más adelante a lo largo del rollo.
-  const largoLabel2 = 128 * sx;
-  const largoValor2 = 146 * sx;
+  // Columna 2 (Tipo / Ref / Gancho): pegada al lado de la columna 1 (justo
+  // después de donde terminan sus valores), no a una posición fija lejana.
+  const largoLabel2 = largoValor1 + 16 * labelCharMM - 12;
+  // "Gancho" es una etiqueta corta: usar el mismo "-15" de la columna 1
+  // (pensado para "Fecha de Sacrificio", mucho más larga) casi no dejaba
+  // espacio y el valor se imprimía prácticamente encima de la etiqueta
+  // (se veía borroso). Acá el valor va a un margen fijo chico en vez de
+  // restarle a la etiqueta más larga de la columna.
+  const largoValor2 = largoLabel2 + anchoEtiqueta('Gancho', labelH2) - 10;
+  const lineH2 = lineH + 1.2;
   let anchoFila2 = 3;
-  campo(largoLabel2, largoValor2, anchoFila2, 'Tipo', d.tipoAnimal);
-  anchoFila2 += lineH;
-  campo(largoLabel2, largoValor2, anchoFila2, 'Ref', String(d.ref));
-  anchoFila2 += lineH;
-  campo(largoLabel2, largoValor2, anchoFila2, 'Turno', String(TURNO_DIGITO[d.turno]));
+  campo(largoLabel2, largoValor2, anchoFila2, 'Tipo', d.tipoAnimal, labelH2);
+  anchoFila2 += lineH2;
+  campo(largoLabel2, largoValor2, anchoFila2, 'Ref', String(d.ref), labelH2);
+  anchoFila2 += lineH2;
+  campo(largoLabel2, largoValor2, anchoFila2, 'Gancho', String(TURNO_DIGITO[d.turno]), labelH2);
 
   // Recuadro PESO (kg): ^GB no rota con ^A/^BC, así que su w/h físicos van
   // intercambiados respecto al diseño "de pantalla" (ancho del diseño ->
-  // eje ancho físico; alto del diseño -> eje largo físico).
-  const boxLargo = 170 * sx; // posición a lo largo del rollo (antes "x" del PDF)
-  const boxAncho = anchoBloqueMM - 4; // alto físico del recuadro (antes "h" del PDF, sin escalar)
-  const boxLargoAncho = 26 * sx; // ancho físico del recuadro (antes "w" del PDF, escalado)
+  // eje ancho físico; alto del diseño -> eje largo físico). Posiciones
+  // pegadas a la columna 2 (SIN multiplicar por `sx`) para que TODO
+  // (recuadros + título) quede dentro de los ~26cm reales de la tira.
+  // Se reduce este margen (antes +41) para compensar que el código de
+  // barras/columnas se corrieron a la derecha, y así seguir entrando
+  // dentro de los 260mm reales.
+  const boxLargo = largoValor2 + 23; // pegado al valor de Tipo/Ref/Gancho
+  const boxAncho = 18; // alto físico del recuadro, fijo 18mm a pedido del usuario
+  const boxLargoAncho = 18; // ancho físico del recuadro, fijo 18mm (cuadrado 18x18)
+  const boxGrosor = px(1.1); // borde más grueso (antes 0.6mm)
   const boxAnchoOffset = anchoOffsetMM + 2;
+  // Centra un texto dentro del ancho del recuadro (a lo largo del rollo),
+  // según la cantidad de caracteres y el tamaño de letra usado. Factor 0.3
+  // (no 0.6): el glifo real de estos números/etiquetas ocupa bastante
+  // menos que el ancho nominal, confirmado contra la impresión real.
+  const centrarEnBox = (inicioLargo: number, texto2: string, hDots: number) => {
+    const anchoTexto = texto2.length * (Math.round(hDots * 0.3) / DPMM);
+    return inicioLargo + Math.max(0, (boxLargoAncho - anchoTexto) / 2);
+  };
+  // Centra el BLOQUE (número + etiqueta) verticalmente dentro del alto del
+  // recuadro, según la altura real de cada línea de texto. Se usa 0.75 del
+  // alto nominal en el cálculo (el glifo real de la fuente ZPL ocupa menos
+  // que el alto pedido), si no el bloque se calculaba "más alto" de lo que
+  // en realidad se imprime y quedaba descentrado hacia arriba.
+  const numeroHmm = (pt(21) / DPMM) * 0.75;
+  const etiquetaHmm = (pt(8) / DPMM) * 0.75;
+  const gapMM = 2.75; // más separación entre el número y la etiqueta (antes 1.5)
+  const bloqueAlto = numeroHmm + gapMM + etiquetaHmm;
+  const numeroAncho = (boxAncho - bloqueAlto) / 2;
+  const etiquetaAncho = numeroAncho + numeroHmm + gapMM;
   cmds.push(
-    `^FO${px(boxAnchoOffset)},${py(boxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},2^FS`,
+    `^FO${px(boxAnchoOffset)},${py(boxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
   );
-  texto(boxLargo + 5, 1, pt(9.5), 'PESO(kg)');
-  texto(boxLargo + boxLargoAncho * 0.35, boxAncho / 2 - 3, pt(21), d.pesoKg.toFixed(0));
+  // Orden invertido a pedido del usuario: número grande ARRIBA, etiqueta
+  // chica ABAJO, todo centrado dentro del recuadro.
+  texto(centrarEnBox(boxLargo, d.pesoKg.toFixed(0), pt(21)), numeroAncho, pt(21), d.pesoKg.toFixed(0));
+  texto(centrarEnBox(boxLargo, 'PESO (kg)', pt(8)), etiquetaAncho, pt(8), 'PESO (kg)');
 
   // Recuadro TURNO.
-  const turnoBoxLargo = boxLargo + boxLargoAncho + 3 * sx;
+  const turnoBoxLargo = boxLargo + boxLargoAncho + 3;
   cmds.push(
-    `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},2^FS`,
+    `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
   );
-  texto(turnoBoxLargo + 5, 1, pt(9.5), 'TURNO');
   texto(
-    turnoBoxLargo + boxLargoAncho * 0.35,
-    boxAncho / 2 - 3,
+    centrarEnBox(turnoBoxLargo, String(TURNO_DIGITO[d.turno]), pt(21)),
+    numeroAncho,
     pt(21),
     String(TURNO_DIGITO[d.turno]),
   );
+  texto(centrarEnBox(turnoBoxLargo, 'TURNO', pt(8)), etiquetaAncho, pt(8), 'TURNO');
 
   // Título del tipo de canal, a la derecha de todo.
-  const tituloLargo = turnoBoxLargo + boxLargoAncho + 4 * sx;
+  const tituloLargo = turnoBoxLargo + boxLargoAncho + 5;
   const titulo = CANAL_TIPO_TITULO[d.canalTipo];
   const palabras = titulo.split(' ');
   const tituloH = pt(21);
   if (palabras.length > 1) {
     const mitad = Math.ceil(palabras.length / 2);
-    texto(tituloLargo, 2, tituloH, palabras.slice(0, mitad).join(' '));
-    texto(tituloLargo + tituloH * 0.6 * 1.6, 2, tituloH, palabras.slice(mitad).join(' '));
+    // MISMA posición a lo largo del rollo (tituloLargo) para las 2 líneas;
+    // lo que cambia es la posición a través del cabezal (anchoMM), así
+    // quedan apiladas una arriba de la otra. La segunda mitad de palabras
+    // va ARRIBA y la primera mitad ABAJO (ej. "CANAL COMPLETA" -> COMPLETA
+    // arriba, CANAL abajo; "MEDIA CANAL CON COLA" -> CON COLA arriba,
+    // MEDIA CANAL abajo), a pedido del usuario.
+    const arriba = palabras.slice(mitad);
+    const abajo = palabras.slice(0, mitad);
+    texto(tituloLargo, 2, tituloH, arriba.join(' '));
+    texto(tituloLargo, anchoBloqueMM / 2 + 2, tituloH, abajo.join(' '));
   } else {
     texto(tituloLargo, anchoBloqueMM / 2 - 4, tituloH, titulo);
   }
@@ -209,6 +278,9 @@ export function generarZPL(d: PresintoTicketData): string {
   const partes = [
     '^XA',
     '^CI28', // UTF-8, para tildes/ñ.
+    '^MNN', // Fuerza rollo CONTINUO (sin sensor de gap/marca negra): si la
+    // impresora tenía calibrado un largo de etiqueta corto de un rollo
+    // anterior, cortaba antes de imprimir todo el contenido.
     `^PW${PW}`,
     `^LL${LL}`,
     '^LH0,0',
