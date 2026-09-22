@@ -38,8 +38,9 @@ export function codigoBarras(d: PresintoTicketData): string {
 /**
  * Dibuja una copia del presinto dentro de un bloque de W x blockH mm,
  * desplazado verticalmente por yOffset (para apilar 2 copias dentro de la
- * misma tira de 2.5cm de alto). Todo se escala verticalmente por
- * `blockH / 25` respecto del diseño original a página completa.
+ * misma tira de 5cm de alto, 2.5cm cada copia). Todo se escala
+ * verticalmente por `blockH / 25` respecto del diseño original a página
+ * completa.
  */
 function dibujarTicket(
   doc: jsPDF,
@@ -97,15 +98,15 @@ function dibujarTicket(
     doc.text(value || '—', valueX, y);
   };
 
-  campo(labelX1, valueX1, y1, 'Fecha Sacrificio', d.fechaSacrificio);
-  y1 += lineH;
-  campo(labelX1, valueX1, y1, 'Lote', String(d.lote));
-  y1 += lineH;
-  campo(labelX1, valueX1, y1, 'Guia', d.guia);
+  campo(labelX1, valueX1, y1, 'Cliente', d.cliente);
   y1 += lineH;
   campo(labelX1, valueX1, y1, 'Expendio', d.expendio);
   y1 += lineH;
-  campo(labelX1, valueX1, y1, 'Cliente', d.cliente);
+  campo(labelX1, valueX1, y1, 'Guia', d.guia);
+  y1 += lineH;
+  campo(labelX1, valueX1, y1, 'Lote', String(d.lote));
+  y1 += lineH;
+  campo(labelX1, valueX1, y1, 'Fecha de Sacrificio', d.fechaSacrificio);
 
   campo(labelX2, valueX2, y2, 'Tipo', d.tipoAnimal);
   y2 += lineH;
@@ -158,15 +159,15 @@ function dibujarTicket(
 }
 
 /**
- * Genera e imprime el presinto de Canal Caliente: tira de 26.5cm x 2.5cm con
+ * Genera e imprime el presinto de Canal Caliente: tira de 26.5cm x 5cm con
  * los datos del animal/pieza pesada y un código de barras real (Code128)
  * para trazabilidad de inventario/despacho. Se imprimen 2 copias iguales,
- * apiladas dentro de la MISMA tira de 2.5cm de alto (no se duplica el
- * tamaño del papel), para pegar una en la canal y conservar la otra.
+ * apiladas dentro de la MISMA tira (2.5cm de alto cada una, 5cm en total),
+ * para pegar una en la canal y conservar la otra.
  */
 export function imprimirPresinto(d: PresintoTicketData) {
   const W = 265;
-  const H = 25;
+  const H = 50;
   const doc = new jsPDF({ unit: 'mm', format: [W, H], orientation: 'landscape' });
 
   const blockH = H / 2;

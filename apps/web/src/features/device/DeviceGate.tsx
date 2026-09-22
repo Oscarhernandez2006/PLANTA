@@ -64,17 +64,17 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-5 py-10">
-      <div className="w-full max-w-md text-center">
-        <div className="mb-6 flex justify-center">
-          <div className="flex size-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Beef className="size-7" />
+      <div className="w-full max-w-xl text-center">
+        <div className="mb-8 flex justify-center">
+          <div className="flex size-20 items-center justify-center rounded-xl bg-primary text-primary-foreground">
+            <Beef className="size-12" />
           </div>
         </div>
 
         {state === 'checking' && (
           <div className="flex flex-col items-center gap-4">
-            <LoaderCircle className="size-8 animate-spin text-muted-foreground" />
-            <p className="text-sm text-muted-foreground">
+            <LoaderCircle className="size-14 animate-spin text-muted-foreground" />
+            <p className="text-xl text-muted-foreground">
               Validando este equipo…
             </p>
           </div>
@@ -82,7 +82,7 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
 
         {state === 'agent_missing' && (
           <Panel
-            icon={<MonitorX className="size-8 text-amber-600" />}
+            icon={<MonitorX className="size-12 text-amber-600" />}
             title="No se pudo leer el equipo"
             onRetry={run}
           >
@@ -94,7 +94,7 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
 
         {state === 'blocked' && (
           <Panel
-            icon={<ShieldAlert className="size-8 text-red-600" />}
+            icon={<ShieldAlert className="size-12 text-red-600" />}
             title="Equipo no autorizado"
             onRetry={run}
           >
@@ -102,11 +102,11 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
               ? 'Este equipo está registrado pero se encuentra inactivo.'
               : 'Este equipo no está registrado en el sistema.'}
             {mac && (
-              <span className="mt-3 block rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-sm text-foreground">
+              <span className="mt-3 block rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-lg text-foreground">
                 {mac}
               </span>
             )}
-            <span className="mt-2 block text-xs text-muted-foreground">
+            <span className="mt-2 block text-base text-muted-foreground">
               {info?.hostname && `Equipo: ${info.hostname} · `}
               Pasá esta MAC al administrador para habilitar el acceso.
             </span>
@@ -115,7 +115,7 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
 
         {state === 'error' && (
           <Panel
-            icon={<MonitorCheck className="size-8 text-muted-foreground" />}
+            icon={<MonitorCheck className="size-12 text-muted-foreground" />}
             title="No se pudo validar"
             onRetry={run}
           >
@@ -139,11 +139,11 @@ function Panel({
   onRetry: () => void;
 }) {
   return (
-    <div className="rounded-xl border border-border bg-card p-8 shadow-sm">
-      <div className="mb-4 flex justify-center">{icon}</div>
-      <h1 className="text-lg font-semibold tracking-tight">{title}</h1>
-      <p className="mt-2 text-sm text-muted-foreground">{children}</p>
-      <Button className="mt-6 w-full" onClick={onRetry}>
+    <div className="rounded-2xl border border-border bg-card p-10 shadow-sm">
+      <div className="mb-6 flex justify-center">{icon}</div>
+      <h1 className="text-3xl font-semibold tracking-tight">{title}</h1>
+      <p className="mt-3 text-lg text-muted-foreground">{children}</p>
+      <Button className="mt-8 h-14 w-full text-lg" onClick={onRetry}>
         Reintentar
       </Button>
     </div>

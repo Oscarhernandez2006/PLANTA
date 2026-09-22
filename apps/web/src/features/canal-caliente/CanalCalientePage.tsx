@@ -28,6 +28,7 @@ import {
   CANAL_ANIMAL_TIPO_LABEL,
   PIEZA_LABEL,
   BODEGAS,
+  useClientesBodega,
   CAVAS,
   type CanalAnimal,
   type CanalAnimalTipo,
@@ -273,6 +274,45 @@ function FieldBox({
       </span>
       {children}
     </div>
+  );
+}
+
+/**
+ * Campo "Bodegas": la pieza se asigna al cliente que la compró, aunque ese
+ * cliente luego la revenda a otro (la canal sigue figurando a nombre del
+ * comprador principal; el revendido se anota aparte en "Destino"). Es texto
+ * libre con sugerencias (clientes reales + las 3 bodegas fijas históricas)
+ * para no depender de una lista cerrada: si hay un cliente nuevo, se escribe
+ * y listo, no hace falta "crear" la bodega en ningún lado.
+ */
+function BodegaField({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const clientes = useClientesBodega('');
+  const opciones = useMemo(() => {
+    const nombres = (clientes.data ?? []).map((c) => c.concepto);
+    return Array.from(new Set([...BODEGAS, ...nombres]));
+  }, [clientes.data]);
+
+  return (
+    <>
+      <input
+        list="bodegas-opciones"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Cliente / bodega…"
+        className="h-9 w-full bg-transparent text-base font-medium outline-none"
+      />
+      <datalist id="bodegas-opciones">
+        {opciones.map((o) => (
+          <option key={o} value={o} />
+        ))}
+      </datalist>
+    </>
   );
 }
 
@@ -777,18 +817,7 @@ function AnimalesTab({
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FieldBox label="Bodegas:">
-            <select
-              value={bodega}
-              onChange={(e) => setBodega(e.target.value)}
-              className="h-9 w-full bg-transparent text-base font-medium outline-none"
-            >
-              <option value="">Seleccione...</option>
-              {BODEGAS.map((b) => (
-                <option key={b} value={b}>
-                  {b}
-                </option>
-              ))}
-            </select>
+            <BodegaField value={bodega} onChange={setBodega} />
           </FieldBox>
           <FieldBox label="Destino:">
             <textarea

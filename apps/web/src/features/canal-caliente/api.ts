@@ -45,6 +45,26 @@ export const CANAL_ANIMAL_TIPO_LABEL: Record<CanalAnimalTipo, string> = {
 };
 
 export const BODEGAS = ['BODEGA 1', 'BODEGA 2', 'BODEGA 3'];
+
+export interface ClienteBodega {
+  id: string;
+  code: number;
+  concepto: string;
+}
+
+/** Clientes registrados, para asignar la pieza al cliente que la compró (aunque luego la revenda a otro). */
+export function useClientesBodega(search: string) {
+  return useQuery({
+    queryKey: ['clientes', 'bodega', search],
+    queryFn: async () =>
+      (
+        await api.get<ClienteBodega[]>('/clientes', {
+          params: search ? { search } : {},
+        })
+      ).data,
+  });
+}
+
 export const CAVAS = [
   'CAVA 1',
   'CAVA 2',

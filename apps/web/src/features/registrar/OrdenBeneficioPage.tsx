@@ -10,6 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { AdminAuthDialog } from '@/components/ui/AdminAuthDialog';
 import { Input, Select } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
@@ -72,6 +73,7 @@ export function OrdenBeneficioPage() {
   const candidates = useOrdenBeneficioCandidates(todayStr);
   const ordenes = useOrdenBeneficioList(from, to);
   const eliminar = useDeleteOrdenBeneficio();
+  const [loteAEliminar, setLoteAEliminar] = useState<string | null>(null);
 
   const list = ordenes.data ?? [];
   const cands = candidates.data ?? [];
@@ -242,7 +244,7 @@ export function OrdenBeneficioPage() {
                     key={o.id}
                     o={o}
                     deleting={eliminar.isPending}
-                    onDelete={() => eliminar.mutate(o.id)}
+                    onDelete={() => setLoteAEliminar(o.id)}
                   />
                 ))}
               </TBody>
@@ -250,6 +252,17 @@ export function OrdenBeneficioPage() {
           </div>
         )}
       </Card>
+
+      <AdminAuthDialog
+        open={loteAEliminar != null}
+        onClose={() => setLoteAEliminar(null)}
+        title="Autorización requerida para eliminar"
+        description="Ingresa la cédula y PIN de un administrador para eliminar este lote de beneficio."
+        onAuthorized={() => {
+          if (loteAEliminar) eliminar.mutate(loteAEliminar);
+          setLoteAEliminar(null);
+        }}
+      />
     </div>
   );
 }

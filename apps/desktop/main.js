@@ -310,6 +310,7 @@ function createWindow() {
     void win.loadFile(path.join(__dirname, 'web', 'index.html'));
   } else {
     void win.loadURL(DEV_URL);
+    win.webContents.openDevTools({ mode: 'detach' });
   }
 }
 

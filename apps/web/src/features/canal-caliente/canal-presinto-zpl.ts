@@ -24,8 +24,17 @@ import { getSavedPrinterName, isDesktop, printRaw } from '@/lib/device';
 
 const DPI = 203; // DPI estándar de la ZD230. Si la tuya es de 300dpi, cambiar aquí.
 const DPMM = DPI / 25.4;
-const LARGO_MM = 265; // a lo largo del rollo (antes "ancho" en el PDF)
-const ANCHO_MM = 25; // a través del cabezal (antes "alto" en el PDF)
+// Factor de escala aplicado a fuentes/espaciado/largo: la letra a tamaño
+// "real" (265mm) salía demasiado chica para leer, se agranda todo a
+// costa de una tira más larga (es rollo continuo, no hay problema en cortar
+// una tira más larga).
+const ESCALA = 2.2;
+const LARGO_MM = Math.round(265 * ESCALA); // a lo largo del rollo (antes "ancho" en el PDF)
+// A través del cabezal (antes "alto" en el PDF): 5cm TOTAL, repartidos en
+// las 2 copias apiladas (2.5cm cada una, confirmado con el usuario contra
+// la impresión real). El cabezal de la ZD230 imprime hasta ~10cm, así que
+// entra sin problema.
+const ANCHO_MM = 50;
 
 /** Posición a través del cabezal (eje físico X, 0..ANCHO_MM). */
 function px(anchoMM: number) {
@@ -47,95 +56,142 @@ function truncar(texto: string, max: number) {
   return texto.length > max ? `${texto.slice(0, max - 1)}.` : texto;
 }
 
-/** Comandos ZPL de UNA copia del presinto, dentro del bloque [anchoOffsetMM, anchoOffsetMM+anchoBloqueMM]. */
+/**
+ * Comandos ZPL de UNA copia del presinto, dentro del bloque
+ * [anchoOffsetMM, anchoOffsetMM+anchoBloqueMM] (anchoBloqueMM = 25mm,
+ * igual que `blockH` en `canal-presinto-print.ts`).
+ *
+ * El layout replica el diseño "de pantalla" de `dibujarTicket` (mismo
+ * orden: código de barras a la izquierda, 2 columnas de campos, recuadros
+ * PESO/TURNO y título a la derecha). Mapeo de ejes (igual que el resto del
+ * archivo): la posición X del diseño original (columnas/recuadros, a lo
+ * largo del rollo) se multiplica por `ESCALA` para aprovechar la tira más
+ * larga; la posición Y del diseño original (0-25mm, DENTRO de una fila, a
+ * través del cabezal) se usa tal cual porque `anchoBloqueMM` ya es 25mm
+ * real. O sea: los campos de una misma columna (Fecha/Lote/Guia/...) NO se
+ * apilan a lo largo del rollo, se apilan a través del cabezal, todos en el
+ * mismo punto "largo" de su columna — igual que en el PDF.
+ */
 function bloqueZPL(
   d: PresintoTicketData,
   anchoOffsetMM: number,
   anchoBloqueMM: number,
 ): string {
-  const s = anchoBloqueMM / ANCHO_MM;
   const cmds: string[] = [];
+  // Estira las posiciones "a lo largo del rollo" (antes x del diseño de
+  // pantalla) para dar espacio a la letra más grande.
+  const sx = ESCALA;
+  // Convierte tamaños de fuente en pt (como en el PDF) a dots. SIN empujón
+  // extra: el eje ancho está limitado a 25mm reales (igual que el PDF), así
+  // que hay que respetar las mismas proporciones para que quepa igual de
+  // bien; el tamaño "grande" ya lo da la tira más larga (ESCALA en el eje
+  // largo), no agrandar también este eje o se desborda de los 25mm.
+  const pt = (p: number) => Math.round(p * 0.3528 * DPMM);
 
+  // ^A0R,h,w: alto (h, hacia el eje ancho/legibilidad) y ancho de letra (w,
+  // hacia el eje largo/espacio que ocupa cada carácter) son INDEPENDIENTES.
+  // Usar w = h haría que un texto largo se desborde fuera de su columna.
   const texto = (
     largoMM: number,
     anchoMM: number,
     hDots: number,
     valor: string,
+    wDots: number = Math.round(hDots * 0.6),
   ) => {
     cmds.push(
-      `^FO${px(anchoOffsetMM + anchoMM)},${py(largoMM)}^A0R,${hDots},${hDots}^FD${sanear(valor)}^FS`,
+      `^FO${px(anchoOffsetMM + anchoMM)},${py(largoMM)}^A0R,${hDots},${wDots}^FD${sanear(valor)}^FS`,
     );
   };
 
-  const campo = (largoMM: number, label: string, valor: string) => {
-    texto(largoMM, 1, Math.round(28 * s), `${label}:`);
-    texto(largoMM, 6.5, Math.round(28 * s), truncar(valor || '-', 16));
+  const labelH = pt(10.5);
+  // Una "columna" tiene una posición FIJA a lo largo del rollo (largoMM);
+  // sus campos se apilan a través del cabezal (anchoMM, fila a fila).
+  const campo = (
+    largoLabelMM: number,
+    largoValorMM: number,
+    anchoMM: number,
+    label: string,
+    valor: string,
+  ) => {
+    texto(largoLabelMM, anchoMM, labelH, `${label}:`);
+    texto(largoValorMM, anchoMM, labelH, truncar(valor || '-', 16));
   };
 
-  // Código de barras (Code128), rotado, altura a lo largo del rollo.
+  // Código de barras (Code128), a la izquierda, altura = casi todo el
+  // ancho del bloque (igual que el PDF, que lo hace de alto = blockH-4mm).
   const codigo = codigoBarras(d);
-  const barcodeH = Math.round(70 * s); // dots, a lo largo del rollo
+  const barcodeH = px(anchoBloqueMM - 4);
   cmds.push(
-    `^FO${px(anchoOffsetMM + 2)},${py(2)}^BY3,3,${Math.round(80 * s)}` +
+    `^FO${px(anchoOffsetMM + 2)},${py(2 * sx)}^BY3,3,${barcodeH}` +
       `^BCR,${barcodeH},Y,N,N^FD${codigo}^FS`,
   );
 
-  // Datos: UNA sola columna (cada copia solo tiene 12.5mm de ancho; 2
-  // columnas lado a lado no cabían y se encimaban con la copia vecina).
-  // Los 8 campos van uno debajo del otro a lo largo del rollo, donde sí
-  // sobra espacio.
-  let y = 50;
-  const lineH = 20;
+  // Columna 1 (Cliente / Expendio / Guia / Lote / Fecha de Sacrificio,
+  // orden invertido a pedido del usuario): fija a lo largo del rollo,
+  // apilada a través del cabezal (interlineado `lineH`, ajustable acá si
+  // hace falta más o menos separación).
+  const largoLabel1 = 58 * sx;
+  const largoValor1 = 82 * sx;
+  const lineH = 4.0;
+  let anchoFila = 3;
+  campo(largoLabel1, largoValor1, anchoFila, 'Cliente', d.cliente);
+  anchoFila += lineH;
+  campo(largoLabel1, largoValor1, anchoFila, 'Expendio', d.expendio);
+  anchoFila += lineH;
+  campo(largoLabel1, largoValor1, anchoFila, 'Guia', d.guia);
+  anchoFila += lineH;
+  campo(largoLabel1, largoValor1, anchoFila, 'Lote', String(d.lote));
+  anchoFila += lineH;
+  campo(largoLabel1, largoValor1, anchoFila, 'Fecha de Sacrificio', d.fechaSacrificio);
 
-  campo(y, 'Fecha Sacrificio', d.fechaSacrificio);
-  y += lineH;
-  campo(y, 'Lote', String(d.lote));
-  y += lineH;
-  campo(y, 'Guia', d.guia);
-  y += lineH;
-  campo(y, 'Expendio', d.expendio);
-  y += lineH;
-  campo(y, 'Cliente', d.cliente);
-  y += lineH;
-  campo(y, 'Tipo', d.tipoAnimal);
-  y += lineH;
-  campo(y, 'Ref', String(d.ref));
-  y += lineH;
-  // El usuario usa "Gancho" como sinónimo de "Turno" (mismo valor que el
-  // recuadro TURNO de más abajo).
-  campo(y, 'Gancho', String(TURNO_DIGITO[d.turno]));
-  y += lineH;
+  // Columna 2 (Tipo / Ref / Turno), más adelante a lo largo del rollo.
+  const largoLabel2 = 128 * sx;
+  const largoValor2 = 146 * sx;
+  let anchoFila2 = 3;
+  campo(largoLabel2, largoValor2, anchoFila2, 'Tipo', d.tipoAnimal);
+  anchoFila2 += lineH;
+  campo(largoLabel2, largoValor2, anchoFila2, 'Ref', String(d.ref));
+  anchoFila2 += lineH;
+  campo(largoLabel2, largoValor2, anchoFila2, 'Turno', String(TURNO_DIGITO[d.turno]));
 
   // Recuadro PESO (kg): ^GB no rota con ^A/^BC, así que su w/h físicos van
-  // intercambiados respecto al diseño "de pantalla". Se hacen CUADRADOS de
-  // verdad: mismo ancho físico (boxAnchoMM) que largo (boxLargoAncho).
-  const boxAnchoMM = anchoBloqueMM - 4 * s; // "alto" original -> ancho físico real (~10.5mm)
-  const boxAnchoOffset = anchoOffsetMM + 2 * s;
-  const pesoBoxLargo = y; // posición a lo largo del rollo
-  const boxLargoAncho = boxAnchoMM; // mismo tamaño que el ancho -> recuadro cuadrado
+  // intercambiados respecto al diseño "de pantalla" (ancho del diseño ->
+  // eje ancho físico; alto del diseño -> eje largo físico).
+  const boxLargo = 170 * sx; // posición a lo largo del rollo (antes "x" del PDF)
+  const boxAncho = anchoBloqueMM - 4; // alto físico del recuadro (antes "h" del PDF, sin escalar)
+  const boxLargoAncho = 26 * sx; // ancho físico del recuadro (antes "w" del PDF, escalado)
+  const boxAnchoOffset = anchoOffsetMM + 2;
   cmds.push(
-    `^FO${px(boxAnchoOffset)},${py(pesoBoxLargo)}^GB${px(boxAnchoMM)},${py(boxLargoAncho)},2^FS`,
+    `^FO${px(boxAnchoOffset)},${py(boxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},2^FS`,
   );
-  texto(pesoBoxLargo + 3, 1, Math.round(9 * s), 'PESO(kg)');
-  texto(pesoBoxLargo + 3, 5.5, Math.round(30 * s), d.pesoKg.toFixed(0));
+  texto(boxLargo + 5, 1, pt(9.5), 'PESO(kg)');
+  texto(boxLargo + boxLargoAncho * 0.35, boxAncho / 2 - 3, pt(21), d.pesoKg.toFixed(0));
 
   // Recuadro TURNO.
-  const turnoBoxLargo = pesoBoxLargo + boxLargoAncho + 3;
+  const turnoBoxLargo = boxLargo + boxLargoAncho + 3 * sx;
   cmds.push(
-    `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAnchoMM)},${py(boxLargoAncho)},2^FS`,
+    `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},2^FS`,
   );
-  texto(turnoBoxLargo + 3, 1, Math.round(9 * s), 'TURNO');
-  texto(turnoBoxLargo + 3, 5.5, Math.round(30 * s), String(TURNO_DIGITO[d.turno]));
+  texto(turnoBoxLargo + 5, 1, pt(9.5), 'TURNO');
+  texto(
+    turnoBoxLargo + boxLargoAncho * 0.35,
+    boxAncho / 2 - 3,
+    pt(21),
+    String(TURNO_DIGITO[d.turno]),
+  );
 
-  // Título del tipo de canal.
-  const tituloLargo = turnoBoxLargo + boxLargoAncho + 4;
+  // Título del tipo de canal, a la derecha de todo.
+  const tituloLargo = turnoBoxLargo + boxLargoAncho + 4 * sx;
   const titulo = CANAL_TIPO_TITULO[d.canalTipo];
   const palabras = titulo.split(' ');
-  const mitad = Math.ceil(palabras.length / 2);
-  const linea1 = palabras.slice(0, mitad).join(' ');
-  const linea2 = palabras.slice(mitad).join(' ');
-  texto(tituloLargo, 1, Math.round(20 * s), linea1);
-  if (linea2) texto(tituloLargo, 6.5, Math.round(20 * s), linea2);
+  const tituloH = pt(21);
+  if (palabras.length > 1) {
+    const mitad = Math.ceil(palabras.length / 2);
+    texto(tituloLargo, 2, tituloH, palabras.slice(0, mitad).join(' '));
+    texto(tituloLargo + tituloH * 0.6 * 1.6, 2, tituloH, palabras.slice(mitad).join(' '));
+  } else {
+    texto(tituloLargo, anchoBloqueMM / 2 - 4, tituloH, titulo);
+  }
 
   return cmds.join('\n');
 }
