@@ -406,9 +406,9 @@ export function PesoEnCamionPage() {
   const saving = createGuia.isPending || updateGuia.isPending;
 
   return (
-    <div className="space-y-4">
+    <div className="flex h-full flex-col gap-4">
       {/* Encabezado + barra de acciones */}
-      <div className="flex flex-wrap items-center justify-between gap-4">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-4">
         <div className="flex items-center gap-3">
           <PesoEnCamionIcon className="size-9" />
           <div>
@@ -493,31 +493,31 @@ export function PesoEnCamionPage() {
 
       {/* Aviso de guardado / edición / error */}
       {saveError && (
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
+        <div className="shrink-0 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
           {saveError}
         </div>
       )}
       {notice && (
-        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
+        <div className="flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
           <Save className="size-4" />
           {notice}
         </div>
       )}
       {editingId && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
+        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
           Editando la guía de referencia {loadedReference != null ? formatReferencia(loadedReference) : '—'}. Guardá para
           aplicar los cambios.
         </div>
       )}
       {!editingId && selectedGuia && (
-        <div className="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
+        <div className="shrink-0 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
           Guía {formatReferencia(selectedGuia.reference)} seleccionada. Usá el lápiz para
           editarla, o el botón imprimir.
         </div>
       )}
 
       {/* Datos de la guía */}
-      <Card className="p-4">
+      <Card className="shrink-0 p-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-[150px_1fr]">
           <div className="space-y-1">
             <Label htmlFor="fecha">Fecha</Label>
@@ -623,7 +623,7 @@ export function PesoEnCamionPage() {
       </Card>
 
       {/* Totales */}
-      <div className="grid auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid shrink-0 auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         {/* Referencia: orden de llegada del día (automático) */}
         <StatValue icon={Hash} label="Referencia" value={referencia} />
         <StatInput
@@ -660,16 +660,17 @@ export function PesoEnCamionPage() {
       </div>
 
       {/* Guías abiertas / Observaciones */}
-      <Card className="overflow-hidden">
-        <div className="px-4 pt-2">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 px-4 pt-2">
           <Tabs tabs={tabs} value={tab} onChange={setTab} />
         </div>
 
         {tab === 'guias' ? (
-          <div className="max-h-[26vh] overflow-auto">
+          <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
             <Table>
             <THead>
               <TR>
+                <TH className="w-28 whitespace-nowrap">N.º Registro</TH>
                 <TH className="w-24">Ref.</TH>
                 <TH>Placa</TH>
                 <TH>Guía</TH>
@@ -679,7 +680,7 @@ export function PesoEnCamionPage() {
             <TBody>
               {guiasAbiertas.length === 0 ? (
                 <TR className="hover:bg-transparent">
-                  <TD colSpan={4} className="py-16">
+                  <TD colSpan={5} className="py-16">
                     <div className="flex flex-col items-center gap-2 text-center text-muted-foreground">
                       <Inbox className="size-8" />
                       <p className="text-sm font-medium">
@@ -692,7 +693,7 @@ export function PesoEnCamionPage() {
                   </TD>
                 </TR>
               ) : (
-                guiasAbiertas.map((g) => (
+                guiasAbiertas.map((g, i) => (
                   <TR
                     key={g.id}
                     onClick={() => toggleSelect(g)}
@@ -702,6 +703,7 @@ export function PesoEnCamionPage() {
                         'bg-sky-100 hover:bg-sky-100',
                     )}
                   >
+                    <TD className="tabular-nums">{i + 1}</TD>
                     <TD className="font-medium tabular-nums">{formatReferencia(g.reference)}</TD>
                     <TD>{g.placa ?? '—'}</TD>
                     <TD>{g.guia ?? '—'}</TD>
@@ -713,7 +715,7 @@ export function PesoEnCamionPage() {
             </Table>
           </div>
         ) : (
-          <div className="p-4">
+          <div className="scrollbar-app min-h-0 flex-1 overflow-auto p-4">
             <KeyboardField align="top">
               <textarea
                 className={cn(areaClass, 'min-h-[160px]', savedText)}

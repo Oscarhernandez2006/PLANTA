@@ -99,10 +99,10 @@ export function AppShell() {
   }, [collapsed]);
 
   return (
-    <div className="flex min-h-screen bg-background">
+    <div className="flex h-screen overflow-hidden bg-background">
       <aside
         className={cn(
-          'hidden shrink-0 flex-col bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex',
+          'hidden shrink-0 flex-col overflow-y-auto bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex',
           collapsed ? 'w-16' : 'w-64',
         )}
       >
@@ -221,9 +221,9 @@ export function AppShell() {
         </div>
       </aside>
 
-      <div className="flex flex-1 flex-col">
-        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">
-          <div className="mx-auto w-full max-w-7xl">
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
+          <div className="mx-auto flex h-full w-full max-w-7xl flex-col">
             <Outlet />
           </div>
           {/* Espacio reservado cuando el teclado en pantalla está abierto. */}

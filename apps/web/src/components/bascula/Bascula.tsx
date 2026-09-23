@@ -11,10 +11,15 @@ import {
   setSavedScaleBaud,
   setSavedScalePort,
   type ScalePortInfo,
+  type ScaleReadResult,
 } from '@/lib/device';
 import { cn } from '@/lib/utils';
 
 export const BAUD_RATES = [9600, 19200, 2400, 38400, 57600, 115200];
+
+// Tiempo máximo total de espera por una lectura, sin importar cuántos
+// puertos/baudios pruebe el lado nativo: nunca deja el campo "pensando" a la infinita.
+const LECTURA_TIMEOUT_MS = 6000;
 
 // Lee la báscula real (puerto serie). En navegador (sin app de escritorio)
 // Lee la báscula real (puerto serie / COM) a través de la app de escritorio.
@@ -31,7 +36,15 @@ export function useBascula(initial = '0.00') {
     const baudRate = getSavedScaleBaud() ?? undefined;
 
     try {
-      const result = await readScale({ timeoutMs: 5000, port, baudRate });
+      const result = await Promise.race([
+        readScale({ timeoutMs: 4000, port, baudRate }),
+        new Promise<ScaleReadResult>((resolve) =>
+          setTimeout(
+            () => resolve({ ok: false, value: null, port: null, baudRate: null, error: 'scale_not_found' }),
+            LECTURA_TIMEOUT_MS,
+          ),
+        ),
+      ]);
       if (result.ok && result.value !== null) {
         setPeso(result.value.toFixed(2));
         return;
@@ -40,7 +53,7 @@ export function useBascula(initial = '0.00') {
     } catch (e) {
       setError(
         (e as Error)?.message === 'scale_not_found'
-          ? 'No se detectó la báscula. Revisa la conexión y el puerto COM.'
+          ? 'No se detectó el puerto COM de la báscula. Revisa la conexión.'
           : 'No se pudo leer la báscula. Revisa la conexión y el puerto COM.',
       );
     } finally {

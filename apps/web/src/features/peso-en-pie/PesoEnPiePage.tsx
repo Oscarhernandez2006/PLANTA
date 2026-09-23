@@ -130,7 +130,7 @@ export function PesoEnPiePage() {
   }, [corralGuia, corral]);
 
   const tabs: TabItem[] = [
-    { value: 'guias', label: `Guías Abiertas: ${guiasCamion.data?.length ?? 0}` },
+    { value: 'guias', label: `Guías abiertas (${guiasCamion.data?.length ?? 0})` },
     { value: 'registro', label: 'Registro de animales' },
     { value: 'observaciones', label: 'Observaciones' },
   ];
@@ -339,13 +339,13 @@ export function PesoEnPiePage() {
   }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div className="flex items-center gap-3">
-          <PesoEnPieIcon className="size-9" />
+    <div className="flex h-full flex-col gap-2.5">
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <PesoEnPieIcon className="size-8" />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">Peso En Pie</h1>
-            <p className="mt-0.5 text-sm text-muted-foreground">
+            <h1 className="text-xl font-semibold tracking-tight">Peso En Pie</h1>
+            <p className="text-xs text-muted-foreground">
               Registro individual de animales y peso en pie.
             </p>
           </div>
@@ -355,42 +355,42 @@ export function PesoEnPiePage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-8"
             title="Limpiar formulario"
             onClick={limpiar}
             disabled={crear.isPending}
           >
-            <Eraser className="size-5" />
+            <Eraser className="size-4" />
           </Button>
-          <span className="mx-1 h-8 w-px bg-border" />
+          <span className="mx-1 h-7 w-px bg-border" />
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-8"
             title="Imprimir registro"
             onClick={imprimir}
             disabled={animalesRegistrados < 1}
           >
-            <Printer className="size-5" />
+            <Printer className="size-4" />
           </Button>
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-8"
             title="Bloquear registro"
             onClick={cerrarProcesoPeso}
             disabled={!guiaCompleta || processClosed || cerrarProceso.isPending}
           >
             {cerrarProceso.isPending ? (
-              <LoaderCircle className="size-5 animate-spin" />
+              <LoaderCircle className="size-4 animate-spin" />
             ) : (
-              <Lock className="size-5" />
+              <Lock className="size-4" />
             )}
           </Button>
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-8"
             title="Actualizar"
             onClick={() => {
               lista.refetch();
@@ -400,7 +400,7 @@ export function PesoEnPiePage() {
           >
             <RefreshCw
               className={cn(
-                'size-5',
+                'size-4',
                 (lista.isFetching || guiasCamion.isFetching) && 'animate-spin',
               )}
             />
@@ -409,24 +409,24 @@ export function PesoEnPiePage() {
       </div>
 
       {notice && (
-        <div className="rounded-md bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+        <div className="shrink-0 rounded-md bg-emerald-50 px-4 py-1.5 text-sm text-emerald-700">
           {notice}
         </div>
       )}
       {saveError && (
-        <div className="rounded-md bg-destructive/10 px-4 py-2 text-sm text-destructive">
+        <div className="shrink-0 rounded-md bg-destructive/10 px-4 py-1.5 text-sm text-destructive">
           {saveError}
         </div>
       )}
 
-      <Card className="p-4">
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-[130px_1fr_150px]">
-          <div className="space-y-1">
+      <Card className="shrink-0 p-3">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-[130px_1fr_150px]">
+          <div className="space-y-0.5">
             <Label htmlFor="fecha">Fecha</Label>
             <Input
               id="fecha"
               type="date"
-              className="h-9 [&::-webkit-calendar-picker-indicator]:hidden"
+              className="h-8 [&::-webkit-calendar-picker-indicator]:hidden"
               value={fecha}
               min={fecha}
               max={fecha}
@@ -434,61 +434,58 @@ export function PesoEnPiePage() {
               onChange={() => {}}
             />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <Label htmlFor="guia">Guía de movilización</Label>
             <Input
               id="guia"
               value={guia}
               readOnly
-              className="h-9 bg-muted/40"
+              className="h-8 bg-muted/40"
               placeholder="Seleccione una guía abierta…"
             />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <Label>Consecutivo BP</Label>
-            <div className="flex h-9 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-base font-bold tabular-nums text-emerald-700">
+            <div className="flex h-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-sm font-bold tabular-nums text-emerald-700">
               {bpActual != null ? formatBP(bpActual) : '—'}
             </div>
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <div className="space-y-0.5">
             <Label htmlFor="procedencia">Procedencia</Label>
-            <Input id="procedencia" value={procedencia} readOnly className="h-9 bg-muted/40" />
+            <Input id="procedencia" value={procedencia} readOnly className="h-8 bg-muted/40" />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <Label htmlFor="proveedor">Proveedor</Label>
-            <Input id="proveedor" value={proveedor} readOnly className="h-9 bg-muted/40" />
+            <Input id="proveedor" value={proveedor} readOnly className="h-8 bg-muted/40" />
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5">
             <Label htmlFor="cliente">Cliente</Label>
-            <Input id="cliente" value={cliente} readOnly className="h-9 bg-muted/40" />
+            <Input id="cliente" value={cliente} readOnly className="h-8 bg-muted/40" />
           </div>
         </div>
 
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div className="space-y-1">
+        <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-6">
+          <div className="space-y-0.5 sm:col-span-1">
             <Label htmlFor="placa">Placa</Label>
-            <Input id="placa" value={placa} readOnly className="h-9 bg-muted/40" />
+            <Input id="placa" value={placa} readOnly className="h-8 bg-muted/40" />
           </div>
-          <div className="space-y-1 sm:col-span-2">
+          <div className="space-y-0.5 sm:col-span-2">
             <Label htmlFor="conductor">Conductor</Label>
-            <Input id="conductor" value={conductor} readOnly className="h-9 bg-muted/40" />
+            <Input id="conductor" value={conductor} readOnly className="h-8 bg-muted/40" />
           </div>
-        </div>
-
-        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <div className="space-y-1">
+          <div className="space-y-0.5 sm:col-span-2">
             <Label htmlFor="corral">Ubicación (Corral)</Label>
-            <Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-9">
+            <Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-8">
               <option value="">Seleccione...</option>
               {Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}
             </Select>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-0.5 sm:col-span-1">
             <Label htmlFor="tipo-animal">Tipo de Animal</Label>
-            <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-9">
+            <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-8">
               <option value="">Seleccione...</option>
               <option value="MACHO">MACHO</option>
               <option value="HEMBRA">HEMBRA</option>
@@ -499,7 +496,7 @@ export function PesoEnPiePage() {
         </div>
       </Card>
 
-      <div className="grid auto-rows-fr grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid shrink-0 auto-rows-fr grid-cols-2 gap-2 lg:grid-cols-4">
         <Card className="flex h-full flex-col justify-center p-2">
           <div className="flex items-center justify-around gap-3">
             <div className="flex flex-col items-center">
@@ -593,19 +590,21 @@ export function PesoEnPiePage() {
       </div>
 
       {guiaCompleta && (
-        <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-medium text-emerald-700">
+        <div className="shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-700">
           Esta guía ya tiene registrados sus {animalesObjetivo} animales.
         </div>
       )}
       {!guiaSeleccionada && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm font-medium text-amber-700">
+        <div className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-4 py-1.5 text-sm font-medium text-amber-700">
           Selecciona una guía abierta para comenzar a pesar sus animales.
         </div>
       )}
 
-      <Card className="overflow-hidden rounded-sm">
-        <Tabs tabs={tabs} value={tab} onChange={setTab} className="bg-muted/40" />
-        {tab === 'observaciones' ? <div className="p-4"><Input aria-label="Observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} placeholder="Observaciones" className="h-32 items-start py-3" /></div> : tab === 'guias' ? <GuiasCamionList guias={guiasCamion.data ?? []} loading={guiasCamion.isLoading} onSelect={seleccionarGuia} /> : null}
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+        <div className="shrink-0 px-4 pt-2">
+          <Tabs tabs={tabs} value={tab} onChange={setTab} />
+        </div>
+        {tab === 'observaciones' ? <div className="min-h-0 flex-1 overflow-auto p-4"><Input aria-label="Observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} placeholder="Observaciones" className="h-32 items-start py-3" /></div> : tab === 'guias' ? <GuiasCamionList guias={guiasCamion.data ?? []} loading={guiasCamion.isLoading} onSelect={seleccionarGuia} /> : null}
         {tab === 'registro' && lista.isLoading ? (
           <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" /> Cargando…
@@ -615,27 +614,29 @@ export function PesoEnPiePage() {
             <Inbox className="size-8" /> Aún no hay animales registrados para esta guía.
           </div>
         ) : tab === 'registro' ? (
-          <div className="max-h-[26vh] overflow-auto">
+          <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
             <Table>
               <THead>
                 <TR>
-                  <TH>Animal</TH>
-                  <TH>Tipo</TH>
-                  <TH>Corral</TH>
-                  <TH>Fecha</TH>
-                  <TH className="text-right">Peso (kg)</TH>
+                  <TH className="w-28 whitespace-nowrap">N.º Registro</TH>
+                  <TH className="whitespace-nowrap">Animal</TH>
+                  <TH className="whitespace-nowrap">Tipo</TH>
+                  <TH className="whitespace-nowrap">Corral</TH>
+                  <TH className="whitespace-nowrap">Fecha</TH>
+                  <TH className="whitespace-nowrap text-right">Peso (kg)</TH>
                 </TR>
               </THead>
               <TBody>
-                {reportesGuia.map((r) => (
+                {reportesGuia.map((r, i) => (
                   <TR key={r.id}>
-                    <TD className="font-semibold tabular-nums">
+                    <TD className="tabular-nums">{i + 1}</TD>
+                    <TD className="whitespace-nowrap tabular-nums">
                       {formatAnimal(r.bpReference, r.reference)}
                     </TD>
-                    <TD>{r.tipoAnimal ?? '—'}</TD>
-                    <TD>{r.corral ? `Corral ${r.corral}` : '—'}</TD>
-                    <TD className="text-muted-foreground">{r.date}</TD>
-                    <TD className="text-right font-semibold tabular-nums">
+                    <TD className="whitespace-nowrap">{r.tipoAnimal ?? '—'}</TD>
+                    <TD className="whitespace-nowrap">{r.corral ? `Corral ${r.corral}` : '—'}</TD>
+                    <TD className="whitespace-nowrap text-muted-foreground">{r.date}</TD>
+                    <TD className="whitespace-nowrap text-right tabular-nums">
                       {kg(r.pesoTotalKg)}
                     </TD>
                   </TR>
@@ -668,50 +669,78 @@ function GuiasCamionList({
 
   if (!guias.length) {
     return (
-      <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-muted-foreground">
-        <Inbox className="size-8" />
-        <p className="font-medium">No hay guías abiertas</p>
-        <p>Registra una guía en Peso en Camión para asignarle animales.</p>
+      <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
+        <Table>
+          <THead>
+            <TR>
+              <TH className="w-28 whitespace-nowrap">N.º Registro</TH>
+              <TH className="whitespace-nowrap">Referencia</TH>
+              <TH className="whitespace-nowrap">Guía</TH>
+              <TH className="whitespace-nowrap">Cliente</TH>
+              <TH className="whitespace-nowrap">Fecha</TH>
+              <TH className="whitespace-nowrap">Placa</TH>
+              <TH className="whitespace-nowrap text-right">Animales</TH>
+              <TH className="whitespace-nowrap text-right">Entrada (kg)</TH>
+              <TH className="whitespace-nowrap text-right">Salida (kg)</TH>
+              <TH className="whitespace-nowrap text-right">Acción</TH>
+            </TR>
+          </THead>
+          <TBody>
+            <TR className="hover:bg-transparent">
+              <TD colSpan={10} className="py-16">
+                <div className="flex flex-col items-center gap-2 text-center text-muted-foreground">
+                  <Inbox className="size-8" />
+                  <p className="text-sm font-medium">No hay guías abiertas</p>
+                  <p className="text-sm">
+                    Registra una guía en Peso en Camión para asignarle animales.
+                  </p>
+                </div>
+              </TD>
+            </TR>
+          </TBody>
+        </Table>
       </div>
     );
   }
 
   return (
-    <div className="max-h-[26vh] overflow-auto">
+    <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
       <Table>
         <THead>
           <TR>
-            <TH>Referencia</TH>
-            <TH>Guía</TH>
-            <TH>Cliente</TH>
-            <TH>Fecha</TH>
-            <TH>Placa</TH>
-            <TH className="text-right">Animales</TH>
-            <TH className="text-right">Entrada (kg)</TH>
-            <TH className="text-right">Salida (kg)</TH>
-            <TH className="text-right">Acción</TH>
+            <TH className="w-28 whitespace-nowrap">N.º Registro</TH>
+            <TH className="whitespace-nowrap">Referencia</TH>
+            <TH className="whitespace-nowrap">Guía</TH>
+            <TH className="whitespace-nowrap">Cliente</TH>
+            <TH className="whitespace-nowrap">Fecha</TH>
+            <TH className="whitespace-nowrap">Placa</TH>
+            <TH className="whitespace-nowrap text-right">Animales</TH>
+            <TH className="whitespace-nowrap text-right">Entrada (kg)</TH>
+            <TH className="whitespace-nowrap text-right">Salida (kg)</TH>
+            <TH className="whitespace-nowrap text-right">Acción</TH>
           </TR>
         </THead>
         <TBody>
-          {guias.map((guia) => (
+          {guias.map((guia, i) => (
             <TR
               key={guia.id}
               className="cursor-pointer"
               onClick={() => onSelect(guia)}
             >
-              <TD className="font-semibold tabular-nums">
+              <TD className="tabular-nums">{i + 1}</TD>
+              <TD className="whitespace-nowrap tabular-nums">
                 {formatReferencia(guia.reference)}
               </TD>
-              <TD className="font-semibold">
+              <TD className="whitespace-nowrap">
                 {guia.guia ?? '—'}
               </TD>
-              <TD className="font-medium">{guia.cliente ?? '—'}</TD>
-              <TD className="text-muted-foreground">{guia.date}</TD>
-              <TD>{guia.placa ?? '—'}</TD>
-              <TD className="text-right tabular-nums">{guia.cantidad ?? '—'}</TD>
-              <TD className="text-right tabular-nums">{guia.entrada ?? '—'}</TD>
-              <TD className="text-right tabular-nums">{guia.salida ?? '—'}</TD>
-              <TD className="text-right text-sm font-medium text-primary">
+              <TD className="whitespace-nowrap">{guia.cliente ?? '—'}</TD>
+              <TD className="whitespace-nowrap text-muted-foreground">{guia.date}</TD>
+              <TD className="whitespace-nowrap">{guia.placa ?? '—'}</TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{guia.cantidad ?? '—'}</TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{guia.entrada ?? '—'}</TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{guia.salida ?? '—'}</TD>
+              <TD className="whitespace-nowrap text-right text-sm text-primary">
                 Asignar animales
               </TD>
             </TR>
