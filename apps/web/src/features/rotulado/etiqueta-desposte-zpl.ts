@@ -69,15 +69,8 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
   const nombre = nombreProducto.endsWith(datos.empaque.toUpperCase())
     ? nombreProducto
     : `${nombreProducto} ${datos.empaque.toUpperCase()}`;
-  const palabras = limpiar(nombre).split(/\s+/);
-  const titulo: string[] = [''];
-  for (const palabra of palabras) {
-    const ultima = titulo.length - 1;
-    if (`${titulo[ultima]} ${palabra}`.trim().length > 25 && titulo[ultima]) titulo.push('');
-    titulo[titulo.length - 1] = `${titulo[titulo.length - 1]} ${palabra}`.trim();
-  }
-  const texto = (x: number, y: number, size: number, value: string) =>
-    `^FO${x},${y}^A0N,${size},${Math.round(size * 0.58)}^FD${limpiar(value)}^FS`;
+  const texto = (x: number, y: number, height: number, width: number, value: string) =>
+    `^FO${x},${y}^A0N,${height},${width}^FD${limpiar(value)}^FS`;
 
   return [
     '^XA',
@@ -86,38 +79,45 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
     `^LL${dots(60)}`,
     '^LH0,0',
     logo,
-    texto(90, 8, 23, 'AGROPECUARIA SANTACRUZ'),
-    texto(90, 36, 22, titulo[0] ?? ''),
-    texto(12, 61, 22, titulo.slice(1).join(' ').slice(0, 35)),
-    '^FO12,89^GB455,2,2^FS',
-    texto(14, 96, 17, 'No. DE TIENDA'),
-    texto(160, 94, 30, datos.tienda),
-    texto(14, 130, 16, 'LOTE'),
-    texto(160, 130, 16, 'REF.'),
-    texto(275, 130, 16, 'ORIGEN'),
-    texto(390, 130, 16, 'PIEZA'),
-    texto(14, 151, 23, datos.lote),
-    texto(160, 151, 18, datos.ref || '---'),
-    texto(275, 151, 20, 'BOVINO'),
-    texto(405, 151, 23, String(datos.pieza)),
-    '^FO12,182^GB455,2,2^FS',
-    texto(14, 191, 17, `SACRIFICIO: ${fecha(datos.sacrificio)}`),
-    texto(14, 214, 17, `PRODUCCION: ${fecha(datos.produccion)}`),
-    texto(14, 237, 17, `VENCIMIENTO: ${fecha(datos.vencimiento)}`),
-    texto(305, 190, 18, 'NETO (kg)'),
-    texto(310, 218, 47, datos.netoKg.toFixed(2)),
-    '^FO12,269^GB455,2,2^FS',
-    texto(14, 276, 17, `CONSERVACION: ${datos.conservacion.toUpperCase()} ${datos.temperatura}`),
-    texto(14, 298, 14, 'Cocinar completamente antes de consumir.'),
-    texto(14, 317, 14, 'Procesado y empacado por AGROPECUARIA SANTACRUZ LTDA.'),
-    texto(14, 336, 14, 'PLANTA DE BENEFICIO 466BD - Km 3 via Oriental, Malambo'),
-    texto(14, 355, 14, 'Atlantico - Tel. 3766701 - frigorificosantacruz.com'),
-    '^FO14,379^BQN,2,2^FDLA,' + codigo + '^FS',
-    texto(100, 382, 14, 'Para: AGROPECUARIA SANTACRUZ'),
-    texto(100, 401, 14, 'KM 3 VIA ORIENTAL - MALAMBO'),
-    texto(100, 420, 14, 'Tel. 6053766701'),
-    `^FO14,440^BY1,2,22^BCN,22,N,N,N^FD${codigo}^FS`,
-    texto(14, 464, 13, codigo),
+    texto(95, 19, 25, 25, 'AGROPECUARIA SANTACRUZ'),
+    texto(100, 44, 30, 20, nombre),
+    '^FO15,78^GB76,50,3^FS',
+    texto(22, 84, 17, 10, 'No. DE TIENDA'),
+    texto(47, 100, 30, 17, datos.tienda),
+    texto(14, 133, 20, 18, 'LOTE'),
+    texto(160, 133, 20, 18, 'REF.'),
+    texto(275, 133, 20, 18, 'ORIGEN'),
+    texto(390, 133, 20, 18, 'PIEZA'),
+    texto(14, 151, 23, 18, datos.lote),
+    texto(152, 148, 18, 18, datos.ref || '---'),
+    texto(275, 151, 20, 18, 'BOVINO'),
+    texto(405, 151, 23, 18, String(datos.pieza)),
+    '^FO12,172^GB455,2,2^FS',
+    texto(14, 180, 19, 22, `FECHA DE SACRIFICIO:    ${fecha(datos.sacrificio)}`),
+    texto(14, 200, 19, 22, `FECHA DE PRODUCCION:  ${fecha(datos.produccion)}`),
+    texto(14, 220, 19, 22, `FECHA DE VENCIMIENTO: ${fecha(datos.vencimiento)}`),
+    texto(400, 180, 18, 10, 'NETO (kg)'),
+    texto(396, 200, 48, 28, datos.netoKg.toFixed(2)),
+    '^FO12,242^GB455,2,2^FS',
+    texto(14, 250, 20, 20, `CONSERVACION: ${datos.conservacion.toUpperCase()} ${datos.temperatura}`),
+    texto(14, 270, 20, 17, 'Instruciones de uso: Cocinar completamente antes de consumir.'),
+    '^FO12,293^GB455,2,2^FS',
+    texto(14, 300, 20, 17, 'Procesado y empacado por AGROPECUARIA SANTACRUZ LTDA.'),
+    '^FO15,323^GB56,50,3^FS',
+    '^FO68,323^GB56,50,3^FS',
+    texto(20, 330, 14, 8, 'PLANTA DE'),
+    texto(20, 344, 14, 8, 'BENEFICIO'),
+    texto(20, 358, 14, 8, 'DESPOSTE'),
+    texto(73, 332, 44, 18, '466BD'),
+    texto(130, 332, 18, 20, 'Km 3 via Oriental, Malambo / Atlantico'),
+    texto(130, 353, 18, 20, 'Tel. 3766701 - frigorificosantacruz.com'),
+    '^FO15,380^GB82,84,3^FS',
+    `^FO104,370^BQN,4,4^FDLA,${codigo}^FS`,
+    texto(196, 382, 14, 18, 'Para: AGROPECUARIA SANTACRUZ'),
+    texto(196, 401, 14, 18, 'KM 3 VIA ORIENTAL - MALAMBO'),
+    texto(196, 420, 14, 18, 'Tel. 6053766701'),
+    `^FO220,436^BY1,2,22^BCN,22,N,N,N^FD${codigo}^FS`,
+    texto(290, 462, 13, 8, codigo),
     '^XZ',
   ].join('\n');
 }
