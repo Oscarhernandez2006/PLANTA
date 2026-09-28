@@ -20,6 +20,11 @@ export class CreateProductionOrderDto {
   status?: DispatchOrderStatus;
 }
 
+export class ReservarEtiquetaDto {
+  @IsUUID()
+  productId!: string;
+}
+
 export class QueryProductionOrderDto {
   @IsOptional()
   @IsEnum(DispatchOrderStatus)

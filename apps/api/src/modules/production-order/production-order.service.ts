@@ -68,6 +68,33 @@ export class ProductionOrderService {
     });
   }
 
+  async reservarEtiqueta(ctx: AuthContext, productionOrderId: string, productId: string) {
+    const order = await this.prisma.productionOrder.findFirst({
+      where: {
+        id: productionOrderId,
+        plantId: ctx.plantId,
+        deletedAt: null,
+        status: DispatchOrderStatus.activo,
+      },
+      select: { clienteId: true },
+    });
+    if (!order) throw new BadRequestException('La orden de producción no está activa.');
+
+    const assigned = await this.prisma.clienteProducto.findFirst({
+      where: { clienteId: order.clienteId, productId, product: { plantId: ctx.plantId, active: true } },
+      select: { productId: true },
+    });
+    if (!assigned) throw new BadRequestException('El producto no está asignado al cliente en Conservación.');
+
+    const counter = await this.prisma.rotuladoConsecutivo.upsert({
+      where: { plantId_productionOrderId_productId: { plantId: ctx.plantId, productionOrderId, productId } },
+      create: { plantId: ctx.plantId, productionOrderId, productId, ultimo: 1 },
+      update: { ultimo: { increment: 1 } },
+      select: { ultimo: true },
+    });
+    return { pieza: counter.ultimo };
+  }
+
   async findAll(ctx: AuthContext, query: QueryProductionOrderDto) {
     const where: Prisma.ProductionOrderWhereInput = {
       plantId: ctx.plantId,

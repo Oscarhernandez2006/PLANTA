@@ -1,13 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Barcode, Gauge, LoaderCircle, Package, Trash2, TriangleAlert } from 'lucide-react';
+import { Barcode, Gauge, LoaderCircle, Package, RefreshCw, Trash2, TriangleAlert } from 'lucide-react';
 import { useBascula } from '@/components/bascula/Bascula';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { NumericKeypad } from '@/components/keyboard/NumericKeypad';
+import { api } from '@/lib/api';
+import { listPrinters, printRaw, type PrinterInfo } from '@/lib/device';
 import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 import { useBodegas, type Tienda } from '../clientes/api';
 import type { ProductoAsignado } from '../conservacion/api';
 import { useItemsDespacho } from '../canal-fria/api';
 import { formatOP, type OrdenProduccion } from '../registrar/orden-produccion-api';
+import { generarEtiquetaDesposteZpl, obtenerLogoEtiquetaZpl } from './etiqueta-desposte-zpl';
 import { FieldBox } from './ui';
 
 type Conservacion = 'refrigerado' | 'congelado';
@@ -31,6 +34,8 @@ function sumarDias(iso: string, dias: number) {
 
 const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+const PRINTER_KEY = 'frigo.rotulado.printer.name';
 
 export function EmbalajeDesposte({
   orden,
@@ -74,6 +79,14 @@ export function EmbalajeDesposte({
   const [procesadoPara, setProcesadoPara] = useState('');
   const [imprimir, setImprimir] = useState(true);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
+  const [impresoras, setImpresoras] = useState<PrinterInfo[]>([]);
+  const [impresora, setImpresora] = useState(() => localStorage.getItem(PRINTER_KEY) ?? '');
+  const [imprimiendo, setImprimiendo] = useState(false);
+  const [piezaPendiente, setPiezaPendiente] = useState<number | null>(null);
+
+  useEffect(() => {
+    void listPrinters().then(setImpresoras);
+  }, []);
 
   // Fecha de sacrificio: la más antigua de las canales despachadas en la OD.
   const itemsOd = useItemsDespacho(orden.dispatchOrder.id);
@@ -92,14 +105,65 @@ export function EmbalajeDesposte({
   const totalNeto = etiquetas.reduce((s, e) => s + e.netoKg, 0);
   const ultima = etiquetas[etiquetas.length - 1] ?? null;
 
-  function etiquetar() {
-    if (netoKg <= 0) return;
-    const hora = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
-    setEtiquetas((prev) => [
-      ...prev,
-      { n: prev.length + 1, taraKg, brutoKg, netoKg, hora },
-    ]);
-    setBruto('0.00');
+  async function etiquetar() {
+    if (netoKg <= 0 || imprimiendo) return;
+    if (imprimir && !impresora) {
+      setAlerta({ id: Date.now(), texto: 'Selecciona la impresora de etiquetas de esta estación.' });
+      return;
+    }
+    if (!sacrificio) {
+      setAlerta({ id: Date.now(), texto: 'No se encontró la fecha de sacrificio de la orden.' });
+      return;
+    }
+    setImprimiendo(true);
+    try {
+      let pieza = piezaPendiente;
+      if (pieza === null) {
+        const response = await api.post<{ pieza: number }>(
+          `/production-orders/${orden.id}/etiquetas/reservar`,
+          { productId: producto.id },
+        );
+        pieza = response.data.pieza;
+        setPiezaPendiente(pieza);
+      }
+      if (pieza > 9999) {
+        setAlerta({ id: Date.now(), texto: 'Se agotó el consecutivo de etiquetas para este producto.' });
+        return;
+      }
+      if (imprimir) {
+        const logo = await obtenerLogoEtiquetaZpl();
+        const resultado = await printRaw(impresora, generarEtiquetaDesposteZpl({
+          tienda: tienda.codigo,
+          lote: formatOP(orden.opNumber),
+          productoCodigo: producto.codigo,
+          productoNombre: producto.nombre,
+          empaque: alVacio ? 'AL VACIO' : 'A GRANEL',
+          pieza,
+          netoKg,
+          sacrificio,
+          produccion: empaque,
+          vencimiento,
+          conservacion,
+          temperatura: temp,
+          ref,
+        }, logo));
+        if (!resultado.ok) {
+          setAlerta({ id: Date.now(), texto: resultado.error || 'No se pudo imprimir la etiqueta.' });
+          return;
+        }
+      }
+      setPiezaPendiente(null);
+      const hora = new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
+      setEtiquetas((prev) => [
+        ...prev,
+        { n: pieza, taraKg, brutoKg, netoKg, hora },
+      ]);
+      setBruto('0.00');
+    } catch {
+      setAlerta({ id: Date.now(), texto: 'No se pudo reservar la pieza o enviar la etiqueta a la impresora.' });
+    } finally {
+      setImprimiendo(false);
+    }
   }
 
   const botonIcono =
@@ -121,6 +185,33 @@ export function EmbalajeDesposte({
           </div>
         </div>
       )}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <label htmlFor="impresora-rotulado" className="font-medium">Impresora de etiquetas (6 × 6 cm):</label>
+        <select
+          id="impresora-rotulado"
+          value={impresora}
+          onChange={(e) => {
+            setImpresora(e.target.value);
+            if (e.target.value) localStorage.setItem(PRINTER_KEY, e.target.value);
+            else localStorage.removeItem(PRINTER_KEY);
+          }}
+          className="h-9 min-w-52 border border-border bg-card px-2"
+        >
+          <option value="">Seleccionar Zebra USB</option>
+          {impresoras.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+          {impresora && !impresoras.some((p) => p.name === impresora) && (
+            <option value={impresora}>{impresora}</option>
+          )}
+        </select>
+        <button
+          onClick={() => void listPrinters().then(setImpresoras)}
+          title="Actualizar impresoras"
+          aria-label="Actualizar impresoras"
+          className="flex size-9 items-center justify-center border border-border bg-card hover:bg-muted"
+        >
+          <RefreshCw className="size-4" />
+        </button>
+      </div>
       {/* Tienda */}
       <div className="grid grid-cols-[200px_1fr] gap-2">
         <FieldBox label="Cód. Tienda:">
@@ -273,12 +364,12 @@ export function EmbalajeDesposte({
             {leyendo ? <LoaderCircle className="size-7 animate-spin" /> : <Gauge className="size-8" />}
           </button>
           <button
-            onClick={etiquetar}
-            disabled={netoKg <= 0}
+            onClick={() => void etiquetar()}
+            disabled={netoKg <= 0 || imprimiendo}
             title="Etiquetar producto"
             className={botonIcono}
           >
-            <Barcode className="size-8" />
+            {imprimiendo ? <LoaderCircle className="size-7 animate-spin" /> : <Barcode className="size-8" />}
           </button>
           <button disabled title="Cerrar empaque (pendiente)" className={botonIcono}>
             <Package className="size-8" />

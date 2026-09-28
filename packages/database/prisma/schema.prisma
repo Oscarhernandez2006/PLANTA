@@ -304,11 +304,27 @@ model ProductionOrder {
   cliente       Cliente       @relation(fields: [clienteId], references: [id])
   dispatchOrder DispatchOrder @relation(fields: [dispatchOrderId], references: [id])
   createdBy     AppUser       @relation("productionCreatedBy", fields: [createdById], references: [id])
+  rotuladoConsecutivos RotuladoConsecutivo[]
 
   @@unique([plantId, opNumber])
   @@index([plantId, status])
   @@index([dispatchOrderId])
   @@map("production_order")
+}
+
+model RotuladoConsecutivo {
+  plantId           String   @map("plant_id") @db.Uuid
+  productionOrderId String   @map("production_order_id") @db.Uuid
+  productId         String   @map("product_id") @db.Uuid
+  ultimo            Int      @default(0)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant           Plant           @relation(fields: [plantId], references: [id])
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  product         Product         @relation(fields: [productId], references: [id])
+
+  @@id([plantId, productionOrderId, productId])
+  @@map("rotulado_consecutivo")
 }
 
 // Salida de una pieza de canal de su cava hacia una orden de despacho. La pieza
@@ -438,6 +454,7 @@ model Product {
   plant Plant @relation(fields: [plantId], references: [id])
   postaReceiptItems PostaReceiptItem[]
   clientes          ClienteProducto[]
+  rotuladoConsecutivos RotuladoConsecutivo[]
 
   @@unique([plantId, codigo])
   @@index([plantId])
@@ -461,6 +478,7 @@ model Plant {
   devices        Device[]
   dispatchOrders DispatchOrder[]
   productionOrders ProductionOrder[]
+  rotuladoConsecutivos RotuladoConsecutivo[]
   canalReceipts  CanalReceiptOrder[]
   canalReceiptItems CanalReceiptItem[]
   postaReceipts  PostaReceiptOrder[]

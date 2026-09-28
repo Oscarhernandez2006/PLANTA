@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Query, UseGuards } f
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CreateProductionOrderDto, QueryProductionOrderDto } from './production-order.dto';
+import { CreateProductionOrderDto, QueryProductionOrderDto, ReservarEtiquetaDto } from './production-order.dto';
 import { ProductionOrderService } from './production-order.service';
 
 @UseGuards(JwtAuthGuard)
@@ -18,6 +18,15 @@ export class ProductionOrderController {
   @Post()
   create(@CurrentUser() user: AuthContext, @Body() dto: CreateProductionOrderDto) {
     return this.service.create(user, dto);
+  }
+
+  @Post(':id/etiquetas/reservar')
+  reservarEtiqueta(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ReservarEtiquetaDto,
+  ) {
+    return this.service.reservarEtiqueta(user, id, dto.productId);
   }
 
   @Get()
