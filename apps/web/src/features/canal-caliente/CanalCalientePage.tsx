@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { isAxiosError } from 'axios';
 import {
   ChevronDown,
   ChevronUp,
@@ -6,19 +7,21 @@ import {
   Inbox,
   LoaderCircle,
   Lock,
+  Printer,
   Tag,
+  TriangleAlert,
   Undo2,
 } from 'lucide-react';
 import { Dialog } from '@/components/ui/dialog';
 import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { useBascula } from '@/components/bascula/Bascula';
 import { PrinterConexion } from '@/components/printer/PrinterConexion';
-import { cn } from '@/lib/utils';
+import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
+import { formatOB } from '../registrar/orden-beneficio-api';
 import {
   useCanalLotes,
   useCanalLoteDetail,
   useCanalPiezas,
-  useCanalReporte,
   useSetCanalTipo,
   useRegistrarCanal,
   useDeshacerCanal,
@@ -36,12 +39,12 @@ import {
   type CanalLoteDetail,
   type CanalPiezaTipo,
   type CanalTipo,
-  type CanalTurno,
 } from './api';
 import canalTodoImg from './canal-todo.png';
 import canalCizqImg from './canal-cizq.png';
 import canalCderImg from './canal-cder.png';
 import { imprimirPresintoDirecto } from './canal-presinto-zpl';
+import { codigoBarras, type PresintoTicketData } from './canal-presinto-print';
 
 const CANAL_IMG: Record<CanalPiezaTipo, string> = {
   canal: canalTodoImg,
@@ -58,6 +61,10 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'reporte', label: 'REPORTE' },
 ];
 
+function codigoAnimal(sequence: number) {
+  return `A${String(sequence).padStart(2, '0')}`;
+}
+
 const TIPOS: { key: CanalTipo; label: string; hint: string }[] = [
   { key: 'canal_completa', label: 'Canal completa', hint: '1 pieza por animal' },
   {
@@ -72,10 +79,6 @@ const TIPOS: { key: CanalTipo; label: string; hint: string }[] = [
   },
 ];
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function hora(iso: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('es-CO', {
@@ -85,9 +88,34 @@ function hora(iso: string | null) {
   });
 }
 
+/** Pieza recién registrada en la báscula, para clasificarla e imprimirla sin esperar a recargar la orden. */
+type PiezaNueva = {
+  piezaId: string;
+  pesoKg: number;
+  pieza: CanalPiezaTipo;
+  eventoId: string;
+};
+
+/** Animal con una media canal ya pesada y la otra mitad pendiente. */
+function mediaIncompleta(detail: CanalLoteDetail | undefined) {
+  return detail?.animales.find(
+    (a) =>
+      !!a.canalTipo &&
+      a.canalTipo !== 'canal_completa' &&
+      a.piezas.some((p) => p.pesado) &&
+      a.piezas.some((p) => !p.pesado),
+  );
+}
+
 /** Siguiente animal con trabajo pendiente: sin tipo asignado (pieza null) o con una pieza sin pesar. */
 function siguienteObjetivo(detail: CanalLoteDetail | undefined) {
   if (!detail) return null;
+  // Primero se termina la mitad que le falta a un animal ya empezado.
+  const incompleto = mediaIncompleta(detail);
+  if (incompleto) {
+    const pieza = incompleto.piezas.find((p) => !p.pesado)!;
+    return { animal: incompleto, pieza: pieza.pieza as CanalPiezaTipo | null };
+  }
   for (const animal of detail.animales) {
     if (!animal.canalTipo) return { animal, pieza: null as CanalPiezaTipo | null };
     const pieza = animal.piezas.find((p) => !p.pesado);
@@ -106,7 +134,6 @@ export function CanalCalientePage() {
   const [date, setDate] = useState(today());
   const [tab, setTab] = useState<Tab>('ordenes');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [turno, setTurno] = useState<CanalTurno>('manana');
 
   const lotes = useCanalLotes(date);
   const detail = useCanalLoteDetail(selectedId);
@@ -114,21 +141,71 @@ export function CanalCalientePage() {
   // Puente para que el botón de etiqueta del pie (compartido entre pestañas)
   // dispare "guardar clasificación + imprimir presinto" cuando se está en
   // la pestaña ANIMALES.
-  const animalesImprimirRef = useRef<(() => void) | null>(null);
+  const animalesImprimirRef = useRef<
+    ((nueva?: PiezaNueva) => void) | null
+  >(null);
   // Animal que se acaba de pesar: al redirigir a ANIMALES tras pesarlo, debe
   // mostrarse ESE animal (para clasificarlo), no el siguiente pendiente de
   // pesar (que todavía no tiene ninguna pieza y por eso no deja elegir
   // bodega/cava). Se limpia si el operario cambia de pestaña manualmente.
   const [ultimoPesadoId, setUltimoPesadoId] = useState<string | null>(null);
+  // Permite elegir libremente CIZQ o CDER como la pieza a pesar primero (por
+  // defecto siguienteObjetivo asume CIZQ primero, pero cada lado es una
+  // opción independiente y el operario puede pesar cualquiera primero).
+  const [piezaOverride, setPiezaOverride] = useState<{
+    eventoId: string;
+    pieza: CanalPiezaTipo;
+  } | null>(null);
+  // Refleja si el presinto se está enviando a imprimir, para que el botón de
+  // etiqueta del pie muestre "cargando" y no se pueda disparar dos veces.
+  const [imprimiendo, setImprimiendo] = useState(false);
+  // Último presinto impreso: vive en el padre (no en AnimalesTab) porque esa
+  // pestaña se desmonta al cambiar de tab, y el pesaje+impresión puede
+  // dispararse desde CANALES, perdiendo el estado si viviera ahí.
+  const [ultimoPresinto, setUltimoPresinto] =
+    useState<PresintoTicketData | null>(null);
+  const [alerta, setAlerta] = useState<{ texto: string; id: number } | null>(null);
+  useEffect(() => {
+    if (!alerta) return;
+    const t = setTimeout(() => setAlerta(null), 4000);
+    return () => clearTimeout(t);
+  }, [alerta]);
+  const mostrarAlerta = (texto: string) => setAlerta({ texto, id: Date.now() });
 
   const lista = lotes.data ?? [];
   const selectedLote = lista.find((l) => l.ordenBeneficioId === selectedId);
   const cliente = detail.data?.cliente ?? selectedLote?.cliente ?? '';
 
-  const objetivo = useMemo(
+  const objetivoBase = useMemo(
     () => siguienteObjetivo(detail.data),
     [detail.data],
   );
+  const objetivo = useMemo(() => {
+    // Si el operario tocó explícitamente un recuadro (Completo/CIZQ/CDER),
+    // esa elección manda siempre, sea o no el animal/pieza "por defecto"
+    // (el operario puede corregir cualquier animal, no solo el siguiente
+    // pendiente), mientras esa pieza siga sin pesar.
+    if (piezaOverride) {
+      const animal = detail.data?.animales.find(
+        (a) => a.eventoId === piezaOverride.eventoId,
+      );
+      const elegida = animal?.piezas.find((p) => p.pieza === piezaOverride.pieza);
+      // Si la pieza aún no aparece (el cambio de tipo va en camino), se respeta igual para evitar parpadeos.
+      if (animal && !elegida?.pesado) {
+        return { animal, pieza: piezaOverride.pieza };
+      }
+    }
+    if (!objetivoBase) return objetivoBase;
+    const { animal } = objetivoBase;
+    const pendientes = animal.piezas.filter((p) => !p.pesado);
+    // Con CIZQ y CDER pendientes a la vez no hay un lado "por defecto": se
+    // espera que el operario elija cuál pesar primero con un click explícito.
+    if (pendientes.length > 1) return { animal, pieza: null };
+    return objetivoBase;
+  }, [objetivoBase, piezaOverride, detail.data]);
+  useEffect(() => {
+    setPiezaOverride(null);
+  }, [objetivoBase?.animal.eventoId]);
   // Prioriza el animal recién pesado (para clasificarlo); si no hay uno
   // reciente, cae al comportamiento normal (siguiente pendiente / último).
   const animalParaClasificar =
@@ -205,13 +282,31 @@ export function CanalCalientePage() {
           />
         )}
         {tab === 'canales' && (
-          <CanalesTab date={date} detail={detail.data} objetivo={objetivo} />
+          <CanalesTab
+            date={date}
+            detail={detail.data}
+            objetivo={objetivo}
+            onSelectPieza={(eventoId, pieza) =>
+              setPiezaOverride({ eventoId, pieza })
+            }
+            onPiezaSeleccionada={() => setTab('animales')}
+            onAlerta={mostrarAlerta}
+          />
         )}
         {tab === 'animales' && (
           <AnimalesTab
             date={date}
             detail={detail.data}
             objetivoAnimal={animalParaClasificar}
+            imprimiendo={imprimiendo}
+            setImprimiendo={setImprimiendo}
+            ultimoPresinto={ultimoPresinto}
+            setUltimoPresinto={setUltimoPresinto}
+            onAlerta={mostrarAlerta}
+            onAnimalTerminado={(ordenTerminada) => {
+              setUltimoPesadoId(null);
+              setTab(ordenTerminada ? 'reporte' : 'canales');
+            }}
             registerGuardarEImprimir={(fn) => {
               animalesImprimirRef.current = fn;
             }}
@@ -244,11 +339,26 @@ export function CanalCalientePage() {
         setTab={setTab}
         detail={detail.data}
         objetivo={objetivo}
-        turno={turno}
-        setTurno={setTurno}
-        onEtiquetaAnimales={() => animalesImprimirRef.current?.()}
+        imprimiendo={imprimiendo}
+        onEtiquetaAnimales={(nueva) => animalesImprimirRef.current?.(nueva)}
         onPesado={setUltimoPesadoId}
+        onAlerta={mostrarAlerta}
       />
+
+      {alerta && (
+        <div
+          key={alerta.id}
+          className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4"
+        >
+          <div
+            role="alert"
+            className="flex max-w-md items-start gap-3 rounded-md border-2 border-amber-400 bg-card px-5 py-4 shadow-2xl"
+          >
+            <TriangleAlert className="mt-0.5 size-7 shrink-0 text-amber-500" />
+            <p className="text-base font-semibold text-foreground">{alerta.texto}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -330,7 +440,7 @@ function OrdenesTab({
   if (loading) return <Loading />;
   if (!lotes.length)
     return (
-      <Empty text="No hay órdenes insensibilizadas en esta fecha. Cuando una orden termine en Insensibilización aparecerá aquí." />
+      <Empty text="No hay órdenes sacrificadas en esta fecha. Cuando una orden termine en Sacrificio aparecerá aquí." />
     );
   return (
     <ul className="flex flex-col gap-2 p-2">
@@ -350,8 +460,10 @@ function OrdenesTab({
               )}
             >
               <span>
-                <span className="font-bold tabular-nums">{l.reference}</span>{' '}
-                <span className="text-muted-foreground">|</span> {l.cliente}
+                <span className="font-bold tabular-nums">{formatOB(l.reference)}</span>{' '}
+                <span className="text-muted-foreground">|</span>{' '}
+                {l.clienteNit ? `${l.clienteNit} - ` : ''}
+                {l.cliente}
               </span>
               <span className="flex items-center gap-2 text-sm text-muted-foreground">
                 <span className="tabular-nums">
@@ -380,24 +492,33 @@ const CANAL_PANELS: {
   { pieza: 'cder', title: 'Canal Derecha (CDER)', mirror: true },
 ];
 
-/** El tipo de canal se elige tocando el recuadro: TODO = completa, media canal = CIZQ/CDER. */
+/**
+ * El tipo de canal se elige tocando el recuadro: TODO = completa, CIZQ/CDER
+ * = media canal (ambos son la MISMA clasificación: cada uno es una pieza
+ * independiente que se puede pesar en cualquier orden; con/sin cola es una
+ * clasificación aparte, ver `conCola`).
+ */
 const PANEL_TIPO: Record<CanalPiezaTipo, CanalTipo> = {
   canal: 'canal_completa',
-  cizq: 'media_canal_con_cola',
-  cder: 'media_canal_sin_cola',
+  cizq: 'media_canal',
+  cder: 'media_canal',
 };
 
 function CanalesTab({
   date,
   detail,
   objetivo,
+  onSelectPieza,
+  onPiezaSeleccionada,
+  onAlerta,
 }: {
   date: string;
   detail: CanalLoteDetail | undefined;
   objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo | null } | null;
+  onSelectPieza: (eventoId: string, pieza: CanalPiezaTipo) => void;
+  onPiezaSeleccionada: () => void;
+  onAlerta: (texto: string) => void;
 }) {
-  const piezas = useCanalPiezas(date);
-  const deshacer = useDeshacerCanal();
   const setTipo = useSetCanalTipo();
   // Animal cuyo TIPO de canal se está editando: por defecto el siguiente
   // pendiente de pesar (objetivo), pero el operario puede elegir cualquier
@@ -414,19 +535,65 @@ function CanalesTab({
   const editables = detail.animales.filter((a) =>
     a.piezas.every((p) => !p.pesado),
   );
+  const incompleto = mediaIncompleta(detail);
   const animal =
-    editables.find((a) => a.eventoId === overrideId) ?? objetivo?.animal;
-  const esCompleta = animal?.canalTipo === 'canal_completa';
-  const esMediaCanal =
-    animal?.canalTipo === 'media_canal_con_cola' ||
-    animal?.canalTipo === 'media_canal_sin_cola';
-  const estadoDe = (p: CanalPiezaTipo) =>
-    animal?.piezas.find((x) => x.pieza === p);
-  const rows = piezas.data ?? [];
+    incompleto ??
+    editables.find((a) => a.eventoId === overrideId) ??
+    objetivo?.animal;
+  const completos = detail.animales.filter(
+    (a) => a.piezas.length > 0 && a.piezas.every((p) => p.pesado),
+  ).length;
+  const faltaPieza = incompleto?.piezas.find((p) => !p.pesado)?.pieza;
+  const permitida = (pieza: CanalPiezaTipo) =>
+    incompleto ? pieza === faltaPieza : editables.length > 0;
+
+  function elegir(pieza: CanalPiezaTipo) {
+    if (incompleto) {
+      const cod = codigoAnimal(incompleto.sequence);
+      const pesada = incompleto.piezas.find((p) => p.pesado)!;
+      const falta = incompleto.piezas.find((p) => !p.pesado)!;
+      if (pieza !== falta.pieza) {
+        onAlerta(
+          pieza === 'canal'
+            ? `El animal ${cod} ya tiene la ${PIEZA_LABEL[pesada.pieza]} pesada: no puede ser canal completa. Falta la ${PIEZA_LABEL[falta.pieza]}.`
+            : `La ${PIEZA_LABEL[pieza]} del animal ${cod} ya fue pesada. Falta la ${PIEZA_LABEL[falta.pieza]}.`,
+        );
+        return;
+      }
+      onSelectPieza(incompleto.eventoId, pieza);
+      onPiezaSeleccionada();
+      return;
+    }
+    const destino =
+      animal && animal.piezas.every((p) => !p.pesado)
+        ? animal
+        : editables[0];
+    if (!destino) {
+      onAlerta(`La orden ya tiene sus ${detail!.animales.length} canales pesados.`);
+      return;
+    }
+    onSelectPieza(destino.eventoId, pieza);
+    if (PANEL_TIPO[pieza] !== destino.canalTipo) {
+      setTipo.mutate(
+        { eventoId: destino.eventoId, tipo: PANEL_TIPO[pieza] },
+        {
+          onError: (err) => {
+            onAlerta(
+              isAxiosError(err) &&
+                typeof err.response?.data?.message === 'string'
+                ? err.response.data.message
+                : 'No se pudo cambiar el tipo de canal.',
+            );
+          },
+        },
+      );
+    }
+    onPiezaSeleccionada();
+  }
 
   return (
     <div className="flex flex-col gap-3 p-3">
-      {editables.length > 1 && (
+      {!incompleto && editables.length > 1 && (
         <div className="flex flex-wrap items-center justify-center gap-1.5">
           <span className="text-xs text-muted-foreground">
             Corregir tipo de:
@@ -443,7 +610,7 @@ function CanalesTab({
                   : 'border-border bg-card hover:bg-muted/50',
               )}
             >
-              #{a.consecutivo}
+              {codigoAnimal(a.sequence)}
             </button>
           ))}
         </div>
@@ -451,11 +618,22 @@ function CanalesTab({
       <p className="text-center text-sm text-muted-foreground">
         {!animal ? (
           <>Todas las piezas de la orden fueron pesadas.</>
+        ) : incompleto ? (
+          <>
+            Animal{' '}
+            <span className="font-bold text-foreground">
+              {codigoAnimal(incompleto.sequence)}
+            </span>{' '}
+            — Falta la{' '}
+            <span className="font-bold text-foreground">
+              {PIEZA_LABEL[incompleto.piezas.find((p) => !p.pesado)!.pieza]}
+            </span>
+          </>
         ) : !animal.canalTipo ? (
           <>
             Animal{' '}
             <span className="font-bold text-foreground">
-              #{animal.consecutivo}
+              {codigoAnimal(animal.sequence)}
             </span>{' '}
             — Toca un recuadro para elegir el tipo de canal.
           </>
@@ -463,137 +641,51 @@ function CanalesTab({
           <>
             Animal{' '}
             <span className="font-bold text-foreground">
-              #{animal.consecutivo}
+              {codigoAnimal(animal.sequence)}
             </span>{' '}
             — Orden{' '}
             <span className="font-bold text-foreground">{detail.reference}</span>
           </>
         )}
+        <span className="ml-2">
+          · Canales completos:{' '}
+          <span className="font-bold text-foreground">
+            {completos} de {detail.animales.length}
+          </span>
+        </span>
       </p>
 
       <div className="grid grid-cols-3 gap-3">
         {CANAL_PANELS.map(({ pieza, title }) => {
-          const cizqPesado = !!estadoDe('cizq')?.pesado;
-          // Mientras el animal no tenga NINGUNA pieza pesada, el tipo se
-          // puede cambiar libremente (igual que permite el backend), así que
-          // las 3 opciones quedan disponibles sin importar qué se haya
-          // tocado antes.
-          const tienePiezaPesada = !!animal?.piezas.some((p) => p.pesado);
-          const aplica = !tienePiezaPesada
-            ? true
-            : esCompleta
-              ? pieza === 'canal'
-              : pieza !== 'canal' && (pieza === 'cizq' || cizqPesado);
-          const estado = estadoDe(pieza);
-          const pesado = !!estado?.pesado;
-          // CIZQ y CDER comparten la misma clasificación (media canal), así
-          // que ambas quedan "activas" en cuanto se elige cualquiera de las dos.
-          const tipoActivo =
-            pieza === 'canal'
-              ? animal?.canalTipo === 'canal_completa'
-              : esMediaCanal;
           return (
             <button
               key={pieza}
               type="button"
-              onClick={() => {
-                if (!animal || tipoActivo) return;
-                // CIZQ y CDER son piezas complementarias de la misma media
-                // canal, no clasificaciones distintas: si ya se pesó una de
-                // las dos, no reintentar cambiar el tipo (el backend lo
-                // rechaza) y dejar que se pese la otra pieza directamente.
-                const yaTienePiezaPesada = animal.piezas.some((p) => p.pesado);
-                if (pieza !== 'canal' && yaTienePiezaPesada) return;
-                setTipo.mutate({
-                  eventoId: animal.eventoId,
-                  tipo: PANEL_TIPO[pieza],
-                });
-              }}
-              disabled={setTipo.isPending || !animal || pesado || !aplica}
-              className={cn(
-                'flex flex-col items-center gap-2 rounded-sm border-2 p-3 text-center transition-colors hover:border-emerald-400 disabled:hover:border-border',
-                tipoActivo
-                  ? 'border-emerald-500 bg-emerald-50'
-                  : 'border-border bg-card',
-              )}
+              onClick={() => elegir(pieza)}
+              disabled={setTipo.isPending}
+              className="flex flex-col items-center gap-2 rounded-sm border-2 border-border bg-card p-3 text-center transition-colors hover:border-emerald-400 disabled:hover:border-border"
             >
               <span className="text-sm font-semibold">{title}:</span>
-              <div
-                className={cn(
-                  'flex h-80 items-end justify-center',
-                  // Ya pesada: se pone en gris para que el operario no se
-                  // confunda e intente volver a pesarla.
-                  (!aplica || pesado) && 'opacity-30 grayscale',
-                )}
-              >
+              <div className="flex h-80 items-end justify-center">
                 <img
                   src={CANAL_IMG[pieza]}
                   alt={title}
                   draggable={false}
-                  className="h-full w-auto object-contain"
+                  className={cn(
+                    'h-full w-auto object-contain transition',
+                    !permitida(pieza) && 'grayscale',
+                  )}
                 />
               </div>
               <div className="h-6 text-center">
-                {!aplica ? (
-                  <span className="text-xs text-muted-foreground">—</span>
-                ) : pesado ? (
-                  <span className="text-sm font-bold text-emerald-600">
-                    {estado?.pesoKg?.toFixed(2)} kg ✓
-                  </span>
-                ) : tipoActivo ? (
-                  <span className="text-xs font-semibold text-emerald-600">
-                    Seleccionado
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted-foreground">
-                    {PIEZA_LABEL[pieza]}
-                  </span>
-                )}
+                <span className="text-xs text-muted-foreground">
+                  {PIEZA_LABEL[pieza]}
+                </span>
               </div>
             </button>
           );
         })}
       </div>
-
-      {rows.length > 0 && (
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/60 text-left">
-            <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-              <th>Animal</th>
-              <th>Orden</th>
-              <th>Pieza</th>
-              <th className="text-right">Peso (kg)</th>
-              <th>Hora</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map((p) => (
-              <tr key={p.piezaId} className="[&>td]:px-3 [&>td]:py-2">
-                <td className="font-semibold tabular-nums">#{p.consecutivo}</td>
-                <td className="tabular-nums">{p.reference}</td>
-                <td className="font-semibold text-red-600">
-                  {PIEZA_LABEL[p.pieza]}
-                </td>
-                <td className="text-right font-semibold tabular-nums">
-                  {p.pesoKg.toFixed(2)}
-                </td>
-                <td className="tabular-nums">{hora(p.weighedAt)}</td>
-                <td className="text-right">
-                  <button
-                    onClick={() => deshacer.mutate(p.piezaId)}
-                    disabled={deshacer.isPending}
-                    title="Deshacer"
-                    className="text-muted-foreground hover:text-red-600"
-                  >
-                    <Undo2 className="size-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
     </div>
   );
 }
@@ -602,20 +694,31 @@ function AnimalesTab({
   date,
   detail,
   objetivoAnimal,
+  imprimiendo,
+  setImprimiendo,
+  ultimoPresinto,
+  setUltimoPresinto,
+  onAlerta,
+  onAnimalTerminado,
   registerGuardarEImprimir,
 }: {
   date: string;
   detail: CanalLoteDetail | undefined;
   objetivoAnimal: CanalAnimal | null;
-  registerGuardarEImprimir: (fn: () => void) => void;
+  imprimiendo: boolean;
+  setImprimiendo: (v: boolean) => void;
+  ultimoPresinto: PresintoTicketData | null;
+  setUltimoPresinto: (d: PresintoTicketData | null) => void;
+  onAlerta: (texto: string) => void;
+  onAnimalTerminado: (ordenTerminada: boolean) => void;
+  registerGuardarEImprimir: (
+    fn: (nueva?: PiezaNueva) => void,
+  ) => void;
 }) {
   const clasificar = useClasificarAnimal();
   const clasificarPieza = useClasificarPieza();
-  const piezas = useCanalPiezas(date);
-  const deshacer = useDeshacerCanal();
   const [tipo, setTipoLocal] = useState<CanalAnimalTipo | ''>('');
   const [expendio, setExpendio] = useState('');
-  const [piezaId, setPiezaId] = useState<string | null>(null);
   const [bodega, setBodega] = useState('');
   const [cava, setCava] = useState('');
   const [destino, setDestino] = useState('');
@@ -626,10 +729,6 @@ function AnimalesTab({
   const [printOk, setPrintOk] = useState<string | null>(null);
 
   const eventoId = objetivoAnimal?.eventoId ?? null;
-  const rows = piezas.data ?? [];
-  // Piezas YA pesadas de este animal: CIZQ y CDER se clasifican por separado,
-  // cada una con su propia bodega/cava/destino/observaciones.
-  const piezasAnimal = objetivoAnimal?.piezas.filter((p) => p.pesado) ?? [];
 
   // Los campos se editan localmente y solo se guardan al presionar "Guardar
   // clasificación": se recargan desde el animal cada vez que se cambia de
@@ -637,7 +736,6 @@ function AnimalesTab({
   useEffect(() => {
     setTipoLocal(objetivoAnimal?.canalAnimalTipo ?? '');
     setExpendio(objetivoAnimal?.expendio ?? '');
-    setPiezaId(null);
     setBodega('');
     setCava('');
     setDestino('');
@@ -646,30 +744,46 @@ function AnimalesTab({
     setGuardadoOk(false);
   }, [eventoId]);
 
-  function seleccionarPieza(p: (typeof piezasAnimal)[number]) {
-    if (!p.piezaId) return;
-    setPiezaId(p.piezaId);
-    setBodega(p.bodega ?? '');
-    setCava(p.cava ?? '');
-    setDestino(p.destino ?? '');
-    setObservaciones(p.observaciones ?? '');
-    setCavaError(null);
-    setGuardadoOk(false);
+  // La segunda mitad de una media canal queda obligada al tipo que ya se le dio a la primera.
+  const tipoBloqueado =
+    objetivoAnimal?.canalAnimalTipo &&
+    objetivoAnimal.canalTipo !== 'canal_completa' &&
+    objetivoAnimal.piezas.some((p) => p.pesado) &&
+    objetivoAnimal.piezas.some((p) => !p.pesado)
+      ? objetivoAnimal.canalAnimalTipo
+      : null;
+  useEffect(() => {
+    if (tipoBloqueado) setTipoLocal(tipoBloqueado);
+  }, [tipoBloqueado]);
+
+  function elegirTipo(t: CanalAnimalTipo) {
+    if (tipoBloqueado && t !== tipoBloqueado) {
+      onAlerta(
+        `La otra mitad del animal ${codigoAnimal(objetivoAnimal!.sequence)} ya se marcó como ${CANAL_ANIMAL_TIPO_LABEL[tipoBloqueado]}: esta mitad debe ser igual.`,
+      );
+      return;
+    }
+    setTipoLocal(t);
   }
 
-  /** Guarda tipo/expendio/bodega/cava; onDone se llama solo si todo salió bien. */
-  function guardarClasificacion(onDone?: () => void) {
+  /** Guarda tipo/expendio/bodega/cava; onDone se llama solo si todo salió bien.
+   * `piezaIdParaClasificar` permite clasificar una pieza que se acaba de
+   * registrar (recién pesada), sin necesitar seleccionarla de la lista. */
+  function guardarClasificacion(
+    piezaIdParaClasificar: string | null,
+    onDone?: () => void,
+  ) {
     if (!eventoId) return;
     setCavaError(null);
     setGuardadoOk(false);
     clasificar.mutate({ eventoId, tipo: tipo || undefined, expendio });
-    if (!piezaId) {
+    if (!piezaIdParaClasificar) {
       setGuardadoOk(true);
       onDone?.();
       return;
     }
     clasificarPieza.mutate(
-      { piezaId, bodega, cava, destino, observaciones },
+      { piezaId: piezaIdParaClasificar, bodega, cava, destino, observaciones },
       {
         onSuccess: () => {
           setGuardadoOk(true);
@@ -689,39 +803,69 @@ function AnimalesTab({
     );
   }
 
+  /** Envía un ticket a imprimir y actualiza los estados de resultado/último precinto. */
+  function imprimirTicket(d: PresintoTicketData, alTerminarAnimal?: () => void) {
+    setPrintError(null);
+    setPrintOk(null);
+    setImprimiendo(true);
+    imprimirPresintoDirecto(d).then((r) => {
+      setImprimiendo(false);
+      if (r.ok && r.directo) {
+        setUltimoPresinto(d);
+        setPrintOk('Presinto enviado a la impresora.');
+      } else {
+        const msg = `Se descargó el .zpl (no se imprimió directo): ${r.error ?? ''}`;
+        setPrintError(msg);
+        // Al salir de esta pestaña el mensaje en pantalla se perdería.
+        if (alTerminarAnimal) onAlerta(msg);
+      }
+      alTerminarAnimal?.();
+    });
+  }
+
+  /** Reimprime el último presinto (por si la impresora falló y no sacó el ticket). */
+  function reimprimirUltimo() {
+    if (ultimoPresinto) imprimirTicket(ultimoPresinto);
+  }
+
   // El botón de etiqueta del pie de página (compartido entre pestañas)
-  // dispara esta acción cuando se está en ANIMALES: guarda la clasificación
-  // y, si hay una pieza seleccionada con peso, imprime su presinto (directo
-  // a la impresora configurada, o descarga el .zpl si no hay una).
+  // dispara esta acción: clasifica la pieza recién pesada con lo que ya se
+  // haya digitado (bodega/cava/destino) y la imprime de una vez.
   useEffect(() => {
-    registerGuardarEImprimir(() => {
-      guardarClasificacion(() => {
-        if (!detail || !objetivoAnimal?.canalTipo || !piezaId) return;
-        const pieza = piezasAnimal.find((p) => p.piezaId === piezaId);
-        if (pieza?.pesoKg == null) return;
+    registerGuardarEImprimir((nueva) => {
+      const piezaIdParaClasificar = nueva?.piezaId ?? null;
+      guardarClasificacion(piezaIdParaClasificar, () => {
+        if (!detail || !nueva) return;
+        // La lista local aún no trae la pieza recién pesada: se usan los datos que manda el pie.
+        const animal =
+          detail.animales.find((a) => a.eventoId === nueva.eventoId) ?? objetivoAnimal;
+        if (!animal?.canalTipo) return;
+        const animalTerminado = animal.piezas.every(
+          (p) => p.pieza === nueva.pieza || p.pesado,
+        );
+        const ordenTerminada =
+          animalTerminado &&
+          detail.animales.every(
+            (a) =>
+              a.eventoId === animal.eventoId ||
+              (a.piezas.length > 0 && a.piezas.every((p) => p.pesado)),
+          );
         const [y, m, d] = date.split('-');
-        setPrintError(null);
-        setPrintOk(null);
-        imprimirPresintoDirecto({
+        imprimirTicket({
           fechaSacrificio: `${d}/${m}/${y}`,
           lote: detail.reference,
           guia: detail.guias.join(', ') || '—',
           expendio,
           cliente: detail.cliente,
           tipoAnimal: tipo ? CANAL_ANIMAL_TIPO_LABEL[tipo] : '—',
-          ref: objetivoAnimal.consecutivo,
-          turno: pieza.turno ?? 'manana',
-          pesoKg: pieza.pesoKg,
-          canalTipo: objetivoAnimal.canalTipo,
-        }).then((r) => {
-          if (r.ok && r.directo) {
-            setPrintOk('Presinto enviado a la impresora.');
-          } else {
-            setPrintError(
-              `Se descargó el .zpl (no se imprimió directo): ${r.error ?? ''}`,
-            );
-          }
-        });
+          ref: animal.consecutivo,
+          // El turno ya es el mismo consecutivo del animal (ver backend).
+          turno: animal.consecutivo,
+          pesoKg: nueva.pesoKg,
+          canalTipo: animal.canalTipo,
+          conCola: animal.conCola,
+          pieza: nueva.pieza,
+        }, animalTerminado ? () => onAnimalTerminado(ordenTerminada) : undefined);
       });
     });
   });
@@ -746,7 +890,8 @@ function AnimalesTab({
               key={t}
               tipo={t}
               activo={tipo === t}
-              onClick={() => setTipoLocal(t)}
+              bloqueado={!!tipoBloqueado && t !== tipoBloqueado}
+              onClick={() => elegirTipo(t)}
             />
           ))}
           <div className="w-4" />
@@ -755,7 +900,8 @@ function AnimalesTab({
               key={t}
               tipo={t}
               activo={tipo === t}
-              onClick={() => setTipoLocal(t)}
+              bloqueado={!!tipoBloqueado && t !== tipoBloqueado}
+              onClick={() => elegirTipo(t)}
             />
           ))}
           <div className="w-4" />
@@ -764,7 +910,8 @@ function AnimalesTab({
               key={t}
               tipo={t}
               activo={tipo === t}
-              onClick={() => setTipoLocal(t)}
+              bloqueado={!!tipoBloqueado && t !== tipoBloqueado}
+              onClick={() => elegirTipo(t)}
             />
           ))}
         </div>
@@ -779,40 +926,8 @@ function AnimalesTab({
         />
       </FieldBox>
 
-      <div>
-        <p className="mb-2 text-sm font-semibold text-muted-foreground">
-          Piezas de este animal (toca una para asignarle bodega/cava):
-        </p>
-        {!piezasAnimal.length ? (
-          <p className="text-sm text-muted-foreground">
-            Este animal todavía no tiene ninguna pieza pesada.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {piezasAnimal.map((p) => (
-              <button
-                key={p.piezaId}
-                type="button"
-                onClick={() => seleccionarPieza(p)}
-                className={cn(
-                  'rounded-sm border-2 px-3 py-2 text-left text-sm font-semibold uppercase',
-                  piezaId === p.piezaId
-                    ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
-                    : 'border-border bg-card hover:bg-muted',
-                )}
-              >
-                {PIEZA_LABEL[p.pieza]} · {p.pesoKg?.toFixed(2)} kg
-                <span className="mt-0.5 block text-[10px] font-normal normal-case text-muted-foreground">
-                  {p.cava ?? 'Sin cava asignada'}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
-
       <fieldset
-        disabled={!piezaId}
+        disabled={!eventoId}
         className="contents disabled:opacity-40"
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -864,6 +979,19 @@ function AnimalesTab({
         </div>
       </fieldset>
 
+      <FieldBox label="Último precinto:" className="max-w-xs">
+        <button
+          type="button"
+          disabled={!ultimoPresinto || imprimiendo}
+          onClick={reimprimirUltimo}
+          title="Volver a imprimir este presinto"
+          className="flex h-9 w-full items-center justify-between gap-2 bg-transparent text-left text-base font-semibold tabular-nums outline-none disabled:cursor-not-allowed disabled:text-muted-foreground"
+        >
+          {ultimoPresinto ? codigoBarras(ultimoPresinto) : '—'}
+          <Printer className="size-4 shrink-0 text-muted-foreground" />
+        </button>
+      </FieldBox>
+
       <div className="flex items-center gap-3">
         <p className="text-xs text-muted-foreground">
           {clasificar.isPending || clasificarPieza.isPending
@@ -879,52 +1007,17 @@ function AnimalesTab({
         {printOk && (
           <p className="text-sm font-medium text-emerald-600">{printOk}</p>
         )}
+        {imprimiendo && (
+          <p className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin" /> Imprimiendo…
+          </p>
+        )}
         {guardadoOk && !cavaError && (
           <p className="text-sm font-medium text-emerald-600">
             Clasificación guardada.
           </p>
         )}
       </div>
-
-      {rows.length > 0 && (
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-muted/60 text-left">
-            <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-              <th>Animal</th>
-              <th>Orden</th>
-              <th>Pieza</th>
-              <th className="text-right">Peso (kg)</th>
-              <th>Hora</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {rows.map((p) => (
-              <tr key={p.piezaId} className="[&>td]:px-3 [&>td]:py-2">
-                <td className="font-semibold tabular-nums">#{p.consecutivo}</td>
-                <td className="tabular-nums">{p.reference}</td>
-                <td className="font-semibold text-red-600">
-                  {PIEZA_LABEL[p.pieza]}
-                </td>
-                <td className="text-right font-semibold tabular-nums">
-                  {p.pesoKg.toFixed(2)}
-                </td>
-                <td className="tabular-nums">{hora(p.weighedAt)}</td>
-                <td className="text-right">
-                  <button
-                    onClick={() => deshacer.mutate(p.piezaId)}
-                    disabled={deshacer.isPending}
-                    title="Deshacer"
-                    className="text-muted-foreground hover:text-red-600"
-                  >
-                    <Undo2 className="size-4" />
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
       </div>
     </div>
   );
@@ -933,10 +1026,12 @@ function AnimalesTab({
 function TipoButton({
   tipo,
   activo,
+  bloqueado = false,
   onClick,
 }: {
   tipo: CanalAnimalTipo;
   activo: boolean;
+  bloqueado?: boolean;
   onClick: () => void;
 }) {
   return (
@@ -948,6 +1043,7 @@ function TipoButton({
         activo
           ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
           : 'border-border bg-card hover:bg-muted',
+        bloqueado && 'bg-muted text-muted-foreground opacity-50',
       )}
     >
       {CANAL_ANIMAL_TIPO_LABEL[tipo]}
@@ -956,10 +1052,10 @@ function TipoButton({
 }
 
 function ReporteTab({ date }: { date: string }) {
-  const reporte = useCanalReporte(date);
-  if (reporte.isLoading) return <Loading />;
-  const data = reporte.data;
-  const hayDatos = !!data && data.clientes.length > 0;
+  const piezas = useCanalPiezas(date);
+  const rows = piezas.data ?? [];
+  if (piezas.isLoading) return <Loading />;
+  const hayDatos = rows.length > 0;
   return (
     <div className="flex h-full flex-col p-2">
       <div className="flex-1 overflow-auto">
@@ -967,39 +1063,48 @@ function ReporteTab({ date }: { date: string }) {
           <Empty text="Sin datos para el reporte de esta fecha." />
         ) : (
           <table className="w-full text-sm">
-            <thead className="bg-muted/60 text-left">
-              <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-                <th>Cliente</th>
-                <th className="text-center">Animales</th>
-                <th className="text-center">Piezas</th>
-                <th className="text-right">Peso (kg)</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {data.clientes.map((c) => (
-                <tr key={c.cliente} className="[&>td]:px-3 [&>td]:py-2">
-                  <td>{c.cliente}</td>
-                  <td className="text-center tabular-nums">{c.animales}</td>
-                  <td className="text-center tabular-nums">{c.piezas}</td>
-                  <td className="text-right font-semibold tabular-nums">
-                    {c.pesoKg.toFixed(2)}
-                  </td>
+              <thead className="sticky top-0 bg-muted/60 text-left">
+                <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
+                  <th>Animal</th>
+                  <th>Turno</th>
+                  <th>Barcode</th>
+                  <th className="text-right">Cant.(kg)</th>
+                  <th>Tipo</th>
+                  <th>Destino</th>
+                  <th>Observación</th>
                 </tr>
-              ))}
-            </tbody>
-            <tfoot>
-              <tr className="border-t-2 border-border bg-muted/40 [&>td]:px-3 [&>td]:py-2 [&>td]:font-bold">
-                <td>Total</td>
-                <td></td>
-                <td className="text-center tabular-nums">
-                  {data.totalPiezas}
-                </td>
-                <td className="text-right tabular-nums">
-                  {data.totalPesoKg.toFixed(2)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {rows.map((p) => (
+                  <tr key={p.piezaId} className="[&>td]:px-3 [&>td]:py-2">
+                    <td className="font-semibold tabular-nums">
+                      {codigoAnimal(p.sequence)}
+                    </td>
+                    <td className="tabular-nums">{p.turno ?? '—'}</td>
+                    <td className="tabular-nums">
+                      {p.canalTipo
+                        ? codigoBarras({
+                            lote: p.reference,
+                            turno: p.turno ?? p.consecutivo,
+                            canalTipo: p.canalTipo,
+                            pieza: p.pieza,
+                          })
+                        : '—'}
+                    </td>
+                    <td className="text-right font-semibold tabular-nums">
+                      {p.pesoKg.toFixed(2)}
+                    </td>
+                    <td>
+                      {p.canalAnimalTipo
+                        ? CANAL_ANIMAL_TIPO_LABEL[p.canalAnimalTipo]
+                        : '—'}
+                    </td>
+                    <td>{p.destino || '—'}</td>
+                    <td>{p.observaciones || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
         )}
       </div>
 
@@ -1035,19 +1140,19 @@ function FooterBascula({
   setTab,
   detail,
   objetivo,
-  turno,
-  setTurno,
+  imprimiendo,
   onEtiquetaAnimales,
   onPesado,
+  onAlerta,
 }: {
   tab: Tab;
   setTab: (t: Tab) => void;
   detail: CanalLoteDetail | undefined;
   objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo | null } | null;
-  turno: CanalTurno;
-  setTurno: (t: CanalTurno) => void;
-  onEtiquetaAnimales: () => void;
+  imprimiendo: boolean;
+  onEtiquetaAnimales: (nueva?: PiezaNueva) => void;
   onPesado: (eventoId: string) => void;
+  onAlerta: (texto: string) => void;
 }) {
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
   const registrar = useRegistrarCanal();
@@ -1056,42 +1161,55 @@ function FooterBascula({
   const puedePesar =
     !!objetivo?.pieza && peso.trim() !== '' && Number.isFinite(valor) && valor > 0;
 
-  // Apenas se captura el peso, se redirige a ANIMALES para clasificar el
-  // animal (tipo, expendio, bodega, cava) y desde ahí imprimir el presinto.
-  function guardar() {
+  // Registra el peso de la pieza. `imprimir` solo se pasa true cuando lo
+  // dispara el botón de etiqueta: ahí, además de registrar, encadena
+  // clasificación + impresión con lo ya digitado en ANIMALES. Al registrar
+  // con Enter/lectura de báscula (imprimir=false) solo se guarda el peso.
+  function guardar(imprimir = false) {
     if (!objetivo?.pieza || !puedePesar || registrar.isPending) return;
     const eventoId = objetivo.animal.eventoId;
+    const pieza = objetivo.pieza;
     registrar.mutate(
       {
         eventoId,
-        pieza: objetivo.pieza,
+        pieza,
         pesoKg: valor,
-        turno,
       },
       {
-        onSuccess: () => {
+        onSuccess: (data) => {
+          const pesoRegistrado = valor;
           setPeso('0.0');
           onPesado(eventoId);
           setTab('animales');
+          if (imprimir) {
+            onEtiquetaAnimales({ piezaId: data.piezaId, pesoKg: pesoRegistrado, pieza, eventoId });
+          }
+        },
+        onError: (err) => {
+          onAlerta(
+            isAxiosError(err) && typeof err.response?.data?.message === 'string'
+              ? err.response.data.message
+              : 'No se pudo registrar el peso.',
+          );
         },
       },
     );
   }
 
-  // El botón de etiqueta hace doble función: en ANIMALES guarda la
-  // clasificación e imprime el presinto; en las demás pestañas registra el
-  // peso (igual que el lápiz) y redirige a ANIMALES.
+  // El botón de etiqueta hace doble función: si hay un peso pendiente por
+  // registrar lo registra primero (y encadena clasificación + impresión);
+  // si no, guarda la clasificación actual e imprime.
   function etiqueta() {
-    if (tab === 'animales') {
-      onEtiquetaAnimales();
+    if (puedePesar) {
+      guardar(true);
     } else {
-      guardar();
+      onEtiquetaAnimales();
     }
   }
 
   const piezaLabel = objetivo?.pieza ? PIEZA_LABEL[objetivo.pieza] : '—';
-  const animalNo = objetivo ? `#${objetivo.animal.consecutivo}` : '—';
-  const osNo = detail?.reference != null ? String(detail.reference) : '—';
+  const animalNo = objetivo ? codigoAnimal(objetivo.animal.sequence) : '—';
+  const osNo = detail ? formatOB(detail.reference) : '—';
   const sinTipo = !!objetivo && !objetivo.pieza;
   const completo = !!detail && !objetivo;
 
@@ -1112,20 +1230,10 @@ function FooterBascula({
           {animalNo}
         </div>
       </FieldBox>
-      <FieldBox label="Turno:">
-        <select
-          value={turno}
-          onChange={(e) => setTurno(e.target.value as CanalTurno)}
-          className="h-10 bg-transparent text-lg font-semibold outline-none"
-        >
-          <option value="manana">Mañana</option>
-          <option value="tarde">Tarde</option>
-        </select>
-      </FieldBox>
       <FieldBox label="Peso(kg):" className="flex-1">
         <input
           value={peso}
-          onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
+          onChange={(e) => setPeso(soloDecimal(e.target.value))}
           onKeyDown={(e) => {
             if (e.key === 'Enter') guardar();
           }}
@@ -1150,7 +1258,11 @@ function FooterBascula({
       </button>
       <button
         onClick={etiqueta}
-        disabled={tab === 'animales' ? false : !puedePesar || registrar.isPending}
+        disabled={
+          imprimiendo ||
+          registrar.isPending ||
+          (tab !== 'animales' && !puedePesar)
+        }
         title={
           tab === 'animales'
             ? 'Guardar clasificación e imprimir presinto'
@@ -1158,7 +1270,11 @@ function FooterBascula({
         }
         className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
       >
-        <Tag className="size-6" />
+        {imprimiendo || registrar.isPending ? (
+          <LoaderCircle className="size-6 animate-spin" />
+        ) : (
+          <Tag className="size-6" />
+        )}
       </button>
 
       {(error || sinTipo || completo) && (

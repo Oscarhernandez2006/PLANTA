@@ -4,6 +4,7 @@ import { QuarterType, UnitForm } from '@frigorifico/shared';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input, Label, Select } from '@/components/ui/input';
+import { plantToday as today } from '@/lib/utils';
 import {
   useCreateGoodsReceipt,
   useSuppliers,
@@ -23,10 +24,6 @@ const emptyRow = (): ItemRow => ({
   unitForm: UnitForm.MEDIA_CANAL,
   weightKg: '',
 });
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 export function CreateGoodsReceiptDialog({
   open,

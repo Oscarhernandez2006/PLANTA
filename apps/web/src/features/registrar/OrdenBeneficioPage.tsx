@@ -1,100 +1,30 @@
 import { useState } from 'react';
-import {
-  Inbox,
-  LoaderCircle,
-  Plus,
-  RefreshCw,
-  Trash2,
-  Users,
-} from 'lucide-react';
+import { Save } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { AdminAuthDialog } from '@/components/ui/AdminAuthDialog';
-import { Input, Select } from '@/components/ui/input';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Combobox } from '@/components/ui/combobox';
+import { Input, Label, Select } from '@/components/ui/input';
 import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
-import { cn } from '@/lib/utils';
+import { plantToday as today } from '@/lib/utils';
 import {
   useOrdenBeneficioCandidates,
-  useOrdenBeneficioList,
+  useOrdenBeneficioNextReference,
   useCreateOrdenBeneficio,
-  useDeleteOrdenBeneficio,
-  useSetSubproductoDestino,
-  useRegistrarRetiroSubproducto,
-  type OrdenBeneficio,
-  type OrdenBeneficioCandidate,
-  type OrdenBeneficioGuiaDetalle,
+  formatOB,
   type OrdenBeneficioStatus,
-  type SubproductoDestino,
 } from './orden-beneficio-api';
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
-
-const MESES = [
-  'Enero',
-  'Febrero',
-  'Marzo',
-  'Abril',
-  'Mayo',
-  'Junio',
-  'Julio',
-  'Agosto',
-  'Septiembre',
-  'Octubre',
-  'Noviembre',
-  'Diciembre',
-];
-
-const statusMeta: Record<
-  OrdenBeneficioStatus,
-  { label: string; tone: 'neutral' | 'info' | 'success' }
-> = {
-  pendiente: { label: 'Pendiente', tone: 'neutral' },
-  en_insensibilizacion: { label: 'En insensibilización', tone: 'info' },
-  procesado: { label: 'Procesada', tone: 'success' },
-};
-
-const destinoMeta: Record<
-  SubproductoDestino,
-  { label: string; tone: 'neutral' | 'info' | 'success' }
-> = {
-  empresa: { label: 'Entrada', tone: 'success' },
-  firmante: { label: 'Salida', tone: 'info' },
-};
 
 export function OrdenBeneficioPage() {
   const todayStr = today();
-  const [from, setFrom] = useState(todayStr);
-  const [to, setTo] = useState(todayStr);
   // Candidatos (para crear lote) siempre son del día actual.
   const candidates = useOrdenBeneficioCandidates(todayStr);
-  const ordenes = useOrdenBeneficioList(from, to);
-  const eliminar = useDeleteOrdenBeneficio();
-  const [loteAEliminar, setLoteAEliminar] = useState<string | null>(null);
 
-  const list = ordenes.data ?? [];
   const cands = candidates.data ?? [];
-  const refrescando = ordenes.isFetching || candidates.isFetching;
-  const esHoy = from === todayStr && to === todayStr;
 
-  // Selecciona un mes completo (del año de la fecha "Desde").
-  function seleccionarMes(mesStr: string) {
-    if (!mesStr) return;
-    const year = Number((from || todayStr).slice(0, 4));
-    const mm = Number(mesStr);
-    const ultimo = new Date(year, mm, 0).getDate();
-    const pad = (n: number) => String(n).padStart(2, '0');
-    setFrom(`${year}-${pad(mm)}-01`);
-    setTo(`${year}-${pad(mm)}-${pad(ultimo)}`);
-  }
-
-  const mesActual = from.slice(5, 7) === to.slice(5, 7) &&
-    from.slice(0, 4) === to.slice(0, 4)
-    ? String(Number(from.slice(5, 7)))
-    : '';
+  // Guías disponibles para crear un lote, aplanadas con su cliente.
+  const guiasDisponibles = cands.flatMap((c) =>
+    c.guiasDetalle.map((g) => ({ ...g, cliente: c.cliente })),
+  );
 
   return (
     <div className="space-y-6">
@@ -107,434 +37,208 @@ export function OrdenBeneficioPage() {
               Orden de Beneficio
             </h1>
             <p className="mt-0.5 text-sm text-muted-foreground">
-              Guías con animales cargados desde Peso en Pie. Elige una guía y
-              cuántos animales incluir; cada lote lleva su consecutivo y pasa a
-              Insensibilización.
+              Crea un lote de beneficio a partir de una guía de movilización
+              con animales cargados desde Peso en Pie.
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Badge tone="info">{todayStr}</Badge>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              ordenes.refetch();
-              candidates.refetch();
-            }}
-            disabled={refrescando}
-          >
-            <RefreshCw className={cn('size-4', refrescando && 'animate-spin')} />
-            Actualizar
-          </Button>
-        </div>
       </div>
 
-      {/* Guías con animales cargados (listas para crear lote) */}
-      <Card className="flex flex-col overflow-hidden">
-        <div className="flex items-center gap-2 border-b border-border px-4 py-3 text-sm font-semibold">
-          <Users className="size-4" /> Guías con animales cargados
-        </div>
-        {candidates.isLoading ? (
-          <Loading />
-        ) : !cands.length ? (
-          <Empty text="Aún no hay guías con animales. Carga los animales y cierra la guía en Peso en Pie para verla aquí." />
-        ) : (
-          <div className="space-y-3 p-4">
-            {cands.map((c) => (
-              <ClienteCard
-                key={c.cliente}
-                c={c}
-                date={todayStr}
-                onCreated={() => {
-                  candidates.refetch();
-                  ordenes.refetch();
-                }}
-              />
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Lotes de beneficio con filtro por mes / rango de fechas */}
-      <Card className="flex flex-col overflow-hidden">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-          <div className="flex items-center gap-2 text-sm font-semibold">
-            <OrdenBeneficioIcon className="size-4" /> Lotes de beneficio
-          </div>
-          <div className="flex flex-wrap items-end gap-2">
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-              Mes
-              <Select
-                value={mesActual}
-                onChange={(e) => seleccionarMes(e.target.value)}
-                className="h-8 w-36"
-              >
-                <option value="">Todos</option>
-                {MESES.map((m, i) => (
-                  <option key={m} value={i + 1}>
-                    {m}
-                  </option>
-                ))}
-              </Select>
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-              Fecha inicio
-              <Input
-                type="date"
-                value={from}
-                max={to}
-                onChange={(e) => setFrom(e.target.value)}
-                className="h-8 w-40"
-              />
-            </label>
-            <label className="flex flex-col gap-1 text-xs font-medium text-muted-foreground">
-              Fecha final
-              <Input
-                type="date"
-                value={to}
-                min={from}
-                onChange={(e) => setTo(e.target.value)}
-                className="h-8 w-40"
-              />
-            </label>
-            {!esHoy && (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setFrom(todayStr);
-                  setTo(todayStr);
-                }}
-              >
-                Hoy
-              </Button>
-            )}
-          </div>
-        </div>
-        {ordenes.isLoading ? (
-          <Loading />
-        ) : !list.length ? (
-          <Empty
-            text={
-              esHoy
-                ? 'Aún no hay lotes hoy. Crea uno desde una guía de arriba.'
-                : 'No hay lotes en el rango seleccionado.'
-            }
-          />
-        ) : (
-          <div className="overflow-auto">
-            <Table>
-              <THead>
-                <TR>
-                  <TH className="w-16">Lote N.º</TH>
-                  <TH>Cliente</TH>
-                  <TH>Guía</TH>
-                  <TH>Fecha</TH>
-                  <TH className="text-center">Animales</TH>
-                  <TH>Estado</TH>
-                  <TH>Vísceras</TH>
-                  <TH className="text-center">Cabezas y patas</TH>
-                  <TH className="w-12" />
-                </TR>
-              </THead>
-              <TBody>
-                {list.map((o) => (
-                  <OrderRow
-                    key={o.id}
-                    o={o}
-                    deleting={eliminar.isPending}
-                    onDelete={() => setLoteAEliminar(o.id)}
-                  />
-                ))}
-              </TBody>
-            </Table>
-          </div>
-        )}
-      </Card>
-
-      <AdminAuthDialog
-        open={loteAEliminar != null}
-        onClose={() => setLoteAEliminar(null)}
-        title="Autorización requerida para eliminar"
-        description="Ingresa la cédula y PIN de un administrador para eliminar este lote de beneficio."
-        onAuthorized={() => {
-          if (loteAEliminar) eliminar.mutate(loteAEliminar);
-          setLoteAEliminar(null);
-        }}
+      <RegistrarOrdenBeneficioForm
+        date={todayStr}
+        guiasDisponibles={guiasDisponibles}
+        loadingGuias={candidates.isLoading}
+        onCreated={() => candidates.refetch()}
       />
     </div>
   );
 }
 
-function ClienteCard({
-  c,
-  date,
-  onCreated,
-}: {
-  c: OrdenBeneficioCandidate;
-  date: string;
-  onCreated: () => void;
-}) {
-  return (
-    <div className="rounded-lg border border-border">
-      <Table>
-        <THead>
-          <TR>
-            <TH>Guía</TH>
-            <TH>Cliente</TH>
-            <TH>Corral</TH>
-            <TH className="text-center">En pie</TH>
-            <TH className="text-center">Asignados</TH>
-            <TH className="text-center">Disponibles</TH>
-            <TH>Vísceras</TH>
-            <TH>Cabezas y patas</TH>
-            <TH className="text-right">Crear lote</TH>
-          </TR>
-        </THead>
-        <TBody>
-          {c.guiasDetalle.length ? (
-            c.guiasDetalle.map((g) => (
-              <GuiaLoteRow
-                key={g.guia}
-                cliente={c.cliente}
-                g={g}
-                date={date}
-                onCreated={onCreated}
-              />
-            ))
-          ) : (
-            <TR>
-              <TD className="text-muted-foreground" colSpan={9}>
-                Sin guías registradas.
-              </TD>
-            </TR>
-          )}
-        </TBody>
-      </Table>
-    </div>
-  );
-}
-
-function GuiaLoteRow({
-  cliente,
-  g,
-  date,
-  onCreated,
-}: {
+type GuiaDisponible = {
+  guia: string;
   cliente: string;
-  g: OrdenBeneficioGuiaDetalle;
+  corrales: string[];
+  animalesEnPie: number;
+  asignados: number;
+  disponibles: number;
+  pcReference: number | null;
+  bpReference: number | null;
+};
+
+function RegistrarOrdenBeneficioForm({
+  date,
+  guiasDisponibles,
+  loadingGuias,
+  onCreated,
+}: {
   date: string;
+  guiasDisponibles: GuiaDisponible[];
+  loadingGuias: boolean;
   onCreated: () => void;
 }) {
+  const nextRef = useOrdenBeneficioNextReference(date);
   const crear = useCreateOrdenBeneficio();
-  const [value, setValue] = useState('');
-  const [destino, setDestino] = useState<SubproductoDestino>('empresa');
-  const [cabezasPatas, setCabezasPatas] = useState(false);
+  const [guia, setGuia] = useState('');
+  const [status, setStatus] = useState<OrdenBeneficioStatus>('activo');
+  const [error, setError] = useState<string | null>(null);
+  const [okMsg, setOkMsg] = useState<string | null>(null);
 
-  const parsed = Number(value);
-  const sinCupo = g.disponibles <= 0;
-  const invalid =
-    !Number.isInteger(parsed) || parsed < 1 || parsed > g.disponibles;
+  const seleccionada = guiasDisponibles.find((g) => g.guia === guia);
 
-  return (
-    <TR>
-      <TD className="font-medium">{g.guia}</TD>
-      <TD className="font-medium">{cliente}</TD>
-      <TD className="text-muted-foreground">
-        {g.corrales.length ? g.corrales.join(', ') : '—'}
-      </TD>
-      <TD className="text-center tabular-nums">{g.animalesEnPie}</TD>
-      <TD className="text-center tabular-nums text-muted-foreground">
-        {g.asignados}
-      </TD>
-      <TD
-        className={cn(
-          'text-center font-semibold tabular-nums',
-          sinCupo && 'text-muted-foreground',
-        )}
-      >
-        {g.disponibles}
-      </TD>
-      <TD>
-        <Select
-          value={destino}
-          disabled={sinCupo}
-          onChange={(e) => setDestino(e.target.value as SubproductoDestino)}
-          className="h-8 w-full text-xs"
-          title="Quién se queda con las vísceras (rojas y blancas) de este lote"
-        >
-          <option value="empresa">Entrada</option>
-          <option value="firmante">Salida</option>
-        </Select>
-      </TD>
-      <TD>
-        <Select
-          value={cabezasPatas ? 'si' : 'no'}
-          disabled={sinCupo}
-          onChange={(e) => setCabezasPatas(e.target.value === 'si')}
-          className="h-8 w-full text-xs"
-          title="Si se debe imprimir tiquete de cabeza y patas por cada animal al insensibilizar"
-        >
-          <option value="no">No</option>
-          <option value="si">Sí</option>
-        </Select>
-      </TD>
-      <TD>
-        <div className="flex items-center justify-end gap-1.5">
-          <input
-            type="number"
-            min={1}
-            max={g.disponibles}
-            value={value}
-            disabled={sinCupo}
-            placeholder={sinCupo ? '0' : String(g.disponibles)}
-            onChange={(e) => setValue(e.target.value)}
-            className="h-8 w-11 rounded-md border border-border bg-background px-1 text-center text-sm tabular-nums outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-          />
-          <Button
-            size="icon"
-            className="size-8"
-            disabled={sinCupo || invalid || crear.isPending}
-            onClick={() =>
-              crear.mutate(
-                {
-                  cliente,
-                  guia: g.guia,
-                  animalCount: parsed,
-                  date,
-                  subproductoDestino: destino,
-                  cabezasPatas,
-                },
-                {
-                  onSuccess: () => {
-                    setValue('');
-                    onCreated();
-                  },
-                },
-              )
-            }
-            title={
-              sinCupo
-                ? 'La guía ya tiene todos sus animales asignados.'
-                : 'Crear lote'
-            }
-          >
-            {crear.isPending ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <Plus className="size-4" />
-            )}
-          </Button>
-        </div>
-      </TD>
-    </TR>
-  );
-}
-
-function OrderRow({
-  o,
-  deleting,
-  onDelete,
-}: {
-  o: OrdenBeneficio;
-  deleting: boolean;
-  onDelete: () => void;
-}) {
-  const meta = statusMeta[o.status];
-  const dMeta = destinoMeta[o.subproductoDestino];
-  const registrarRetiro = useRegistrarRetiroSubproducto();
-  const setDestino = useSetSubproductoDestino();
-  const pendienteRetiro =
-    o.subproductoDestino === 'firmante' && !o.subproductoRetiroAt;
+  async function guardar(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setOkMsg(null);
+    if (!seleccionada) {
+      setError('Selecciona una guía de movilización.');
+      return;
+    }
+    try {
+      const created = await crear.mutateAsync({
+        cliente: seleccionada.cliente,
+        guia: seleccionada.guia,
+        date,
+        status,
+      });
+      setOkMsg(`Lote ${formatOB(created.reference)} registrado.`);
+      setGuia('');
+      setStatus('activo');
+      void nextRef.refetch();
+      onCreated();
+    } catch (err) {
+      const detail = (
+        err as { response?: { data?: { message?: string | string[] } } }
+      ).response?.data?.message;
+      setError(
+        Array.isArray(detail) ? detail.join(' ') : detail || 'No se pudo crear el lote.',
+      );
+    }
+  }
 
   return (
-    <TR>
-      <TD className="font-semibold tabular-nums">{o.reference}</TD>
-      <TD className="font-medium">{o.cliente}</TD>
-      <TD className="text-muted-foreground">
-        {o.guias.length ? o.guias.join(', ') : '—'}
-      </TD>
-      <TD className="tabular-nums text-muted-foreground">{o.date}</TD>
-      <TD className="text-center tabular-nums">
-        {o.insensibilizados}/{o.animalCount}
-      </TD>
-      <TD>
-        <Badge tone={meta.tone}>{meta.label}</Badge>
-      </TD>
-      <TD>
-        <div className="flex flex-col gap-1">
-          {o.status === 'pendiente' ? (
-            <Select
-              value={o.subproductoDestino}
-              disabled={setDestino.isPending}
-              onChange={(e) =>
-                setDestino.mutate({
-                  id: o.id,
-                  subproductoDestino: e.target.value as SubproductoDestino,
-                })
-              }
-              className="h-7 text-xs"
-            >
-              <option value="empresa">Entrada</option>
-              <option value="firmante">Salida</option>
-            </Select>
-          ) : (
-            <Badge tone={dMeta.tone}>{dMeta.label}</Badge>
+    <Card className="w-full">
+      <CardHeader>
+        <CardTitle>Registrar orden de beneficio</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <form onSubmit={guardar} className="space-y-4">
+          <div className="rounded-lg border border-border bg-muted/30 p-4">
+            <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+              OI N.º
+            </Label>
+            <p className="mt-1 text-3xl font-semibold tabular-nums text-primary">
+              {nextRef.data ? formatOB(nextRef.data.next) : '—'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              Se asigna automáticamente al guardar.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="ob-proceso">Proceso</Label>
+              <Input id="ob-proceso" value="SACRIFICIO" disabled className="h-9" />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ob-fecha-proceso">Fecha del proceso</Label>
+              <Input
+                id="ob-fecha-proceso"
+                type="date"
+                className="h-9"
+                value={date}
+                disabled
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ob-fecha-sacrificio">Fecha del sacrificio</Label>
+              <Input
+                id="ob-fecha-sacrificio"
+                type="date"
+                className="h-9"
+                value={date}
+                disabled
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="ob-guia">Guía de movilización</Label>
+              <Combobox
+                id="ob-guia"
+                className="h-9"
+                value={guia}
+                onChange={setGuia}
+                placeholder={loadingGuias ? 'Cargando…' : 'Busca por guía o cliente…'}
+                emptyText="Sin guías disponibles"
+                options={guiasDisponibles.map((g) => ({
+                  value: g.guia,
+                  label: `${g.guia} — ${g.cliente} (${g.disponibles} disponibles)`,
+                }))}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="ob-cliente">Cliente</Label>
+              <Input
+                id="ob-cliente"
+                value={seleccionada?.cliente ?? ''}
+                disabled
+                placeholder="Se completa al elegir la guía"
+                className="h-9"
+              />
+            </div>
+          </div>
+          {!loadingGuias && !guiasDisponibles.length && (
+            <p className="-mt-2 text-xs text-muted-foreground">
+              Aún no hay guías con animales cargados. Carga los animales y
+              cierra la guía en Peso en Pie para verla aquí.
+            </p>
           )}
-          {o.subproductoDestino === 'firmante' &&
-            (o.subproductoRetiroAt ? (
-              <span className="text-xs text-muted-foreground">
-                Retirado {new Date(o.subproductoRetiroAt).toLocaleString('es-CO')}
-              </span>
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs"
-                disabled={registrarRetiro.isPending}
-                onClick={() => registrarRetiro.mutate({ id: o.id })}
-              >
-                Registrar retiro
-              </Button>
-            ))}
-        </div>
-      </TD>
-      <TD className="text-center">
-        <Badge tone={o.cabezasPatas ? 'info' : 'neutral'}>
-          {o.cabezasPatas ? 'Sí' : 'No'}
-        </Badge>
-      </TD>
-      <TD className="text-right">
-        {o.status === 'pendiente' && (
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={onDelete}
-            disabled={deleting}
-            title="Eliminar lote"
-          >
-            <Trash2 className="size-4 text-red-600" />
-          </Button>
-        )}
-      </TD>
-    </TR>
-  );
-}
 
-function Loading() {
-  return (
-    <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-      <LoaderCircle className="size-4 animate-spin" /> Cargando…
-    </div>
-  );
-}
+          <div className="space-y-1.5">
+            <Label htmlFor="ob-estado">Estado</Label>
+            <Select
+              id="ob-estado"
+              className="h-9 sm:max-w-xs"
+              value={status}
+              onChange={(e) => setStatus(e.target.value as OrdenBeneficioStatus)}
+            >
+              <option value="activo">Activo</option>
+              <option value="inactivo">Inactivo</option>
+              <option value="procesado">Procesado</option>
+            </Select>
+          </div>
 
-function Empty({ text }: { text: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-      <Inbox className="size-8" />
-      {text}
-    </div>
+          {seleccionada && (
+            <p className="text-sm text-muted-foreground">
+              Se asignarán los {seleccionada.disponibles} animales disponibles
+              de esta guía al nuevo lote.
+            </p>
+          )}
+          {error && (
+            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+          {okMsg && (
+            <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+              {okMsg}
+            </p>
+          )}
+
+          <div className="flex justify-end border-t border-border pt-4">
+            <Button
+              type="submit"
+              size="lg"
+              className="h-9 px-8"
+              disabled={!seleccionada || crear.isPending}
+            >
+              <Save className="size-5" />
+              {crear.isPending ? 'Guardando…' : 'Guardar'}
+            </Button>
+          </div>
+        </form>
+      </CardContent>
+    </Card>
   );
 }

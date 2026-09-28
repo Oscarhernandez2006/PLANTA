@@ -30,6 +30,11 @@ export class OrdenBeneficioController {
     return this.service.candidates(user, date);
   }
 
+  @Get('next-reference')
+  nextReference(@CurrentUser() user: AuthContext, @Query('date') date?: string) {
+    return this.service.nextReference(user, date);
+  }
+
   @Get()
   findAll(
     @CurrentUser() user: AuthContext,

@@ -166,6 +166,8 @@ export interface PesoCamionGuia {
   cantidad: number | null;
   entrada: number | null;
   salida: number | null;
+  neto: number | null;
+  pesoPromedioKg: number | null;
   status: 'abierta' | 'cerrada';
 }
 
@@ -181,6 +183,8 @@ export interface SavePesoCamionInput {
   cantidad?: number;
   entrada?: number;
   salida?: number;
+  neto?: number;
+  pesoPromedioKg?: number;
 }
 
 export function usePesoCamionAbiertas() {

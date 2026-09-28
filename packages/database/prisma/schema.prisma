@@ -104,7 +104,6 @@ model Client {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  dispatchOrders DispatchOrder[]
   canalReceipts  CanalReceiptOrder[]
   postaReceipts  PostaReceiptOrder[]
 
@@ -139,11 +138,80 @@ model Cliente {
   id        String   @id @default(uuid()) @db.Uuid
   code      Int      @unique @default(autoincrement())
   concepto  String   @unique
+  nit       String?
+  direccion String?
+  telefono  String?
+  ciudad    String?
+  contacto  String?
+  correo    String?
+  celular   String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  productos       ClienteProducto[]
+  tiendas         ClienteTienda[]
+  bodegas         Bodega[]
+  ordenesDespacho DispatchOrder[]
+  ordenesProduccion ProductionOrder[]
+
   @@map("cliente")
+}
+
+// Tiendas (puntos de entrega) de un cliente; el código completo es NIT-codigo.
+model ClienteTienda {
+  id        String   @id @default(uuid()) @db.Uuid
+  clienteId String   @map("cliente_id") @db.Uuid
+  codigo    String
+  nombre    String
+  direccion String?
+  ciudad    String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@unique([clienteId, codigo])
+  @@unique([clienteId, nombre])
+  @@map("cliente_tienda")
+}
+
+// Bodega interna del software (no es una cava física): donde queda registrado el
+// producto de un cliente. Por defecto cada cliente tiene una con su nombre.
+model Bodega {
+  id        String   @id @default(uuid()) @db.Uuid
+  code      Int      @unique @default(autoincrement())
+  clienteId String   @map("cliente_id") @db.Uuid
+  nombre    String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+
+  @@unique([clienteId, nombre])
+  @@map("bodega")
+}
+
+// Conservación: productos que se le despostan a cada cliente.
+model ClienteProducto {
+  clienteId       String   @map("cliente_id") @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  tipo            String   @default("TERMINADO")
+  refPluSku       String?  @map("ref_plu_sku")
+  refrigeradoDias Int      @default(0) @map("refrigerado_dias")
+  refrigeradoTemp String   @default("0°C A 4°C") @map("refrigerado_temp")
+  congeladoDias   Int      @default(0) @map("congelado_dias")
+  congeladoTemp   String   @default("-18°C A -25°C") @map("congelado_temp")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([clienteId, productId])
+  @@index([productId])
+  @@map("cliente_producto")
 }
 
 model Conductor {
@@ -163,38 +231,41 @@ enum PesoCamionStatus {
 }
 
 model PesoCamion {
-  id            String           @id @default(uuid()) @db.Uuid
-  plantId       String           @map("plant_id") @db.Uuid
-  reference     Int
-  date          DateTime         @db.Date
-  guia          String?
-  procedencia   String?
-  proveedor     String?
-  cliente       String?
-  placa         String?
-  conductor     String?
-  observaciones String?
-  cantidad      Int?
-  entrada       Decimal?         @db.Decimal(12, 2)
-  salida        Decimal?         @db.Decimal(12, 2)
-  status        PesoCamionStatus @default(abierta)
-  createdById   String           @map("created_by") @db.Uuid
-  createdAt     DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt     DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
-  deletedAt     DateTime?        @map("deleted_at") @db.Timestamptz(6)
+  id             String           @id @default(uuid()) @db.Uuid
+  plantId        String           @map("plant_id") @db.Uuid
+  reference      Int
+  date           DateTime         @db.Date
+  guia           String?
+  procedencia    String?
+  proveedor      String?
+  cliente        String?
+  placa          String?
+  conductor      String?
+  observaciones  String?
+  cantidad       Int?
+  entrada        Decimal?         @db.Decimal(12, 2)
+  salida         Decimal?         @db.Decimal(12, 2)
+  netoKg         Decimal?         @map("neto_kg") @db.Decimal(12, 2)
+  pesoPromedioKg Decimal?         @map("peso_promedio_kg") @db.Decimal(12, 2)
+  status         PesoCamionStatus @default(abierta)
+  createdById    String           @map("created_by") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt      DateTime?        @map("deleted_at") @db.Timestamptz(6)
 
   @@unique([plantId, date, reference])
   @@index([plantId, status])
   @@map("peso_camion")
 }
 
+// Orden de Despacho (O.D.): consecutivo propio por planta (OD0000001).
 model DispatchOrder {
   id               String              @id @default(uuid()) @db.Uuid
   plantId          String              @map("plant_id") @db.Uuid
   odNumber         Int                 @map("od_number")
   registrationDate DateTime            @map("registration_date") @db.Date
   processDate      DateTime            @map("process_date") @db.Date
-  clientId         String              @map("client_id") @db.Uuid
+  clienteId        String              @map("cliente_id") @db.Uuid
   status           DispatchOrderStatus @default(activo)
   type             DispatchOrderType   @default(mp_a_proceso)
   createdById      String              @map("created_by") @db.Uuid
@@ -203,12 +274,62 @@ model DispatchOrder {
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
 
   plant     Plant   @relation(fields: [plantId], references: [id])
-  client    Client  @relation(fields: [clientId], references: [id])
+  cliente   Cliente @relation(fields: [clienteId], references: [id])
   createdBy AppUser @relation("dispatchCreatedBy", fields: [createdById], references: [id])
+  items     DispatchOrderItem[]
+  productionOrders ProductionOrder[]
 
   @@unique([plantId, odNumber])
   @@index([plantId, status])
   @@map("dispatch_order")
+}
+
+// Orden de Producción (O.P.): consecutivo propio por planta (OP0000001),
+// ligada a una orden de despacho activa del mismo cliente.
+model ProductionOrder {
+  id               String              @id @default(uuid()) @db.Uuid
+  plantId          String              @map("plant_id") @db.Uuid
+  opNumber         Int                 @map("op_number")
+  registrationDate DateTime            @map("registration_date") @db.Date
+  processDate      DateTime            @map("process_date") @db.Date
+  clienteId        String              @map("cliente_id") @db.Uuid
+  dispatchOrderId  String              @map("dispatch_order_id") @db.Uuid
+  status           DispatchOrderStatus @default(activo)
+  createdById      String              @map("created_by") @db.Uuid
+  createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
+
+  plant         Plant         @relation(fields: [plantId], references: [id])
+  cliente       Cliente       @relation(fields: [clienteId], references: [id])
+  dispatchOrder DispatchOrder @relation(fields: [dispatchOrderId], references: [id])
+  createdBy     AppUser       @relation("productionCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([plantId, opNumber])
+  @@index([plantId, status])
+  @@index([dispatchOrderId])
+  @@map("production_order")
+}
+
+// Salida de una pieza de canal de su cava hacia una orden de despacho. La pieza
+// deja de figurar en el inventario de cavas, pero queda registrada su cava de
+// origen, el peso y quién la despachó (trazabilidad hacia atrás).
+model DispatchOrderItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  dispatchOrderId String   @map("dispatch_order_id") @db.Uuid
+  canalPiezaId    String   @unique @map("canal_pieza_id") @db.Uuid
+  cavaOrigen      String   @map("cava_origen")
+  pesoCalienteKg  Decimal  @map("peso_caliente_kg") @db.Decimal(12, 2)
+  despachoKg      Decimal? @map("despacho_kg") @db.Decimal(12, 2)
+  createdById     String   @map("created_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  dispatchOrder DispatchOrder @relation(fields: [dispatchOrderId], references: [id])
+  canalPieza    CanalPieza    @relation(fields: [canalPiezaId], references: [id])
+  createdBy     AppUser       @relation("dispatchItemCreatedBy", fields: [createdById], references: [id])
+
+  @@index([dispatchOrderId])
+  @@map("dispatch_order_item")
 }
 
 // Recibo en Canal: orden de recibo de canales. Solo el registro; luego se
@@ -310,11 +431,13 @@ model Product {
   plantId   String   @map("plant_id") @db.Uuid
   codigo    String
   nombre    String
+  categoria String?
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   plant Plant @relation(fields: [plantId], references: [id])
   postaReceiptItems PostaReceiptItem[]
+  clientes          ClienteProducto[]
 
   @@unique([plantId, codigo])
   @@index([plantId])
@@ -337,6 +460,7 @@ model Plant {
   goodsReceipts  GoodsReceipt[]
   devices        Device[]
   dispatchOrders DispatchOrder[]
+  productionOrders ProductionOrder[]
   canalReceipts  CanalReceiptOrder[]
   canalReceiptItems CanalReceiptItem[]
   postaReceipts  PostaReceiptOrder[]
@@ -366,6 +490,8 @@ model AppUser {
 
   receiptsReceived   GoodsReceipt[] @relation("receiptReceivedBy")
   dispatchOrders     DispatchOrder[] @relation("dispatchCreatedBy")
+  dispatchItems      DispatchOrderItem[] @relation("dispatchItemCreatedBy")
+  productionOrders   ProductionOrder[] @relation("productionCreatedBy")
   canalReceipts      CanalReceiptOrder[] @relation("canalReceiptCreatedBy")
   canalReceiptItems  CanalReceiptItem[] @relation("canalReceiptItemCreatedBy")
   postaReceipts      PostaReceiptOrder[] @relation("postaReceiptCreatedBy")
@@ -551,8 +677,8 @@ enum InsensibilizacionStatus {
 }
 
 enum OrdenBeneficioStatus {
-  pendiente
-  en_insensibilizacion
+  activo
+  inactivo
   procesado
 }
 
@@ -560,17 +686,16 @@ enum CanalTipo {
   canal_completa
   media_canal_con_cola
   media_canal_sin_cola
+  // Media canal genérica: CIZQ y CDER son piezas independientes que se
+  // pueden pesar en cualquier orden; "con cola"/"sin cola" es una
+  // clasificación aparte (ver OrdenBeneficioEvento.conCola).
+  media_canal
 }
 
 enum CanalPiezaTipo {
   canal
   cizq
   cder
-}
-
-enum CanalTurno {
-  manana
-  tarde
 }
 
 // Tipo/categoría del animal en Canal Caliente (distinto de sexo en Peso en Pie).
@@ -681,7 +806,7 @@ model OrdenBeneficio {
   guias         String[]
   animalCount   Int                  @map("animal_count")
   observaciones String?
-  status        OrdenBeneficioStatus @default(pendiente)
+  status        OrdenBeneficioStatus @default(activo)
   createdById   String               @map("created_by") @db.Uuid
   createdAt     DateTime             @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt     DateTime             @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -697,6 +822,12 @@ model OrdenBeneficio {
   // Si el lote requiere tiquete de cabeza y patas por animal: al insensibilizar
   // cada animal se imprime un tiquete con su info + las 4 patas.
   cabezasPatas Boolean @default(false) @map("cabezas_patas")
+
+  // Trazabilidad hacia atrás: consecutivos de Peso en Camión (BC) y
+  // Peso en Pie (BP) de donde provienen los animales de este lote,
+  // resueltos por guía al momento de crear la orden.
+  pcReference Int? @map("pc_reference")
+  bpReference Int? @map("bp_reference")
 
   eventos OrdenBeneficioEvento[]
 
@@ -722,6 +853,9 @@ model OrdenBeneficioEvento {
   canalAnimalTipo CanalAnimalTipo? @map("canal_animal_tipo")
   // Tipo de pesaje en Canal Caliente, elegido por animal.
   canalTipo       CanalTipo?       @map("canal_tipo")
+  // Si la media canal se dejó con cola o sin cola (independiente de si se
+  // pesó primero CIZQ o CDER).
+  conCola         Boolean?         @map("con_cola")
   // Expendio del animal (para el presinto/etiqueta de Canal Caliente).
   expendio        String?
 
@@ -785,7 +919,9 @@ model CanalPieza {
   eventoId   String         @map("orden_beneficio_evento_id") @db.Uuid
   pieza      CanalPiezaTipo
   pesoKg     Decimal        @map("peso_kg") @db.Decimal(12, 2)
-  turno      CanalTurno?
+  // Consecutivo diario del animal al momento de pesar (mismo orden en que se
+  // tumbó/pesó): ya no se elige a mano, viaja automáticamente con el animal.
+  turno      Int?
   weighedAt  DateTime       @default(now()) @map("weighed_at") @db.Timestamptz(6)
   operatorId String         @map("operator_id") @db.Uuid
   createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -797,6 +933,7 @@ model CanalPieza {
 
   evento         OrdenBeneficioEvento @relation(fields: [eventoId], references: [id])
   trasladosCava  CanalTraslado[]
+  despacho       DispatchOrderItem?
 
   @@unique([eventoId, pieza])
   @@index([eventoId])

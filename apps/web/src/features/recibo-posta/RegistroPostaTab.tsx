@@ -10,6 +10,7 @@ import {
 import { Combobox } from '@/components/ui/combobox';
 import { Input, Label, Select } from '@/components/ui/input';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
+import { plantToday as today } from '@/lib/utils';
 import { useClients } from '../canal-fria/api';
 import {
   usePostaReceiptNextNumber,
@@ -18,9 +19,6 @@ import {
   type DispatchOrderStatus,
 } from './api';
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 function tomorrow() {
   const d = new Date();
   d.setDate(d.getDate() + 1);

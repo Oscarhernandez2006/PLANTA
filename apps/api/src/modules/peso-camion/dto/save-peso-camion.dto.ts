@@ -62,4 +62,13 @@ export class SavePesoCamionDto {
   @IsNumber()
   @Min(0)
   salida?: number;
+
+  @IsOptional()
+  @IsNumber()
+  neto?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  pesoPromedioKg?: number;
 }

@@ -1,6 +1,5 @@
 import {
-  CANAL_TIPO_TITULO,
-  TURNO_DIGITO,
+  tituloCanalTipo,
   codigoBarras,
   type PresintoTicketData,
 } from './canal-presinto-print';
@@ -186,7 +185,7 @@ function bloqueZPL(
   anchoFila2 += lineH2;
   campo(largoLabel2, largoValor2, anchoFila2, 'Ref', String(d.ref), labelH2);
   anchoFila2 += lineH2;
-  campo(largoLabel2, largoValor2, anchoFila2, 'Gancho', String(TURNO_DIGITO[d.turno]), labelH2);
+  campo(largoLabel2, largoValor2, anchoFila2, 'Gancho', String(d.turno), labelH2);
 
   // Recuadro PESO (kg): ^GB no rota con ^A/^BC, así que su w/h físicos van
   // intercambiados respecto al diseño "de pantalla" (ancho del diseño ->
@@ -234,16 +233,16 @@ function bloqueZPL(
     `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
   );
   texto(
-    centrarEnBox(turnoBoxLargo, String(TURNO_DIGITO[d.turno]), pt(21)),
+    centrarEnBox(turnoBoxLargo, String(d.turno), pt(21)),
     numeroAncho,
     pt(21),
-    String(TURNO_DIGITO[d.turno]),
+    String(d.turno),
   );
   texto(centrarEnBox(turnoBoxLargo, 'TURNO', pt(8)), etiquetaAncho, pt(8), 'TURNO');
 
   // Título del tipo de canal, a la derecha de todo.
   const tituloLargo = turnoBoxLargo + boxLargoAncho + 5;
-  const titulo = CANAL_TIPO_TITULO[d.canalTipo];
+  const titulo = tituloCanalTipo(d);
   const palabras = titulo.split(' ');
   const tituloH = pt(21);
   if (palabras.length > 1) {
@@ -299,7 +298,7 @@ export function descargarPresintoZPL(d: PresintoTicketData) {
   const blob = new Blob([zpl], { type: 'text/plain' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  const nombre = `presinto_${d.lote}-${TURNO_DIGITO[d.turno]}${d.ref}_${Date.now()}.zpl`;
+  const nombre = `presinto_${codigoBarras(d)}_${Date.now()}.zpl`;
   a.href = url;
   a.download = nombre;
   document.body.appendChild(a);

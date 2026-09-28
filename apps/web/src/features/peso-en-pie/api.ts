@@ -116,23 +116,21 @@ export function useCreatePesoEnPie() {
       (await api.post<PesoEnPie>('/peso-en-pie', input)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['peso-en-pie'] });
-      qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
+      qc.invalidateQueries({ queryKey: ['sacrificio'] });
     },
   });
 }
 
-export function useClosePesoEnPieGuide() {
+// Actualiza un animal ya registrado (p. ej. su observación individual). El
+// backend reemplaza todos los campos, así que se debe enviar el registro
+// completo con solo el/los campos deseados modificados.
+export function useUpdatePesoEnPie() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ date, guia }: { date: string; guia: string }) =>
-      (
-        await api.patch<{ closed: number }>('/peso-en-pie/close-guide', {}, {
-          params: { date, guia },
-        })
-      ).data,
+    mutationFn: async ({ id, input }: { id: string; input: SavePesoEnPieInput }) =>
+      (await api.patch<PesoEnPie>(`/peso-en-pie/${id}`, input)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['peso-en-pie'] });
-      qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
     },
   });
 }

@@ -8,7 +8,7 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { SubproductoDestino } from '@prisma/client';
+import { OrdenBeneficioStatus, SubproductoDestino } from '@prisma/client';
 
 export class CreateOrdenBeneficioDto {
   @IsOptional()
@@ -25,14 +25,21 @@ export class CreateOrdenBeneficioDto {
   @MaxLength(200)
   guia!: string;
 
+  // Si no se envía, se asignan todos los animales disponibles de la guía.
+  @IsOptional()
   @IsInt()
   @Min(1)
-  animalCount!: number;
+  animalCount?: number;
 
   @IsOptional()
   @IsString()
   @MaxLength(500)
   observaciones?: string;
+
+  // Estado inicial del lote (por defecto pendiente).
+  @IsOptional()
+  @IsEnum(OrdenBeneficioStatus)
+  status?: OrdenBeneficioStatus;
 
   // Quién se queda con las vísceras del lote (todas: rojas y blancas).
   @IsOptional()

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import type { CanalTipo } from '../canal-caliente/api';
 
 // Debe coincidir EXACTO con los valores que guarda Canal Caliente/Traslado
 // en CanalPieza.cava (apps/web/src/features/canal-caliente/api.ts),
@@ -22,6 +23,9 @@ export interface CavaAnimalRow {
   cliente: string;
   date: string;
   canalAnimalTipo: string | null;
+  canalTipo: CanalTipo | null;
+  sequence: number;
+  turno: number | null;
   pieza: 'canal' | 'cizq' | 'cder';
   bodega: string | null;
   destino: string | null;

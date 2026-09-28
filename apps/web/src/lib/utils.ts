@@ -18,6 +18,16 @@ export function plantToday(): string {
   }).format(shifted);
 }
 
+/**
+ * Normaliza lo digitado en un campo decimal: la coma se convierte en punto,
+ * solo quedan dígitos y un único separador decimal ("12,5" → "12.5").
+ */
+export function soloDecimal(v: string): string {
+  const s = v.replace(/,/g, '.').replace(/[^0-9.]/g, '');
+  const i = s.indexOf('.');
+  return i === -1 ? s : s.slice(0, i + 1) + s.slice(i + 1).replace(/\./g, '');
+}
+
 /** Formatea kilogramos con separador de miles y 2-3 decimales. */
 export function formatKg(value: number | string, decimals = 2): string {
   const n = typeof value === 'string' ? Number(value) : value;

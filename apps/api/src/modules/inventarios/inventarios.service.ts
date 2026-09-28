@@ -1,5 +1,10 @@
-import { Injectable } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
+import { parseCanalBarcode } from '../../common/canal-barcode';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { plantDateOnly } from '../../common/plant-date';
 import { SUBPRODUCTO_ITEM_BY_TIPO } from '../subproductos/subproducto-items';
@@ -7,6 +12,56 @@ import { SUBPRODUCTO_ITEM_BY_TIPO } from '../subproductos/subproducto-items';
 @Injectable()
 export class InventariosService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Busca en cava la pieza del código de barras del presinto:
+   * `{lote}-{turno}{dígito}{I|D}` (dígito 1 = canal completa, 2 = izquierda, 3 = derecha).
+   */
+  async piezaPorBarcode(ctx: AuthContext, barcode: string) {
+    const codigo = parseCanalBarcode(barcode);
+    if (!codigo) throw new BadRequestException('Código de barras no válido.');
+
+    const p = await this.prisma.canalPieza.findFirst({
+      where: {
+        pieza: codigo.pieza,
+        turno: codigo.turno,
+        evento: {
+          ordenBeneficio: {
+            plantId: ctx.plantId,
+            deletedAt: null,
+            reference: codigo.lote,
+          },
+        },
+      },
+      orderBy: { weighedAt: 'desc' },
+      include: {
+        evento: {
+          include: {
+            ordenBeneficio: { select: { reference: true, cliente: true, date: true } },
+          },
+        },
+      },
+    });
+    if (!p) throw new NotFoundException(`No se encontró la canal ${barcode.trim()}.`);
+    if (!p.cava) {
+      throw new BadRequestException(`La canal ${barcode.trim()} no está en ninguna cava.`);
+    }
+    return {
+      piezaId: p.id,
+      barcode: barcode.trim().toUpperCase(),
+      reference: p.evento.ordenBeneficio.reference,
+      cliente: p.evento.ordenBeneficio.cliente,
+      date: p.evento.ordenBeneficio.date.toISOString().slice(0, 10),
+      canalAnimalTipo: p.evento.canalAnimalTipo,
+      pieza: p.pieza,
+      destino: p.destino,
+      cava: p.cava,
+      pesoKg: Number(p.pesoKg),
+      sequence: p.evento.sequence,
+      turno: p.turno,
+      observaciones: p.observaciones,
+    };
+  }
 
   /** Piezas de canal (CIZQ/CDER/completa) actualmente ubicadas en una cava de Canal Caliente. */
   async cava(ctx: AuthContext, cava: string, dateStr?: string) {
@@ -41,6 +96,9 @@ export class InventariosService {
       cliente: p.evento.ordenBeneficio.cliente,
       date: p.evento.ordenBeneficio.date.toISOString().slice(0, 10),
       canalAnimalTipo: p.evento.canalAnimalTipo,
+      canalTipo: p.evento.canalTipo,
+      sequence: p.evento.sequence,
+      turno: p.turno,
       pieza: p.pieza,
       bodega: p.bodega,
       destino: p.destino,

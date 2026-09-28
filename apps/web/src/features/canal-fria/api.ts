@@ -1,10 +1,7 @@
-import {
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 
+// Compartido con Recibo de Canales y Recibo en Posta.
 export type DispatchOrderStatus = 'activo' | 'inactivo' | 'facturado';
 
 export interface Client {
@@ -14,33 +11,6 @@ export interface Client {
   sede: string;
 }
 
-export interface DispatchOrder {
-  id: string;
-  odNumber: number;
-  registrationDate: string;
-  processDate: string;
-  status: DispatchOrderStatus;
-  type: string;
-  client: Client;
-}
-
-export interface Paginated<T> {
-  data: T[];
-  pagination: {
-    page: number;
-    pageSize: number;
-    total: number;
-    totalPages: number;
-  };
-}
-
-export interface CreateDispatchOrderInput {
-  clientId: string;
-  registrationDate: string;
-  processDate: string;
-  status: DispatchOrderStatus;
-}
-
 export function useClients() {
   return useQuery({
     queryKey: ['clients'],
@@ -48,37 +18,75 @@ export function useClients() {
   });
 }
 
-export function useNextOdNumber() {
+/** Pieza de canal en cava encontrada por el código de barras del presinto. */
+export interface PiezaEnCava {
+  piezaId: string;
+  barcode: string;
+  reference: number;
+  cliente: string;
+  date: string;
+  canalAnimalTipo: string | null;
+  pieza: 'canal' | 'cizq' | 'cder';
+  destino: string | null;
+  cava: string;
+  pesoKg: number;
+  sequence: number;
+  turno: number | null;
+  observaciones: string | null;
+}
+
+export async function buscarPiezaPorBarcode(barcode: string) {
+  return (await api.get<PiezaEnCava>('/inventarios/pieza', { params: { barcode } })).data;
+}
+
+/** Pieza que salió de su cava hacia una orden de despacho. */
+export interface ItemDespacho extends Omit<PiezaEnCava, 'cava'> {
+  itemId: string;
+  cavaOrigen: string;
+  despachoKg: number | null;
+  despachadoAt: string;
+}
+
+export function useItemsDespacho(orderId: string | null) {
   return useQuery({
-    queryKey: ['dispatch-orders', 'next-number'],
+    queryKey: ['dispatch-orders', 'items', orderId],
+    enabled: !!orderId,
     queryFn: async () =>
-      (await api.get<{ next: number }>('/dispatch-orders/next-number')).data,
+      (await api.get<ItemDespacho[]>(`/dispatch-orders/${orderId}/items`)).data,
   });
 }
 
-export function useDispatchOrders(params: {
-  page: number;
-  pageSize: number;
-  status?: DispatchOrderStatus;
-}) {
-  return useQuery({
-    queryKey: ['dispatch-orders', params],
-    queryFn: async () =>
-      (
-        await api.get<Paginated<DispatchOrder>>('/dispatch-orders', {
-          params,
-        })
-      ).data,
-  });
-}
-
-export function useCreateDispatchOrder() {
+export function useAgregarItemDespacho(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: CreateDispatchOrderInput) =>
-      (await api.post<DispatchOrder>('/dispatch-orders', input)).data,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['dispatch-orders'] }),
+    mutationFn: async (barcode: string) =>
+      (await api.post<ItemDespacho>(`/dispatch-orders/${orderId}/items`, { barcode })).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dispatch-orders', 'items', orderId] });
+      qc.invalidateQueries({ queryKey: ['inventarios'] });
+    },
+  });
+}
+
+/** Guarda el peso en frío (despacho) de una pieza de la orden. */
+export function usePesarItemDespacho(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ itemId, despachoKg }: { itemId: string; despachoKg: number }) =>
+      (await api.patch<ItemDespacho>(`/dispatch-orders/items/${itemId}`, { despachoKg })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dispatch-orders', 'items', orderId] }),
+  });
+}
+
+export function useQuitarItemDespacho(orderId: string | null) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (itemId: string) =>
+      (await api.delete(`/dispatch-orders/items/${itemId}`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dispatch-orders', 'items', orderId] });
+      qc.invalidateQueries({ queryKey: ['inventarios'] });
+    },
   });
 }
 
@@ -96,5 +104,3 @@ export const statusTone: Record<
   inactivo: 'neutral',
   facturado: 'info',
 };
-
-export const orderTypeLabel = 'Despacho de M.P a Proceso';

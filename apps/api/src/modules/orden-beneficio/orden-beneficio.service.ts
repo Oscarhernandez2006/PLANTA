@@ -29,6 +29,8 @@ export interface GuiaDetalle {
   animalesEnPie: number;
   asignados: number;
   disponibles: number;
+  pcReference: number | null;
+  bpReference: number | null;
 }
 
 export interface Candidate {
@@ -56,6 +58,8 @@ export class OrdenBeneficioService {
       subproductoRetiroAt: r.subproductoRetiroAt?.toISOString() ?? null,
       subproductoRetiroObservaciones: r.subproductoRetiroObservaciones,
       cabezasPatas: r.cabezasPatas,
+      pcReference: r.pcReference,
+      bpReference: r.bpReference,
     };
   }
 
@@ -74,7 +78,7 @@ export class OrdenBeneficioService {
           deletedAt: null,
           status: PesoCamionStatus.cerrada,
         },
-        select: { cliente: true, guia: true },
+        select: { cliente: true, guia: true, reference: true },
       }),
       this.prisma.pesoEnPie.findMany({
         where: {
@@ -82,7 +86,7 @@ export class OrdenBeneficioService {
           date,
           deletedAt: null,
         },
-        select: { guia: true, animalCount: true, corral: true },
+        select: { guia: true, animalCount: true, corral: true, bpReference: true },
       }),
       this.prisma.ordenBeneficio.findMany({
         where: { plantId: ctx.plantId, date, deletedAt: null },
@@ -93,6 +97,7 @@ export class OrdenBeneficioService {
     // Animales de Peso en Pie por guía.
     const enPiePorGuia = new Map<string, number>();
     const corralesPorGuia = new Map<string, Set<string>>();
+    const bpReferenciaPorGuia = new Map<string, number>();
     for (const p of pesosEnPie) {
       const g = p.guia?.trim();
       if (!g) continue;
@@ -102,6 +107,9 @@ export class OrdenBeneficioService {
         const set = corralesPorGuia.get(g) ?? new Set<string>();
         set.add(corral);
         corralesPorGuia.set(g, set);
+      }
+      if (!bpReferenciaPorGuia.has(g)) {
+        bpReferenciaPorGuia.set(g, p.bpReference);
       }
     }
 
@@ -117,6 +125,7 @@ export class OrdenBeneficioService {
 
     // Guías de Peso en Camión agrupadas por cliente.
     const porCliente = new Map<string, Set<string>>();
+    const pcReferenciaPorGuia = new Map<string, number>();
     for (const c of camiones) {
       const cliente = c.cliente?.trim();
       const g = c.guia?.trim();
@@ -124,16 +133,32 @@ export class OrdenBeneficioService {
       const set = porCliente.get(cliente) ?? new Set<string>();
       set.add(g);
       porCliente.set(cliente, set);
+      if (!pcReferenciaPorGuia.has(g)) {
+        pcReferenciaPorGuia.set(g, c.reference);
+      }
     }
 
-    return { porCliente, enPiePorGuia, asignadoPorGuia, corralesPorGuia };
+    return {
+      porCliente,
+      enPiePorGuia,
+      asignadoPorGuia,
+      corralesPorGuia,
+      pcReferenciaPorGuia,
+      bpReferenciaPorGuia,
+    };
   }
 
   /** Clientes del día con sus guías y animales disponibles por guía. */
   async candidates(ctx: AuthContext, dateStr?: string): Promise<Candidate[]> {
     const { date } = dateOnly(dateStr);
-    const { porCliente, enPiePorGuia, asignadoPorGuia, corralesPorGuia } =
-      await this.aggregate(ctx, date);
+    const {
+      porCliente,
+      enPiePorGuia,
+      asignadoPorGuia,
+      corralesPorGuia,
+      pcReferenciaPorGuia,
+      bpReferenciaPorGuia,
+    } = await this.aggregate(ctx, date);
 
     const list: Candidate[] = [];
     for (const [cliente, guias] of porCliente) {
@@ -150,6 +175,8 @@ export class OrdenBeneficioService {
             animalesEnPie,
             asignados,
             disponibles: Math.max(0, animalesEnPie - asignados),
+            pcReference: pcReferenciaPorGuia.get(guia) ?? null,
+            bpReference: bpReferenciaPorGuia.get(guia) ?? null,
           };
         })
         // Oculta las guías cuyos animales ya se asignaron todos a lotes.
@@ -165,6 +192,16 @@ export class OrdenBeneficioService {
     return list;
   }
 
+  /** Próximo consecutivo de referencia para la planta en la fecha dada. */
+  async nextReference(ctx: AuthContext, dateStr?: string) {
+    const { date } = dateOnly(dateStr);
+    const agg = await this.prisma.ordenBeneficio.aggregate({
+      _max: { reference: true },
+      where: { plantId: ctx.plantId, date, deletedAt: null },
+    });
+    return { next: (agg._max.reference ?? 0) + 1 };
+  }
+
   /** Crea un lote de beneficio con una parte (o el total) de una guía. */
   async create(ctx: AuthContext, dto: CreateOrdenBeneficioDto) {
     const { str, date } = dateOnly(dto.date);
@@ -172,7 +209,7 @@ export class OrdenBeneficioService {
     const guia = dto.guia.trim();
     if (!cliente) throw new BadRequestException('Cliente requerido.');
     if (!guia) throw new BadRequestException('Guía requerida.');
-    if (dto.animalCount < 1) {
+    if (dto.animalCount != null && dto.animalCount < 1) {
       throw new BadRequestException('La cantidad debe ser mayor a cero.');
     }
 
@@ -183,7 +220,7 @@ export class OrdenBeneficioService {
       // La guía debe pertenecer al cliente en Peso en Camión.
       const camion = await tx.pesoCamion.findFirst({
         where: { plantId: ctx.plantId, date, cliente, guia, deletedAt: null },
-        select: { id: true },
+        select: { id: true, reference: true },
       });
       if (!camion) {
         throw new BadRequestException(
@@ -191,11 +228,17 @@ export class OrdenBeneficioService {
         );
       }
 
-      // Animales validados en Peso en Pie para la guía.
-      const pie = await tx.pesoEnPie.aggregate({
-        _sum: { animalCount: true },
-        where: { plantId: ctx.plantId, date, guia, deletedAt: null },
-      });
+      // Animales validados en Peso en Pie para la guía (y su consecutivo BP).
+      const [pie, pieRef] = await Promise.all([
+        tx.pesoEnPie.aggregate({
+          _sum: { animalCount: true },
+          where: { plantId: ctx.plantId, date, guia, deletedAt: null },
+        }),
+        tx.pesoEnPie.findFirst({
+          where: { plantId: ctx.plantId, date, guia, deletedAt: null },
+          select: { bpReference: true },
+        }),
+      ]);
       const enPie = pie._sum.animalCount ?? 0;
       if (enPie <= 0) {
         throw new BadRequestException(
@@ -215,7 +258,9 @@ export class OrdenBeneficioService {
           'La guía ya tiene todos sus animales asignados a lotes.',
         );
       }
-      if (dto.animalCount > disponibles) {
+      // Si no se indica cantidad, se asignan todos los animales disponibles.
+      const animalCount = dto.animalCount ?? disponibles;
+      if (animalCount > disponibles) {
         throw new BadRequestException(
           `Solo quedan ${disponibles} animales disponibles en la guía ${guia}.`,
         );
@@ -234,11 +279,14 @@ export class OrdenBeneficioService {
           date,
           cliente,
           guias: [guia],
-          animalCount: dto.animalCount,
+          animalCount,
           observaciones: dto.observaciones?.trim() || null,
+          status: dto.status ?? OrdenBeneficioStatus.activo,
           subproductoDestino: dto.subproductoDestino ?? SubproductoDestino.empresa,
           cabezasPatas: dto.cabezasPatas ?? false,
           createdById: ctx.userId,
+          pcReference: camion.reference,
+          bpReference: pieRef?.bpReference ?? null,
         },
       });
       return this.toDto(rec);
@@ -334,7 +382,7 @@ export class OrdenBeneficioService {
       where: { id, plantId: ctx.plantId, deletedAt: null },
     });
     if (!rec) throw new NotFoundException('Orden de Beneficio no encontrada.');
-    if (rec.status !== OrdenBeneficioStatus.pendiente) {
+    if (rec.status !== OrdenBeneficioStatus.activo) {
       throw new BadRequestException(
         'Solo se puede eliminar una orden pendiente (sin insensibilización).',
       );

@@ -5,7 +5,7 @@ import { useBascula } from '@/components/bascula/Bascula';
 import { Badge } from '@/components/ui/badge';
 import { KeyboardField } from '@/components/keyboard/KeyboardField';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatDate, soloDecimal } from '@/lib/utils';
 import {
   statusLabels,
   statusTone,
@@ -446,7 +446,7 @@ function RegistroTab({
             <FieldBox label="Tara(kg):" className="w-28">
               <input
                 value={taraKg}
-                onChange={(e) => setTaraKg(e.target.value.replace(/[^0-9.]/g, ''))}
+                onChange={(e) => setTaraKg(soloDecimal(e.target.value))}
                 onClick={() => colocar('tara')}
                 inputMode="decimal"
                 className="h-9 w-full bg-transparent text-right text-2xl font-bold tabular-nums outline-none"
@@ -557,7 +557,7 @@ function RegistroTab({
             <div className="flex h-9 items-center gap-1.5">
               <input
                 value={brutoKg}
-                onChange={(e) => setBrutoKg(e.target.value.replace(/[^0-9.]/g, ''))}
+                onChange={(e) => setBrutoKg(soloDecimal(e.target.value))}
                 onDoubleClick={leerBascula}
                 disabled={leyendo}
                 title="Doble clic para leer báscula"
@@ -846,7 +846,7 @@ function EtiquetadoTab({
         <FieldBox label="Cant.(kg):">
           <input
             value={cantidad}
-            onChange={(e) => setCantidad(e.target.value.replace(/[^0-9.]/g, ''))}
+            onChange={(e) => setCantidad(soloDecimal(e.target.value))}
             onClick={leerBascula}
             disabled={leyendo}
             inputMode="decimal"

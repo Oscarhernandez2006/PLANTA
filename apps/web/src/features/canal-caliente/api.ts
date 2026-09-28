@@ -4,12 +4,14 @@ import { api } from '@/lib/api';
 export type CanalTipo =
   | 'canal_completa'
   | 'media_canal_con_cola'
-  | 'media_canal_sin_cola';
+  | 'media_canal_sin_cola'
+  | 'media_canal';
 
 export const CANAL_TIPO_LABEL: Record<CanalTipo, string> = {
   canal_completa: 'Canal completa',
   media_canal_con_cola: 'Media canal con cola',
   media_canal_sin_cola: 'Media canal sin cola',
+  media_canal: 'Media canal',
 };
 
 export type CanalPiezaTipo = 'canal' | 'cizq' | 'cder';
@@ -18,13 +20,6 @@ export const PIEZA_LABEL: Record<CanalPiezaTipo, string> = {
   canal: 'CANAL',
   cizq: 'CIZQ',
   cder: 'CDER',
-};
-
-export type CanalTurno = 'manana' | 'tarde';
-
-export const TURNO_LABEL: Record<CanalTurno, string> = {
-  manana: 'Mañana',
-  tarde: 'Tarde',
 };
 
 export type CanalAnimalTipo =
@@ -79,6 +74,7 @@ export interface CanalLote {
   ordenBeneficioId: string;
   reference: number;
   cliente: string;
+  clienteNit: string | null;
   guias: string[];
   date: string;
   consecutivoBase: number;
@@ -92,7 +88,7 @@ export interface CanalPiezaEstado {
   pesado: boolean;
   piezaId: string | null;
   pesoKg: number | null;
-  turno: CanalTurno | null;
+  turno: number | null;
   weighedAt: string | null;
   operatorName: string | null;
   bodega: string | null;
@@ -107,6 +103,7 @@ export interface CanalAnimal {
   consecutivo: number;
   stunnedAt: string;
   canalTipo: CanalTipo | null;
+  conCola: boolean | null;
   canalAnimalTipo: CanalAnimalTipo | null;
   expendio: string | null;
   piezas: CanalPiezaEstado[];
@@ -116,6 +113,7 @@ export interface CanalLoteDetail {
   ordenBeneficioId: string;
   reference: number;
   cliente: string;
+  clienteNit: string | null;
   guias: string[];
   date: string;
   consecutivoBase: number;
@@ -139,12 +137,18 @@ export interface CanalPiezaRow {
   piezaId: string;
   reference: number;
   cliente: string;
+  sequence: number;
   consecutivo: number;
   pieza: CanalPiezaTipo;
   pesoKg: number;
-  turno: CanalTurno | null;
+  turno: number | null;
   weighedAt: string;
   operatorName: string;
+  canalTipo: CanalTipo | null;
+  conCola: boolean | null;
+  canalAnimalTipo: CanalAnimalTipo | null;
+  destino: string | null;
+  observaciones: string | null;
 }
 
 export interface CanalReporte {
@@ -227,6 +231,44 @@ export function useCanalReporte(date: string, enabled = true) {
   });
 }
 
+/** Piezas esperadas según el tipo de canal (debe reflejar la misma lógica que el backend). */
+function piezasEsperadasCliente(tipo: CanalTipo): CanalPiezaTipo[] {
+  return tipo === 'canal_completa' ? ['canal'] : ['cizq', 'cder'];
+}
+
+/** Aplica un cambio local a los animales de todos los detalles de lote en caché, para que el click se sienta instantáneo mientras el PATCH viaja en segundo plano. */
+function aplicarOptimista(
+  qc: ReturnType<typeof useQueryClient>,
+  eventoId: string,
+  cambios: Partial<CanalAnimal> | ((animal: CanalAnimal) => Partial<CanalAnimal>),
+) {
+  const queries = qc.getQueriesData<CanalLoteDetail>({
+    queryKey: ['canal-caliente', 'lote'],
+  });
+  const previous: [readonly unknown[], CanalLoteDetail][] = [];
+  for (const [key, data] of queries) {
+    if (!data) continue;
+    if (!data.animales.some((a) => a.eventoId === eventoId)) continue;
+    previous.push([key, data]);
+    qc.setQueryData<CanalLoteDetail>(key, {
+      ...data,
+      animales: data.animales.map((a) =>
+        a.eventoId === eventoId
+          ? { ...a, ...(typeof cambios === 'function' ? cambios(a) : cambios) }
+          : a,
+      ),
+    });
+  }
+  return previous;
+}
+
+function revertirOptimista(
+  qc: ReturnType<typeof useQueryClient>,
+  previous: [readonly unknown[], CanalLoteDetail][] | undefined,
+) {
+  previous?.forEach(([key, data]) => qc.setQueryData(key, data));
+}
+
 export function useSetCanalTipo() {
   const qc = useQueryClient();
   return useMutation({
@@ -237,6 +279,57 @@ export function useSetCanalTipo() {
           { tipo: payload.tipo },
         )
       ).data,
+    onMutate: async (payload) => {
+      // Evita que un refetch en curso (polling) pise el cambio optimista con datos viejos.
+      await qc.cancelQueries({ queryKey: ['canal-caliente', 'lote'] });
+      return {
+      previous: aplicarOptimista(qc, payload.eventoId, (animal) => {
+        const esperadas = piezasEsperadasCliente(payload.tipo);
+        // Si ya hay piezas cargadas (pesadas o no) del mismo conjunto, se
+        // conservan; si no, se sintetizan vacías para no esperar al server.
+        const piezas =
+          animal.piezas.length &&
+          esperadas.every((p) => animal.piezas.some((e) => e.pieza === p))
+            ? animal.piezas.filter((p) => esperadas.includes(p.pieza))
+            : esperadas.map((pieza) => ({
+                pieza,
+                pesado: false,
+                piezaId: null,
+                pesoKg: null,
+                turno: null,
+                weighedAt: null,
+                operatorName: null,
+                bodega: null,
+                cava: null,
+                destino: null,
+                observaciones: null,
+              }));
+        return { canalTipo: payload.tipo, piezas };
+      }),
+      };
+    },
+    onError: (_err, _payload, context) => revertirOptimista(qc, context?.previous),
+    onSuccess: (data) => {
+      qc.setQueryData(['canal-caliente', 'lote', data.ordenBeneficioId], data);
+      qc.invalidateQueries({ queryKey: ['canal-caliente'] });
+    },
+  });
+}
+
+export function useSetConCola() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (payload: { eventoId: string; conCola: boolean }) =>
+      (
+        await api.patch<CanalLoteDetail>(
+          `/canal-caliente/animales/${payload.eventoId}/con-cola`,
+          { conCola: payload.conCola },
+        )
+      ).data,
+    onMutate: (payload) => ({
+      previous: aplicarOptimista(qc, payload.eventoId, { conCola: payload.conCola }),
+    }),
+    onError: (_err, _payload, context) => revertirOptimista(qc, context?.previous),
     onSuccess: (data) => {
       qc.setQueryData(['canal-caliente', 'lote', data.ordenBeneficioId], data);
       qc.invalidateQueries({ queryKey: ['canal-caliente'] });
@@ -251,8 +344,13 @@ export function useRegistrarCanal() {
       eventoId: string;
       pieza: CanalPiezaTipo;
       pesoKg: number;
-      turno?: CanalTurno;
-    }) => (await api.post<{ ok: boolean }>('/canal-caliente', payload)).data,
+    }) =>
+      (
+        await api.post<{ ok: boolean; piezaId: string }>(
+          '/canal-caliente',
+          payload,
+        )
+      ).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['canal-caliente'] });
     },

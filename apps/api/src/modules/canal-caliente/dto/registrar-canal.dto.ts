@@ -1,12 +1,11 @@
 import {
   IsEnum,
   IsNumber,
-  IsOptional,
   IsPositive,
   IsUUID,
   Max,
 } from 'class-validator';
-import { CanalPiezaTipo, CanalTurno } from '@prisma/client';
+import { CanalPiezaTipo } from '@prisma/client';
 
 export class RegistrarCanalDto {
   @IsUUID()
@@ -19,8 +18,4 @@ export class RegistrarCanalDto {
   @IsPositive()
   @Max(9999)
   pesoKg!: number;
-
-  @IsOptional()
-  @IsEnum(CanalTurno)
-  turno?: CanalTurno;
 }

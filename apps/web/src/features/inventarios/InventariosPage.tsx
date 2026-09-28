@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Warehouse, LoaderCircle, Inbox, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { codigoBarras } from '../canal-caliente/canal-presinto-print';
 import {
   useCava,
   useCavaSubproducto,
@@ -82,40 +83,142 @@ export function InventariosPage() {
         ))}
       </div>
 
-      <div className="flex-1 overflow-auto rounded-sm border-2 border-border bg-card">
+      <div className="flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
         {tab.startsWith('cava-') ? (
           <CavaTab cava={tab.replace('cava-', '')} />
         ) : (
-          <CavaSubproductoTab cava={tab.replace('sub-', '')} />
+          <div className="h-full overflow-auto">
+            <CavaSubproductoTab cava={tab.replace('sub-', '')} />
+          </div>
         )}
       </div>
     </div>
   );
 }
 
+const PIEZA_LABEL: Record<CavaAnimalRow['pieza'], string> = {
+  canal: 'CANAL',
+  cizq: 'CIZQ',
+  cder: 'CDER',
+};
+
+function FiltroSelect({
+  label,
+  value,
+  onChange,
+  opciones,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  opciones: { value: string; label: string }[];
+}) {
+  return (
+    <label className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+      {label}
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="h-9 rounded-sm border-2 border-border bg-card px-2 text-sm font-medium normal-case text-foreground outline-none focus:border-emerald-500"
+      >
+        <option value="">Todos</option>
+        {opciones.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function CavaTab({ cava }: { cava: string }) {
   const { data, isLoading } = useCava(cava);
-  if (isLoading) return <Loading />;
+  const [cliente, setCliente] = useState('');
+  const [tipo, setTipo] = useState('');
+  const [pieza, setPieza] = useState('');
   const rows = data ?? [];
+
+  const clientes = useMemo(
+    () => [...new Set(rows.map((r) => r.cliente))].sort(),
+    [rows],
+  );
+  const tipos = useMemo(
+    () =>
+      [...new Set(rows.map((r) => r.canalAnimalTipo).filter((t): t is string => !!t))].sort(),
+    [rows],
+  );
+  const filtradas = rows.filter(
+    (r) =>
+      (!cliente || r.cliente === cliente) &&
+      (!tipo || r.canalAnimalTipo === tipo) &&
+      (!pieza || r.pieza === pieza),
+  );
+
+  if (isLoading) return <Loading />;
   if (!rows.length)
     return <Empty text={`No hay animales ubicados en la ${cava}.`} />;
   return (
+    <div className="flex h-full flex-col">
+      <div className="flex flex-wrap items-center gap-4 border-b-2 border-border px-3 py-2">
+        <FiltroSelect
+          label="Cliente"
+          value={cliente}
+          onChange={setCliente}
+          opciones={clientes.map((c) => ({ value: c, label: c }))}
+        />
+        <FiltroSelect
+          label="Tipo"
+          value={tipo}
+          onChange={setTipo}
+          opciones={tipos.map((t) => ({ value: t, label: t.toUpperCase() }))}
+        />
+        <FiltroSelect
+          label="Pieza"
+          value={pieza}
+          onChange={setPieza}
+          opciones={(Object.keys(PIEZA_LABEL) as CavaAnimalRow['pieza'][]).map((p) => ({
+            value: p,
+            label: PIEZA_LABEL[p],
+          }))}
+        />
+      </div>
+      {!filtradas.length ? (
+        <Empty text="No hay canales con estos filtros." />
+      ) : (
+    <div className="min-h-0 flex-1 overflow-auto">
     <table className="w-full text-sm">
       <thead className="sticky top-0 bg-muted/60 text-left">
         <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
           <th>Orden</th>
+          <th>Animal</th>
+          <th>Turno</th>
+          <th>Barcode</th>
           <th>Cliente</th>
           <th>Fecha</th>
           <th>Tipo</th>
           <th>Pieza</th>
           <th>Destino</th>
+          <th>Observación</th>
           <th className="text-right">Peso (kg)</th>
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
-        {rows.map((r: CavaAnimalRow) => (
+        {filtradas.map((r: CavaAnimalRow) => (
           <tr key={r.piezaId} className="[&>td]:px-3 [&>td]:py-2">
             <td className="tabular-nums">{r.reference}</td>
+            <td className="tabular-nums">A{String(r.sequence).padStart(2, '0')}</td>
+            <td className="tabular-nums">{r.turno ?? '—'}</td>
+            <td className="tabular-nums">
+              {r.canalTipo
+                ? codigoBarras({
+                    lote: r.reference,
+                    turno: r.turno ?? r.sequence,
+                    canalTipo: r.canalTipo,
+                    pieza: r.pieza,
+                  })
+                : '—'}
+            </td>
             <td>{r.cliente}</td>
             <td className="tabular-nums">{r.date}</td>
             <td className="text-xs uppercase">{r.canalAnimalTipo ?? '—'}</td>
@@ -123,6 +226,7 @@ function CavaTab({ cava }: { cava: string }) {
               {r.pieza}
             </td>
             <td>{r.destino || '—'}</td>
+            <td>{r.observaciones || '—'}</td>
             <td className="text-right font-semibold tabular-nums">
               {r.pesoKg.toFixed(2)}
             </td>
@@ -130,6 +234,9 @@ function CavaTab({ cava }: { cava: string }) {
         ))}
       </tbody>
     </table>
+    </div>
+      )}
+    </div>
   );
 }
 

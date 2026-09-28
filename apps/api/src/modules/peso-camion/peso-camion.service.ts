@@ -29,6 +29,8 @@ export class PesoCamionService {
       cantidad: r.cantidad,
       entrada: r.entrada == null ? null : Number(r.entrada),
       salida: r.salida == null ? null : Number(r.salida),
+      neto: r.netoKg == null ? null : Number(r.netoKg),
+      pesoPromedioKg: r.pesoPromedioKg == null ? null : Number(r.pesoPromedioKg),
       status: r.status,
     };
   }
@@ -71,6 +73,8 @@ export class PesoCamionService {
       cantidad: dto.cantidad ?? null,
       entrada: dto.entrada ?? null,
       salida: dto.salida ?? null,
+      netoKg: dto.neto ?? null,
+      pesoPromedioKg: dto.pesoPromedioKg ?? null,
     };
   }
 
@@ -142,6 +146,25 @@ export class PesoCamionService {
       where: { id, plantId: ctx.plantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Guía no encontrada.');
+
+    // El total pesado uno a uno en Peso en Pie debe coincidir (±25%) con el
+    // neto pesado en camión; si no, hay un error de báscula y no se cierra.
+    const guia = existing.guia?.trim();
+    const neto = existing.netoKg == null ? null : Number(existing.netoKg);
+    if (guia && neto != null) {
+      const enPie = await this.prisma.pesoEnPie.aggregate({
+        _sum: { pesoTotalKg: true },
+        where: { plantId: ctx.plantId, date: existing.date, guia, deletedAt: null },
+      });
+      const totalPie = Number(enPie._sum.pesoTotalKg ?? 0);
+      const min = neto * 0.75;
+      const max = neto * 1.25;
+      if (totalPie < min || totalPie > max) {
+        throw new BadRequestException(
+          'Los pesos de báscula camión y báscula en pie no coinciden.',
+        );
+      }
+    }
 
     const rec = await this.prisma.pesoCamion.update({
       where: { id },

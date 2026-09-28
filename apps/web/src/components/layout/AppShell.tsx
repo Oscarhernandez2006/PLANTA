@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, MonitorSmartphone, Warehouse, ArrowLeftRight } from 'lucide-react';
+import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
@@ -9,12 +9,11 @@ import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { PesoEnCamionIcon } from '@/components/icons/PesoEnCamionIcon';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
 import { ReciboCanalesIcon } from '@/components/icons/ReciboCanalesIcon';
-import { InsensibilizacionIcon } from '@/components/icons/InsensibilizacionIcon';
+import { SacrificioIcon } from '@/components/icons/SacrificioIcon';
 import { PielesIcon } from '@/components/icons/PielesIcon';
 import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
 import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
 import { OrdenDespachoFrioIcon } from '@/components/icons/OrdenDespachoFrioIcon';
-import { OrdenDesposteIcon } from '@/components/icons/OrdenDesposteIcon';
 import { RotuladoDesposteIcon } from '@/components/icons/RotuladoDesposteIcon';
 import { RotuladoAcondicionamientoIcon } from '@/components/icons/RotuladoAcondicionamientoIcon';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
@@ -40,12 +39,11 @@ const navGroups: { title: string; items: NavItem[] }[] = [
   {
     title: 'Beneficio',
     items: [
-      { to: '/insensibilizacion', label: 'Insensibilización', icon: InsensibilizacionIcon },
+      { to: '/sacrificio', label: 'Sacrificio', icon: SacrificioIcon },
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
       { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
       { to: '/inventarios', label: 'Inventarios', icon: Warehouse },
-      { to: '/canal-traslado', label: 'Traslado de Canales', icon: ArrowLeftRight },
       { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
       { to: '/rotulado-desposte', label: 'Rotulado Desposte', icon: RotuladoDesposteIcon },
       { to: '/rotulado-acondicionamiento', label: 'Rotulado Acondicionamiento', icon: RotuladoAcondicionamientoIcon },
@@ -55,8 +53,12 @@ const navGroups: { title: string; items: NavItem[] }[] = [
     title: 'Administrativo',
     items: [
       { to: '/orden-beneficio', label: 'Orden de Beneficio', icon: OrdenBeneficioIcon },
-      { to: '/orden-despacho-frio', label: 'Orden de Despacho Frío', icon: OrdenDespachoFrioIcon },
-      { to: '/orden-desposte', label: 'Orden de Desposte', icon: OrdenDesposteIcon },
+      { to: '/orden-despacho', label: 'Orden de Despacho', icon: OrdenDespachoFrioIcon },
+      { to: '/orden-produccion', label: 'Órdenes de Producción', icon: Factory },
+      { to: '/productos', label: 'Productos', icon: Package },
+      { to: '/clientes', label: 'Clientes', icon: Users },
+      { to: '/conservacion', label: 'Conservación', icon: Snowflake },
+      { to: '/informes', label: 'Informes', icon: FileBarChart },
       { to: '/recibo-canal', label: 'Orden recibo de canales', icon: CanalReciboIcon },
       { to: '/recibo-posta', label: 'Orden recibo en posta', icon: PostaReciboIcon },
     ],
@@ -102,13 +104,13 @@ export function AppShell() {
     <div className="flex h-screen overflow-hidden bg-background">
       <aside
         className={cn(
-          'hidden shrink-0 flex-col overflow-y-auto bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex',
+          'hidden shrink-0 flex-col overflow-hidden bg-sidebar text-sidebar-foreground transition-[width] duration-200 md:flex',
           collapsed ? 'w-16' : 'w-64',
         )}
       >
         <div
           className={cn(
-            'flex h-16 items-center border-b border-sidebar-border',
+            'flex h-16 shrink-0 items-center border-b border-sidebar-border',
             collapsed ? 'justify-center px-2' : 'gap-2.5 px-4',
           )}
         >
@@ -125,7 +127,12 @@ export function AppShell() {
           )}
         </div>
 
-        <nav className={cn('flex-1 space-y-1', collapsed ? 'p-2' : 'p-3')}>
+        <nav
+          className={cn(
+            'min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain [scrollbar-color:rgb(255_255_255/0.25)_transparent] [scrollbar-width:thin]',
+            collapsed ? 'p-2' : 'p-3',
+          )}
+        >
           {navGroups.map((group, gi) => (
             <div
               key={group.title}
@@ -166,7 +173,7 @@ export function AppShell() {
 
         <div
           className={cn(
-            'border-t border-sidebar-border',
+            'shrink-0 border-t border-sidebar-border',
             collapsed ? 'p-2' : 'space-y-2.5 p-4',
           )}
         >

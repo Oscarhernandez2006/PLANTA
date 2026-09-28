@@ -44,11 +44,7 @@ import {
 } from './api';
 import { downloadReciboPdf } from './recibo-print';
 import { readScale, getSavedScalePort, getSavedScaleBaud } from '@/lib/device';
-import { cn } from '@/lib/utils';
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
+import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 
 function kg(n: number) {
   return n.toLocaleString('es-CO', {
@@ -171,6 +167,8 @@ export function PesoEnCamionPage() {
       cantidad: cantidad ? parseInt(cantidad, 10) : undefined,
       entrada: entrada ? parseFloat(entrada) : undefined,
       salida: salida ? parseFloat(salida) : undefined,
+      neto,
+      pesoPromedioKg: prom,
     };
   }
 
@@ -338,8 +336,13 @@ export function PesoEnCamionPage() {
       if (editingId === id) resetForm();
       setSelectedGuia(null);
       showNotice(`Guía ${formatReferencia(ref)} cerrada.`);
-    } catch {
-      setSaveError('No se pudo cerrar la guía.');
+    } catch (err) {
+      const detail = (
+        err as { response?: { data?: { message?: string | string[] } } }
+      ).response?.data?.message;
+      setSaveError(
+        Array.isArray(detail) ? detail.join(' ') : detail || 'No se pudo cerrar la guía.',
+      );
     }
   }
 
@@ -638,7 +641,7 @@ export function PesoEnCamionPage() {
           label={readingField === 'entrada' ? 'Entrada (leyendo…)' : 'Entrada (kg)'}
           tone="text-red-600"
           value={entrada}
-          onChange={(v) => setEntrada(v.replace(/[^\d.]/g, ''))}
+          onChange={(v) => setEntrada(soloDecimal(v))}
           onKeyboard={() => leerPeso('entrada')}
         />
         <StatInput
@@ -646,7 +649,7 @@ export function PesoEnCamionPage() {
           label={readingField === 'salida' ? 'Salida (leyendo…)' : 'Salida (kg)'}
           tone="text-blue-600"
           value={salida}
-          onChange={(v) => setSalida(v.replace(/[^\d.]/g, ''))}
+          onChange={(v) => setSalida(soloDecimal(v))}
           onKeyboard={() => leerPeso('salida')}
         />
         {/* Calculados */}

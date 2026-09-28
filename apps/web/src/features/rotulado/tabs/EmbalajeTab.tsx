@@ -9,7 +9,7 @@ import {
 import { Input, Label, Select } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
-import { cn } from '@/lib/utils';
+import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 import {
   useEtiquetas,
   useCreateEtiqueta,
@@ -19,9 +19,6 @@ import {
   type RotuladoStage,
 } from '../api';
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 function num(s: string) {
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : 0;
@@ -296,7 +293,7 @@ export function EmbalajeTab({
             inputMode="decimal"
             className="h-9 tabular-nums"
             value={tara}
-            onChange={(e) => setTara(e.target.value.replace(/[^\d.]/g, ''))}
+            onChange={(e) => setTara(soloDecimal(e.target.value))}
             disabled={disabled}
           />
         </div>
@@ -306,7 +303,7 @@ export function EmbalajeTab({
             inputMode="decimal"
             className="h-9 tabular-nums text-red-600"
             value={bruto}
-            onChange={(e) => setBruto(e.target.value.replace(/[^\d.]/g, ''))}
+            onChange={(e) => setBruto(soloDecimal(e.target.value))}
             disabled={disabled}
           />
         </div>

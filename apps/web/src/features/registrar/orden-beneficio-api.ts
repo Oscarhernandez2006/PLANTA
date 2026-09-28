@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
+import { plantToday as today } from '@/lib/utils';
 
-export type OrdenBeneficioStatus =
-  | 'pendiente'
-  | 'en_insensibilizacion'
-  | 'procesado';
+export type OrdenBeneficioStatus = 'activo' | 'inactivo' | 'procesado';
 
 export type SubproductoDestino = 'empresa' | 'firmante';
 
@@ -14,6 +12,8 @@ export interface OrdenBeneficioGuiaDetalle {
   animalesEnPie: number;
   asignados: number;
   disponibles: number;
+  pcReference: number | null;
+  bpReference: number | null;
 }
 
 export interface OrdenBeneficioCandidate {
@@ -36,10 +36,14 @@ export interface OrdenBeneficio {
   subproductoRetiroAt: string | null;
   subproductoRetiroObservaciones: string | null;
   cabezasPatas: boolean;
+  // Trazabilidad: consecutivos BC (Peso en Camión) y BP (Peso en Pie) de origen.
+  pcReference: number | null;
+  bpReference: number | null;
 }
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
+// Consecutivo de Orden de Beneficio: OB + 7 dígitos (OB0000001).
+export function formatOB(n: number) {
+  return `OB${String(n).padStart(7, '0')}`;
 }
 
 export function useOrdenBeneficioCandidates(date: string = today()) {
@@ -48,6 +52,18 @@ export function useOrdenBeneficioCandidates(date: string = today()) {
     queryFn: async () =>
       (
         await api.get<OrdenBeneficioCandidate[]>('/orden-beneficio/candidates', {
+          params: { date },
+        })
+      ).data,
+  });
+}
+
+export function useOrdenBeneficioNextReference(date: string = today()) {
+  return useQuery({
+    queryKey: ['orden-beneficio', 'next-reference', date],
+    queryFn: async () =>
+      (
+        await api.get<{ next: number }>('/orden-beneficio/next-reference', {
           params: { date },
         })
       ).data,
@@ -72,14 +88,15 @@ export function useCreateOrdenBeneficio() {
     mutationFn: async (input: {
       cliente: string;
       guia: string;
-      animalCount: number;
+      animalCount?: number;
       date?: string;
+      status?: OrdenBeneficioStatus;
       subproductoDestino?: SubproductoDestino;
       cabezasPatas?: boolean;
     }) => (await api.post<OrdenBeneficio>('/orden-beneficio', input)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
-      qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
+      qc.invalidateQueries({ queryKey: ['sacrificio'] });
     },
   });
 }
@@ -91,7 +108,7 @@ export function useDeleteOrdenBeneficio() {
       (await api.delete(`/orden-beneficio/${id}`)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
-      qc.invalidateQueries({ queryKey: ['insensibilizacion'] });
+      qc.invalidateQueries({ queryKey: ['sacrificio'] });
     },
   });
 }

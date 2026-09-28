@@ -15,6 +15,11 @@ import { InventariosService } from './inventarios.service';
 export class InventariosController {
   constructor(private readonly service: InventariosService) {}
 
+  @Get('pieza')
+  pieza(@CurrentUser() user: AuthContext, @Query('barcode') barcode = '') {
+    return this.service.piezaPorBarcode(user, barcode);
+  }
+
   @Get('cavas/:cava')
   cava(
     @CurrentUser() user: AuthContext,

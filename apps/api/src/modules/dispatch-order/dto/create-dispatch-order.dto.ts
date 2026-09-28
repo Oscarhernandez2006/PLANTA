@@ -3,7 +3,7 @@ import { IsDateString, IsEnum, IsOptional, IsUUID } from 'class-validator';
 
 export class CreateDispatchOrderDto {
   @IsUUID()
-  clientId!: string;
+  clienteId!: string;
 
   @IsDateString()
   registrationDate!: string;

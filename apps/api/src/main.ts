@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
+import { DecimalComaPipe } from './common/decimal-coma.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -11,7 +12,9 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   // Validación estricta en todos los endpoints (capa 1 de 3: DTO).
+  // Antes de validar, los decimales con coma ("12,5") pasan a punto ("12.5").
   app.useGlobalPipes(
+    new DecimalComaPipe(),
     new ValidationPipe({
       whitelist: true,
       forbidNonWhitelisted: true,

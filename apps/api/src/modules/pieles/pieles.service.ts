@@ -39,13 +39,22 @@ export class PielesService {
     return base;
   }
 
-  /** Animales caídos (insensibilizados) que aún no tienen peso de piel. */
+  /**
+   * Animales caídos (insensibilizados) que aún no tienen peso de piel. Sin
+   * `dateStr` no filtra por fecha (igual que Sacrificio): un animal caído
+   * debe verse aquí hasta que se pese, sin importar el día calendario en que
+   * quedó registrada la orden.
+   */
   async pendientes(ctx: AuthContext, dateStr?: string) {
-    const date = dateOnly(dateStr);
+    const date = dateStr ? dateOnly(dateStr) : undefined;
     const evts = await this.prisma.ordenBeneficioEvento.findMany({
       where: {
         pesoPielKg: null,
-        ordenBeneficio: { plantId: ctx.plantId, deletedAt: null, date },
+        ordenBeneficio: {
+          plantId: ctx.plantId,
+          deletedAt: null,
+          ...(date ? { date } : {}),
+        },
       },
       orderBy: { stunnedAt: 'asc' },
       include: {
@@ -61,7 +70,10 @@ export class PielesService {
       },
     });
 
-    const bases = await this.consecutivoBases(ctx.plantId, [date]);
+    const fechas = [...new Set(evts.map((e) => e.ordenBeneficio.date.getTime()))].map(
+      (t) => new Date(t),
+    );
+    const bases = await this.consecutivoBases(ctx.plantId, fechas);
     return evts.map((e) => ({
       eventoId: e.id,
       ordenBeneficioId: e.ordenBeneficio.id,
@@ -74,18 +86,22 @@ export class PielesService {
     }));
   }
 
-  /** Animales ya pesados en el día. */
+  /** Animales ya pesados (de todos los días, salvo que se pida uno puntual). */
   async pesados(ctx: AuthContext, dateStr?: string) {
-    const date = dateOnly(dateStr);
+    const date = dateStr ? dateOnly(dateStr) : undefined;
     const evts = await this.prisma.ordenBeneficioEvento.findMany({
       where: {
         pesoPielKg: { not: null },
-        ordenBeneficio: { plantId: ctx.plantId, deletedAt: null, date },
+        ordenBeneficio: {
+          plantId: ctx.plantId,
+          deletedAt: null,
+          ...(date ? { date } : {}),
+        },
       },
       orderBy: { pieladoAt: 'desc' },
       include: {
         ordenBeneficio: {
-          select: { id: true, cliente: true, guias: true, reference: true },
+          select: { id: true, cliente: true, guias: true, reference: true, date: true },
         },
       },
     });
@@ -100,7 +116,10 @@ export class PielesService {
         })
       : [];
     const nameById = new Map(users.map((u) => [u.id, u.fullName]));
-    const bases = await this.consecutivoBases(ctx.plantId, [date]);
+    const fechas = [...new Set(evts.map((e) => e.ordenBeneficio.date.getTime()))].map(
+      (t) => new Date(t),
+    );
+    const bases = await this.consecutivoBases(ctx.plantId, fechas);
 
     return evts.map((e) => ({
       eventoId: e.id,
@@ -139,20 +158,29 @@ export class PielesService {
     return { ok: true };
   }
 
-  /** Lotes (órdenes) del día que ya tienen animales caídos. */
+  /**
+   * Lotes (órdenes) con animales caídos pendientes de pesar la piel. Sin
+   * `dateStr` no filtra por fecha: un lote debe seguir apareciendo hasta que
+   * todas sus pieles queden pesadas, sin importar el día calendario guardado
+   * en la orden. Una vez pesados todos sus animales, el lote desaparece de
+   * esta lista (ya no queda nada por hacer).
+   */
   async lotes(ctx: AuthContext, dateStr?: string) {
-    const date = dateOnly(dateStr);
+    const date = dateStr ? dateOnly(dateStr) : undefined;
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        date,
-        eventos: { some: {} },
+        ...(date ? { date } : {}),
+        eventos: { some: { pesoPielKg: null } },
       },
-      orderBy: [{ reference: 'asc' }],
+      orderBy: [{ date: 'desc' }, { reference: 'asc' }],
       include: { eventos: { select: { pesoPielKg: true } } },
     });
-    const bases = await this.consecutivoBases(ctx.plantId, [date]);
+    const fechas = [...new Set(ordenes.map((o) => o.date.getTime()))].map(
+      (t) => new Date(t),
+    );
+    const bases = await this.consecutivoBases(ctx.plantId, fechas);
     return ordenes.map((o) => ({
       ordenBeneficioId: o.id,
       reference: o.reference,

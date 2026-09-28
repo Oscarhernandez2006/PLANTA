@@ -8,14 +8,14 @@ import { ClienteModule } from './modules/cliente/cliente.module';
 import { ConductorModule } from './modules/conductor/conductor.module';
 import { DeviceModule } from './modules/device/device.module';
 import { DispatchOrderModule } from './modules/dispatch-order/dispatch-order.module';
+import { ProductionOrderModule } from './modules/production-order/production-order.module';
 import { GoodsReceiptModule } from './modules/goods-receipt/goods-receipt.module';
 import { PesoCamionModule } from './modules/peso-camion/peso-camion.module';
 import { PesoEnPieModule } from './modules/peso-en-pie/peso-en-pie.module';
-import { InsensibilizacionModule } from './modules/insensibilizacion/insensibilizacion.module';
+import { SacrificioModule } from './modules/sacrificio/sacrificio.module';
 import { OrdenBeneficioModule } from './modules/orden-beneficio/orden-beneficio.module';
 import { PielesModule } from './modules/pieles/pieles.module';
 import { CanalCalienteModule } from './modules/canal-caliente/canal-caliente.module';
-import { CanalTrasladoModule } from './modules/canal-traslado/canal-traslado.module';
 import { CanalReceiptModule } from './modules/canal-receipt/canal-receipt.module';
 import { PostaReceiptModule } from './modules/posta-receipt/posta-receipt.module';
 import { ProductModule } from './modules/product/product.module';
@@ -24,6 +24,8 @@ import { ProveedorModule } from './modules/proveedor/proveedor.module';
 import { SubproductosModule } from './modules/subproductos/subproductos.module';
 import { SupplierModule } from './modules/supplier/supplier.module';
 import { InventariosModule } from './modules/inventarios/inventarios.module';
+import { ConservacionModule } from './modules/conservacion/conservacion.module';
+import { InformesModule } from './modules/informes/informes.module';
 
 @Module({
   imports: [
@@ -38,14 +40,14 @@ import { InventariosModule } from './modules/inventarios/inventarios.module';
     ClienteModule,
     ConductorModule,
     DispatchOrderModule,
+    ProductionOrderModule,
     GoodsReceiptModule,
     PesoCamionModule,
     PesoEnPieModule,
-    InsensibilizacionModule,
+    SacrificioModule,
     OrdenBeneficioModule,
     PielesModule,
     CanalCalienteModule,
-    CanalTrasladoModule,
     CanalReceiptModule,
     PostaReceiptModule,
     ProductModule,
@@ -54,6 +56,8 @@ import { InventariosModule } from './modules/inventarios/inventarios.module';
     SubproductosModule,
     SupplierModule,
     InventariosModule,
+    ConservacionModule,
+    InformesModule,
   ],
   controllers: [HealthController],
 })

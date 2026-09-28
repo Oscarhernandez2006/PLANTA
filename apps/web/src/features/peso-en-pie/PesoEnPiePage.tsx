@@ -6,8 +6,8 @@ import {
   Gauge,
   Inbox,
   LoaderCircle,
-  Lock,
   Package,
+  Pencil,
   Printer,
   RefreshCw,
   Scale,
@@ -20,7 +20,7 @@ import { Input, Label, Select } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
-import { cn } from '@/lib/utils';
+import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 import { readScale } from '@/lib/device';
 import { useAuth } from '@/features/auth/auth-context';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
@@ -28,10 +28,11 @@ import { downloadReciboPiePdf } from './recibo-print';
 import {
   usePesoEnPieList,
   useCreatePesoEnPie,
-  useClosePesoEnPieGuide,
+  useUpdatePesoEnPie,
   useBpPreview,
   formatBP,
   formatAnimal,
+  type PesoEnPie,
 } from './api';
 import {
   usePesoCamionAbiertas,
@@ -39,9 +40,6 @@ import {
   type PesoCamionGuia,
 } from '../peso-en-camion/api';
 
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 function num(s: string) {
   const n = parseFloat(s);
   return Number.isFinite(n) ? n : 0;
@@ -69,18 +67,20 @@ export function PesoEnPiePage() {
   const [tipoAnimal, setTipoAnimal] = useState('');
   const [corral, setCorral] = useState('');
   const [peso, setPeso] = useState('');
+  // Observación del animal que se está por guardar (se limpia tras cada registro).
   const [observaciones, setObservaciones] = useState('');
+  // Nota general de la guía (no es por animal); se usa en el encabezado del recibo.
+  const [notaGeneral, setNotaGeneral] = useState('');
   const [tab, setTab] = useState('guias');
   const [saveError, setSaveError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [isReadingScale, setIsReadingScale] = useState(false);
-  const [processClosed, setProcessClosed] = useState(false);
 
   const { user } = useAuth();
   const lista = usePesoEnPieList();
   const guiasCamion = usePesoCamionAbiertas();
   const crear = useCreatePesoEnPie();
-  const cerrarProceso = useClosePesoEnPieGuide();
+  const actualizar = useUpdatePesoEnPie();
 
   useEffect(() => {
     try {
@@ -132,7 +132,7 @@ export function PesoEnPiePage() {
   const tabs: TabItem[] = [
     { value: 'guias', label: `Guías abiertas (${guiasCamion.data?.length ?? 0})` },
     { value: 'registro', label: 'Registro de animales' },
-    { value: 'observaciones', label: 'Observaciones' },
+    { value: 'observaciones', label: 'Nota general de la guía' },
   ];
 
   const guiaSeleccionada = guia.trim().length > 0 && animalesObjetivo > 0;
@@ -158,6 +158,7 @@ export function PesoEnPiePage() {
     setCorral('');
     setPeso('');
     setObservaciones('');
+    setNotaGeneral('');
     setSaveError(null);
     setIsReadingScale(false);
   }
@@ -184,29 +185,9 @@ export function PesoEnPiePage() {
     setSalida(guiaCamion.salida == null ? '' : String(guiaCamion.salida));
     setBcReference(guiaCamion.reference);
     setCorral('');
-    setProcessClosed(false);
     setTab('registro');
     setNotice(`Guía ${guiaCamion.guia ?? guiaCamion.reference} cargada para asignar animales.`);
-  }
-
-  async function cerrarProcesoPeso() {
-    if (!guiaCompleta || processClosed || cerrarProceso.isPending) return;
-    setSaveError(null);
-    try {
-      await cerrarProceso.mutateAsync({ date: fecha, guia: guia.trim() });
-      setProcessClosed(true);
-      setNotice(`Proceso de la guía ${guia} cerrado correctamente.`);
-    } catch (error) {
-      const response = (
-        error as { response?: { data?: { message?: string | string[] } } }
-      ).response;
-      const detail = response?.data?.message;
-      setSaveError(
-        Array.isArray(detail)
-          ? detail.join(' ')
-          : detail || 'No se pudo cerrar el proceso.',
-      );
-    }
+    window.setTimeout(() => setNotice(null), 3000);
   }
 
   async function leerBascula() {
@@ -232,10 +213,6 @@ export function PesoEnPiePage() {
   }
 
   async function guardar() {
-    if (processClosed) {
-      setSaveError('El proceso de esta guía ya está cerrado.');
-      return;
-    }
     if (camposFaltantes.length > 0) {
       setSaveError(`Faltan campos obligatorios: ${camposFaltantes.join(', ')}.`);
       return;
@@ -310,7 +287,7 @@ export function PesoEnPiePage() {
       neto: kg(netoNum),
       cantidad: cantidad || '0',
       prom: kg(promNum),
-      observaciones,
+      observaciones: notaGeneral,
       animales: reportesGuia
         .slice()
         .sort((a, b) => a.reference - b.reference)
@@ -377,20 +354,6 @@ export function PesoEnPiePage() {
             variant="outline"
             size="icon"
             className="size-8"
-            title="Bloquear registro"
-            onClick={cerrarProcesoPeso}
-            disabled={!guiaCompleta || processClosed || cerrarProceso.isPending}
-          >
-            {cerrarProceso.isPending ? (
-              <LoaderCircle className="size-4 animate-spin" />
-            ) : (
-              <Lock className="size-4" />
-            )}
-          </Button>
-          <Button
-            variant="outline"
-            size="icon"
-            className="size-8"
             title="Actualizar"
             onClick={() => {
               lista.refetch();
@@ -409,13 +372,17 @@ export function PesoEnPiePage() {
       </div>
 
       {notice && (
-        <div className="shrink-0 rounded-md bg-emerald-50 px-4 py-1.5 text-sm text-emerald-700">
-          {notice}
+        <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center">
+          <div className="pointer-events-auto rounded-md bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-700 shadow-lg ring-1 ring-emerald-200">
+            {notice}
+          </div>
         </div>
       )}
       {saveError && (
-        <div className="shrink-0 rounded-md bg-destructive/10 px-4 py-1.5 text-sm text-destructive">
-          {saveError}
+        <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center">
+          <div className="pointer-events-auto rounded-md bg-destructive/10 px-4 py-1.5 text-sm font-medium text-destructive shadow-lg ring-1 ring-destructive/20">
+            {saveError}
+          </div>
         </div>
       )}
 
@@ -446,7 +413,7 @@ export function PesoEnPiePage() {
           </div>
           <div className="space-y-0.5">
             <Label>Consecutivo BP</Label>
-            <div className="flex h-8 items-center justify-center rounded-md border border-emerald-200 bg-emerald-50 px-2 text-sm font-bold tabular-nums text-emerald-700">
+            <div className="flex h-8 items-center justify-center rounded-md border border-border bg-muted/40 px-2 text-sm font-bold tabular-nums">
               {bpActual != null ? formatBP(bpActual) : '—'}
             </div>
           </div>
@@ -494,10 +461,23 @@ export function PesoEnPiePage() {
             </Select>
           </div>
         </div>
+
+        <div className="mt-2 grid grid-cols-1 gap-2">
+          <div className="space-y-0.5">
+            <Label htmlFor="observacion-animal">Observación de este animal (opcional)</Label>
+            <Input
+              id="observacion-animal"
+              value={observaciones}
+              onChange={(e) => setObservaciones(e.target.value)}
+              placeholder="Ej: cojera, marca visible, etc."
+              className="h-8"
+            />
+          </div>
+        </div>
       </Card>
 
-      <div className="grid shrink-0 auto-rows-fr grid-cols-2 gap-2 lg:grid-cols-4">
-        <Card className="flex h-full flex-col justify-center p-2">
+      <div className="grid h-16 shrink-0 grid-cols-2 gap-2 lg:grid-cols-4">
+        <Card className="flex h-16 flex-col justify-center p-2">
           <div className="flex items-center justify-around gap-3">
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -520,7 +500,7 @@ export function PesoEnPiePage() {
             </div>
           </div>
         </Card>
-        <Card className="flex h-full flex-col justify-center p-2">
+        <Card className="flex h-16 flex-col justify-center p-2">
           <div className="flex items-center justify-around gap-3">
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -543,9 +523,9 @@ export function PesoEnPiePage() {
             </div>
           </div>
         </Card>
-        <div className="col-span-2 flex h-full items-center gap-2">
+        <div className="col-span-2 flex h-16 items-stretch gap-2">
           <div
-            className="relative flex-1 rounded-sm border-2 border-border bg-card px-3 pb-1 pt-1"
+            className="relative flex h-16 flex-1 items-center rounded-sm border-2 border-border bg-card px-3"
           >
             <span className="absolute -top-3 left-3 flex items-center gap-1.5 bg-background px-1.5 text-sm font-medium">
               Peso(kg):
@@ -555,8 +535,8 @@ export function PesoEnPiePage() {
               inputMode="decimal"
               placeholder="0.0"
               value={peso}
-              onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
-              className="h-10 w-full bg-transparent text-center text-3xl font-bold text-emerald-700 outline-none placeholder:text-muted-foreground/40"
+              onChange={(e) => setPeso(soloDecimal(e.target.value))}
+              className="h-full w-full bg-transparent text-center text-3xl font-bold text-emerald-700 outline-none placeholder:text-muted-foreground/40"
             />
           </div>
           <button
@@ -564,7 +544,7 @@ export function PesoEnPiePage() {
             onClick={leerBascula}
             disabled={isReadingScale}
             title="Leer báscula"
-            className="flex size-14 shrink-0 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
+            className="flex h-16 w-16 shrink-0 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
           >
             {isReadingScale ? (
               <LoaderCircle className="size-6 animate-spin" />
@@ -574,17 +554,17 @@ export function PesoEnPiePage() {
           </button>
           <Button
             size="lg"
-            className="h-14 shrink-0 px-5"
-            title="Registrar animal"
+            className="h-16 shrink-0 px-5"
+            title="Guardar registro"
             onClick={guardar}
-            disabled={crear.isPending || guiaCompleta || processClosed}
+            disabled={crear.isPending || guiaCompleta}
           >
             {crear.isPending ? (
               <LoaderCircle className="size-5 animate-spin" />
             ) : (
               <Check className="size-5" />
             )}
-            Registrar
+            Guardar
           </Button>
         </div>
       </div>
@@ -604,7 +584,20 @@ export function PesoEnPiePage() {
         <div className="shrink-0 px-4 pt-2">
           <Tabs tabs={tabs} value={tab} onChange={setTab} />
         </div>
-        {tab === 'observaciones' ? <div className="min-h-0 flex-1 overflow-auto p-4"><Input aria-label="Observaciones" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} placeholder="Observaciones" className="h-32 items-start py-3" /></div> : tab === 'guias' ? <GuiasCamionList guias={guiasCamion.data ?? []} loading={guiasCamion.isLoading} onSelect={seleccionarGuia} /> : null}
+        {tab === 'observaciones' ? (
+          <div className="min-h-0 flex-1 overflow-auto p-4">
+            <p className="mb-2 text-sm text-muted-foreground">
+              Esta nota aparece en el encabezado del recibo impreso y aplica a toda la guía, no a un animal en particular. Para observaciones de un animal específico, usa el campo "Observación de este animal" al capturarlo, o edítala directamente en la tabla de Registro de animales.
+            </p>
+            <Input
+              aria-label="Nota general de la guía"
+              value={notaGeneral}
+              onChange={(e) => setNotaGeneral(e.target.value)}
+              placeholder="Nota general de la guía (opcional)"
+              className="h-32 items-start py-3"
+            />
+          </div>
+        ) : tab === 'guias' ? <GuiasCamionList guias={guiasCamion.data ?? []} loading={guiasCamion.isLoading} onSelect={seleccionarGuia} /> : null}
         {tab === 'registro' && lista.isLoading ? (
           <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" /> Cargando…
@@ -614,7 +607,11 @@ export function PesoEnPiePage() {
             <Inbox className="size-8" /> Aún no hay animales registrados para esta guía.
           </div>
         ) : tab === 'registro' ? (
-          <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
+          <div className="scrollbar-app flex min-h-0 flex-1 flex-col overflow-hidden">
+            <div className="shrink-0 border-b border-border px-4 py-2 text-sm font-medium text-muted-foreground">
+              Total: {animalesRegistrados} {animalesRegistrados === 1 ? 'animal' : 'animales'} ({kg(totalKg)} kg)
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
             <Table>
               <THead>
                 <TR>
@@ -624,29 +621,141 @@ export function PesoEnPiePage() {
                   <TH className="whitespace-nowrap">Corral</TH>
                   <TH className="whitespace-nowrap">Fecha</TH>
                   <TH className="whitespace-nowrap text-right">Peso (kg)</TH>
+                  <TH className="whitespace-nowrap">Observación del animal</TH>
                 </TR>
               </THead>
               <TBody>
                 {reportesGuia.map((r, i) => (
-                  <TR key={r.id}>
-                    <TD className="tabular-nums">{i + 1}</TD>
-                    <TD className="whitespace-nowrap tabular-nums">
-                      {formatAnimal(r.bpReference, r.reference)}
-                    </TD>
-                    <TD className="whitespace-nowrap">{r.tipoAnimal ?? '—'}</TD>
-                    <TD className="whitespace-nowrap">{r.corral ? `Corral ${r.corral}` : '—'}</TD>
-                    <TD className="whitespace-nowrap text-muted-foreground">{r.date}</TD>
-                    <TD className="whitespace-nowrap text-right tabular-nums">
-                      {kg(r.pesoTotalKg)}
-                    </TD>
-                  </TR>
+                  <AnimalRow
+                    key={r.id}
+                    index={i}
+                    reporte={r}
+                    onSave={(observaciones) =>
+                      actualizar.mutate(
+                        {
+                          id: r.id,
+                          input: {
+                            date: r.date,
+                            bcReference: r.bcReference ?? undefined,
+                            guia: r.guia ?? undefined,
+                            procedencia: r.procedencia ?? undefined,
+                            proveedor: r.proveedor ?? undefined,
+                            cliente: r.cliente ?? undefined,
+                            placa: r.placa ?? undefined,
+                            conductor: r.conductor ?? undefined,
+                            corral: r.corral ?? undefined,
+                            tipoAnimal: r.tipoAnimal ?? undefined,
+                            lote: r.lote ?? undefined,
+                            animalNo: r.animalNo ?? undefined,
+                            animalCount: r.animalCount,
+                            tipoPesaje: r.tipoPesaje,
+                            pesoTotalKg: r.pesoTotalKg ?? undefined,
+                            pesoPromedioKg: r.pesoPromedioKg ?? undefined,
+                            cantidad: r.cantidad ?? undefined,
+                            entrada: r.entrada ?? undefined,
+                            salida: r.salida ?? undefined,
+                            observaciones,
+                          },
+                        },
+                        {
+                          onSuccess: () => {
+                            setNotice('Observación actualizada.');
+                            window.setTimeout(() => setNotice(null), 3000);
+                          },
+                          onError: () => {
+                            setSaveError('No se pudo guardar la observación.');
+                            window.setTimeout(() => setSaveError(null), 3000);
+                          },
+                        },
+                      )
+                    }
+                    saving={actualizar.isPending}
+                  />
                 ))}
               </TBody>
             </Table>
+            </div>
           </div>
         ) : null}
       </Card>
     </div>
+  );
+}
+
+function AnimalRow({
+  index,
+  reporte,
+  onSave,
+  saving,
+}: {
+  index: number;
+  reporte: PesoEnPie;
+  onSave: (observaciones: string) => void;
+  saving: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [valor, setValor] = useState(reporte.observaciones ?? '');
+
+  useEffect(() => {
+    if (!editing) setValor(reporte.observaciones ?? '');
+  }, [reporte.observaciones, editing]);
+
+  return (
+    <TR>
+      <TD className="tabular-nums">{index + 1}</TD>
+      <TD className="whitespace-nowrap tabular-nums">
+        {formatAnimal(reporte.bpReference, reporte.reference)}
+      </TD>
+      <TD className="whitespace-nowrap">{reporte.tipoAnimal ?? '—'}</TD>
+      <TD className="whitespace-nowrap">{reporte.corral ? `Corral ${reporte.corral}` : '—'}</TD>
+      <TD className="whitespace-nowrap text-muted-foreground">{reporte.date}</TD>
+      <TD className="whitespace-nowrap text-right tabular-nums">
+        {kg(reporte.pesoTotalKg)}
+      </TD>
+      <TD className="min-w-56">
+        {editing ? (
+          <div className="flex items-center gap-1.5">
+            <Input
+              autoFocus
+              value={valor}
+              onChange={(e) => setValor(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  onSave(valor.trim());
+                  setEditing(false);
+                }
+                if (e.key === 'Escape') {
+                  setValor(reporte.observaciones ?? '');
+                  setEditing(false);
+                }
+              }}
+              className="h-7 text-sm"
+            />
+            <Button
+              size="sm"
+              className="h-7 px-2"
+              disabled={saving}
+              onClick={() => {
+                onSave(valor.trim());
+                setEditing(false);
+              }}
+            >
+              <Check className="size-3.5" />
+            </Button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="flex w-full items-center gap-1.5 rounded px-1.5 py-0.5 text-left text-sm text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+            title="Editar observación de este animal"
+          >
+            <Pencil className="size-3.5 shrink-0" />
+            <span className="truncate">{reporte.observaciones || 'Agregar observación…'}</span>
+          </button>
+        )}
+      </TD>
+    </TR>
   );
 }
 
@@ -717,7 +826,6 @@ function GuiasCamionList({
             <TH className="whitespace-nowrap text-right">Animales</TH>
             <TH className="whitespace-nowrap text-right">Entrada (kg)</TH>
             <TH className="whitespace-nowrap text-right">Salida (kg)</TH>
-            <TH className="whitespace-nowrap text-right">Acción</TH>
           </TR>
         </THead>
         <TBody>
@@ -740,9 +848,6 @@ function GuiasCamionList({
               <TD className="whitespace-nowrap text-right tabular-nums">{guia.cantidad ?? '—'}</TD>
               <TD className="whitespace-nowrap text-right tabular-nums">{guia.entrada ?? '—'}</TD>
               <TD className="whitespace-nowrap text-right tabular-nums">{guia.salida ?? '—'}</TD>
-              <TD className="whitespace-nowrap text-right text-sm text-primary">
-                Asignar animales
-              </TD>
             </TR>
           ))}
         </TBody>

@@ -13,7 +13,7 @@ import {
   type ScalePortInfo,
   type ScaleReadResult,
 } from '@/lib/device';
-import { cn } from '@/lib/utils';
+import { cn, soloDecimal } from '@/lib/utils';
 
 export const BAUD_RATES = [9600, 19200, 2400, 38400, 57600, 115200];
 
@@ -87,7 +87,7 @@ export function BasculaField({
         </span>
         <Input
           value={peso}
-          onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
+          onChange={(e) => setPeso(soloDecimal(e.target.value))}
           onKeyDown={(e) => {
             if (e.key === 'Enter') onEnter?.();
           }}

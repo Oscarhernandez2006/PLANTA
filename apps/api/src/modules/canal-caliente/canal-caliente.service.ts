@@ -11,7 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
-import { plantDateOnly } from '../../common/plant-date';
+import { plantDateOnly, plantToday } from '../../common/plant-date';
 import { RegistrarCanalDto } from './dto/registrar-canal.dto';
 import { ClasificarAnimalDto } from './dto/clasificar-animal.dto';
 import { ClasificarPiezaDto } from './dto/clasificar-pieza.dto';
@@ -21,10 +21,22 @@ function dateOnly(value?: string) {
   return plantDateOnly(value);
 }
 
+/**
+ * true si se está viendo el día actual (sin fecha explícita o la fecha de
+ * hoy): en ese caso no se filtra por el campo `date` de la orden, para que
+ * una orden con animales tumbados aparezca aunque su fecha guardada esté
+ * desfasada. Al pedir explícitamente otro día sí se filtra por esa fecha
+ * (vista histórica).
+ */
+function isTodayView(dateStr?: string) {
+  return !dateStr || dateStr === plantToday();
+}
+
 /** Piezas esperadas por animal según el tipo de canal de la orden. */
 function piezasEsperadas(tipo: CanalTipo | null): CanalPiezaTipo[] {
   if (tipo === CanalTipo.canal_completa) return [CanalPiezaTipo.canal];
   if (
+    tipo === CanalTipo.media_canal ||
     tipo === CanalTipo.media_canal_con_cola ||
     tipo === CanalTipo.media_canal_sin_cola
   ) {
@@ -59,25 +71,39 @@ export class CanalCalienteService {
     return base;
   }
 
+  /** NIT del catálogo Cliente para cada nombre de cliente (por concepto). */
+  private async nitsPorCliente(clientes: string[]) {
+    const nombres = [...new Set(clientes)];
+    const rows = nombres.length
+      ? await this.prisma.cliente.findMany({
+          where: { concepto: { in: nombres } },
+          select: { concepto: true, nit: true },
+        })
+      : [];
+    return new Map(rows.map((r) => [r.concepto, r.nit]));
+  }
+
   /** Órdenes con al menos un animal insensibilizado, listas para pesar en canal. */
   async lotes(ctx: AuthContext, dateStr?: string) {
-    const date = dateOnly(dateStr);
+    const todayView = isTodayView(dateStr);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        date,
-        status: {
-          in: [
-            OrdenBeneficioStatus.en_insensibilizacion,
-            OrdenBeneficioStatus.procesado,
-          ],
-        },
+        ...(todayView ? {} : { date: dateOnly(dateStr) }),
+        OR: [
+          { status: OrdenBeneficioStatus.procesado },
+          { status: OrdenBeneficioStatus.activo, eventos: { some: {} } },
+        ],
       },
       orderBy: [{ reference: 'desc' }],
       include: { eventos: { include: { canalPiezas: true } } },
     });
-    const bases = await this.consecutivoBases(ctx.plantId, [date]);
+    const fechas = [...new Set(ordenes.map((o) => o.date.getTime()))].map(
+      (t) => new Date(t),
+    );
+    const bases = await this.consecutivoBases(ctx.plantId, fechas);
+    const nits = await this.nitsPorCliente(ordenes.map((o) => o.cliente));
     return ordenes.map((o) => {
       let esperadas = 0;
       let pesadas = 0;
@@ -89,6 +115,7 @@ export class CanalCalienteService {
         ordenBeneficioId: o.id,
         reference: o.reference,
         cliente: o.cliente,
+        clienteNit: nits.get(o.cliente) ?? null,
         guias: o.guias,
         date: o.date.toISOString().slice(0, 10),
         consecutivoBase: bases.get(o.id) ?? 0,
@@ -127,11 +154,13 @@ export class CanalCalienteService {
         })
       : [];
     const nameById = new Map(users.map((u) => [u.id, u.fullName]));
+    const nits = await this.nitsPorCliente([o.cliente]);
 
     return {
       ordenBeneficioId: o.id,
       reference: o.reference,
       cliente: o.cliente,
+      clienteNit: nits.get(o.cliente) ?? null,
       guias: o.guias,
       date: o.date.toISOString().slice(0, 10),
       consecutivoBase: base,
@@ -145,6 +174,7 @@ export class CanalCalienteService {
           consecutivo: base + e.sequence,
           stunnedAt: e.stunnedAt.toISOString(),
           canalTipo: e.canalTipo,
+          conCola: e.conCola,
           canalAnimalTipo: e.canalAnimalTipo,
           expendio: e.expendio,
           piezas: esperadas.map((pz) => {
@@ -195,6 +225,27 @@ export class CanalCalienteService {
     return this.loteDetail(ctx, evt.ordenBeneficioId);
   }
 
+  /**
+   * Fija si la media canal queda con cola o sin cola: es una clasificación
+   * aparte de CUAL pieza (CIZQ/CDER) se pese primero, así que ambas piezas
+   * quedan siempre disponibles para pesar por separado.
+   */
+  async setConCola(ctx: AuthContext, eventoId: string, conCola: boolean) {
+    const evt = await this.prisma.ordenBeneficioEvento.findFirst({
+      where: {
+        id: eventoId,
+        ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
+      },
+      select: { id: true, ordenBeneficioId: true },
+    });
+    if (!evt) throw new NotFoundException('Animal no encontrado.');
+    await this.prisma.ordenBeneficioEvento.update({
+      where: { id: evt.id },
+      data: { conCola },
+    });
+    return this.loteDetail(ctx, evt.ordenBeneficioId);
+  }
+
   /** Actualiza la clasificación de ESPECIE del animal (vaca, novilla, etc.). */
   async clasificarAnimal(
     ctx: AuthContext,
@@ -235,9 +286,12 @@ export class CanalCalienteService {
         id: piezaId,
         evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } },
       },
-      select: { id: true, cava: true },
+      select: { id: true, cava: true, despacho: { select: { id: true } } },
     });
     if (!pieza) throw new NotFoundException('Pieza no encontrada.');
+    if (pieza.despacho) {
+      throw new BadRequestException('Esta pieza ya fue despachada: no se puede modificar.');
+    }
 
     // Si se está asignando a una cava distinta a la actual, valida el cupo
     // máximo de canales que admite esa cava antes de dejarla entrar.
@@ -282,6 +336,9 @@ export class CanalCalienteService {
       select: {
         id: true,
         canalTipo: true,
+        sequence: true,
+        ordenBeneficioId: true,
+        ordenBeneficio: { select: { date: true } },
       },
     });
     if (!evt) throw new NotFoundException('Animal no encontrado.');
@@ -303,16 +360,44 @@ export class CanalCalienteService {
     if (existe) {
       throw new BadRequestException('Esta pieza ya tiene peso registrado.');
     }
-    await this.prisma.canalPieza.create({
+    // Un animal con una media canal pesada debe terminarse antes de empezar otro.
+    const otros = await this.prisma.ordenBeneficioEvento.findMany({
+      where: {
+        ordenBeneficioId: evt.ordenBeneficioId,
+        id: { not: evt.id },
+        canalTipo: { not: CanalTipo.canal_completa },
+        canalPiezas: { some: {} },
+      },
+      select: { sequence: true, canalTipo: true, _count: { select: { canalPiezas: true } } },
+    });
+    const incompleto = otros.find(
+      (o) => o._count.canalPiezas < piezasEsperadas(o.canalTipo).length,
+    );
+    if (incompleto) {
+      throw new BadRequestException(
+        `Primero termina la otra mitad del animal A${String(incompleto.sequence).padStart(2, '0')}.`,
+      );
+    }
+    // El turno ya no lo elige el operario: es el consecutivo del día del
+    // animal (mismo orden en que se tumbó), así que se calcula aquí.
+    const bases = await this.consecutivoBases(ctx.plantId, [
+      evt.ordenBeneficio.date,
+    ]);
+    const turno = (bases.get(evt.ordenBeneficioId) ?? 0) + evt.sequence;
+    const creada = await this.prisma.canalPieza.create({
       data: {
         eventoId: evt.id,
         pieza: dto.pieza,
         pesoKg: dto.pesoKg,
-        turno: dto.turno ?? null,
+        turno,
         operatorId: ctx.userId,
       },
+      select: { id: true },
     });
-    return { ok: true };
+    // Se devuelve el id de la pieza recién creada para que el frontend pueda
+    // clasificarla (bodega/cava/destino) e imprimir su presinto de inmediato,
+    // sin esperar un segundo viaje de red a buscarla.
+    return { ok: true, piezaId: creada.id };
   }
 
   /** Deshace el peso de una pieza (corrige un registro erróneo). */
@@ -324,27 +409,28 @@ export class CanalCalienteService {
           ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
         },
       },
-      select: { id: true },
+      select: { id: true, despacho: { select: { id: true } } },
     });
     if (!pieza) throw new NotFoundException('Pieza no encontrada.');
+    if (pieza.despacho) {
+      throw new BadRequestException('Esta pieza ya fue despachada: no se puede deshacer.');
+    }
     await this.prisma.canalPieza.delete({ where: { id: pieza.id } });
     return { ok: true };
   }
 
   /** ANIMALES: todos los animales de las órdenes con insensibilización iniciada del día. */
   async animales(ctx: AuthContext, dateStr?: string) {
-    const date = dateOnly(dateStr);
+    const todayView = isTodayView(dateStr);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        date,
-        status: {
-          in: [
-            OrdenBeneficioStatus.en_insensibilizacion,
-            OrdenBeneficioStatus.procesado,
-          ],
-        },
+        ...(todayView ? {} : { date: dateOnly(dateStr) }),
+        OR: [
+          { status: OrdenBeneficioStatus.procesado },
+          { status: OrdenBeneficioStatus.activo, eventos: { some: {} } },
+        ],
       },
       orderBy: [{ reference: 'asc' }],
       include: {
@@ -354,7 +440,10 @@ export class CanalCalienteService {
         },
       },
     });
-    const bases = await this.consecutivoBases(ctx.plantId, [date]);
+    const fechas = [...new Set(ordenes.map((o) => o.date.getTime()))].map(
+      (t) => new Date(t),
+    );
+    const bases = await this.consecutivoBases(ctx.plantId, fechas);
     const rows: {
       eventoId: string;
       consecutivo: number;
@@ -390,11 +479,15 @@ export class CanalCalienteService {
 
   /** CANALES/CUARTOS: todas las piezas pesadas del día. */
   async piezas(ctx: AuthContext, dateStr?: string) {
-    const date = dateOnly(dateStr);
+    const todayView = isTodayView(dateStr);
     const piezas = await this.prisma.canalPieza.findMany({
       where: {
         evento: {
-          ordenBeneficio: { plantId: ctx.plantId, deletedAt: null, date },
+          ordenBeneficio: {
+            plantId: ctx.plantId,
+            deletedAt: null,
+            ...(todayView ? {} : { date: dateOnly(dateStr) }),
+          },
         },
       },
       orderBy: { weighedAt: 'desc' },
@@ -402,13 +495,16 @@ export class CanalCalienteService {
         evento: {
           include: {
             ordenBeneficio: {
-              select: { id: true, reference: true, cliente: true },
+              select: { id: true, reference: true, cliente: true, date: true },
             },
           },
         },
       },
     });
-    const bases = await this.consecutivoBases(ctx.plantId, [date]);
+    const fechas = [
+      ...new Set(piezas.map((p) => p.evento.ordenBeneficio.date.getTime())),
+    ].map((t) => new Date(t));
+    const bases = await this.consecutivoBases(ctx.plantId, fechas);
     const operatorIds = [...new Set(piezas.map((p) => p.operatorId))];
     const users = operatorIds.length
       ? await this.prisma.appUser.findMany({
@@ -421,6 +517,7 @@ export class CanalCalienteService {
       piezaId: p.id,
       reference: p.evento.ordenBeneficio.reference,
       cliente: p.evento.ordenBeneficio.cliente,
+      sequence: p.evento.sequence,
       consecutivo:
         (bases.get(p.evento.ordenBeneficio.id) ?? 0) + p.evento.sequence,
       pieza: p.pieza,
@@ -428,6 +525,11 @@ export class CanalCalienteService {
       turno: p.turno,
       weighedAt: p.weighedAt.toISOString(),
       operatorName: nameById.get(p.operatorId) ?? '—',
+      canalTipo: p.evento.canalTipo,
+      conCola: p.evento.conCola,
+      canalAnimalTipo: p.evento.canalAnimalTipo,
+      destino: p.destino,
+      observaciones: p.observaciones,
     }));
   }
 

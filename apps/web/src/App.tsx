@@ -16,19 +16,23 @@ import { CanalFriaPage } from './features/canal-fria/CanalFriaPage';
 import { CanalReciboPage } from './features/canal-recibo/CanalReciboPage';
 import { PostaReciboPage } from './features/recibo-posta/PostaReciboPage';
 import { CanalCalientePage } from './features/canal-caliente/CanalCalientePage';
-import { CanalTrasladoPage } from './features/canal-traslado/CanalTrasladoPage';
 import { InventariosPage } from './features/inventarios/InventariosPage';
 import { PesoEnCamionPage } from './features/peso-en-camion/PesoEnCamionPage';
 import { PesoEnPiePage } from './features/peso-en-pie/PesoEnPiePage';
 import { ReciboCanalesPage } from './features/recibo-canales/ReciboCanalesPage';
 import { ReciboEnPostaPage } from './features/recibo-en-posta/ReciboEnPostaPage';
 import { RotuladoPage } from './features/rotulado/RotuladoPage';
-import { InsensibilizacionPage } from './features/insensibilizacion/InsensibilizacionPage';
+import { RotuladoDespostePage } from './features/rotulado/RotuladoDespostePage';
+import { SacrificioPage } from './features/sacrificio/SacrificioPage';
 import { PielesPage } from './features/pieles/PielesPage';
 import { SubproductosPage } from './features/subproductos/SubproductosPage';
 import { OrdenBeneficioPage } from './features/registrar/OrdenBeneficioPage';
-import { OrdenDespachoFrioPage } from './features/registrar/OrdenDespachoFrioPage';
-import { OrdenDespostePage } from './features/registrar/OrdenDespostePage';
+import { OrdenDespachoPage } from './features/registrar/OrdenDespachoPage';
+import { OrdenProduccionPage } from './features/registrar/OrdenProduccionPage';
+import { ProductosPage } from './features/products/ProductosPage';
+import { ClientesPage } from './features/clientes/ClientesPage';
+import { ConservacionPage } from './features/conservacion/ConservacionPage';
+import { InformesPage } from './features/informes/InformesPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { GoodsReceiptsPage } from './features/goods-receipts/GoodsReceiptsPage';
 
@@ -42,7 +46,6 @@ const router = createBrowserRouter([
       { path: 'recibo-canal', element: <CanalReciboPage /> },
       { path: 'recibo-posta', element: <PostaReciboPage /> },
       { path: 'canal-caliente', element: <CanalCalientePage /> },
-      { path: 'canal-traslado', element: <CanalTrasladoPage /> },
       { path: 'inventarios', element: <InventariosPage /> },
       { path: 'peso-en-camion', element: <PesoEnCamionPage /> },
       { path: 'peso-en-pie', element: <PesoEnPiePage /> },
@@ -50,18 +53,22 @@ const router = createBrowserRouter([
       { path: 'recibo-en-posta', element: <ReciboEnPostaPage /> },
       {
         path: 'rotulado-desposte',
-        element: <RotuladoPage stage="desposte" />,
+        element: <RotuladoDespostePage />,
       },
       {
         path: 'rotulado-acondicionamiento',
         element: <RotuladoPage stage="acondicionamiento" />,
       },
-      { path: 'insensibilizacion', element: <InsensibilizacionPage /> },
+      { path: 'sacrificio', element: <SacrificioPage /> },
       { path: 'pieles', element: <PielesPage /> },
       { path: 'subproductos', element: <SubproductosPage /> },
       { path: 'orden-beneficio', element: <OrdenBeneficioPage /> },
-      { path: 'orden-despacho-frio', element: <OrdenDespachoFrioPage /> },
-      { path: 'orden-desposte', element: <OrdenDespostePage /> },
+      { path: 'orden-despacho', element: <OrdenDespachoPage /> },
+      { path: 'orden-produccion', element: <OrdenProduccionPage /> },
+      { path: 'productos', element: <ProductosPage /> },
+      { path: 'clientes', element: <ClientesPage /> },
+      { path: 'conservacion', element: <ConservacionPage /> },
+      { path: 'informes', element: <InformesPage /> },
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
       { path: 'equipos', element: <DevicesPage /> },
       { path: '*', element: <Navigate to="/" replace /> },

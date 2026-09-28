@@ -18,7 +18,7 @@ import {
   BasculaField,
   useBascula,
 } from '@/components/bascula/Bascula';
-import { cn } from '@/lib/utils';
+import { cn, plantToday as today } from '@/lib/utils';
 import { useAuth } from '@/features/auth/auth-context';
 import {
   useSubproductosLotes,
@@ -33,10 +33,6 @@ import {
   type SubLoteDetail,
 } from './api';
 import { downloadOrdenSalidaPdf } from './orden-salida-print';
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 function hora(iso: string | null) {
   if (!iso) return '—';

@@ -13,7 +13,7 @@ import { ReciboCanalesIcon } from '@/components/icons/ReciboCanalesIcon';
 import { useBascula } from '@/components/bascula/Bascula';
 import { Badge } from '@/components/ui/badge';
 import { getSavedScaleBaud, getSavedScalePort, readScale } from '@/lib/device';
-import { cn, formatDate } from '@/lib/utils';
+import { cn, formatDate, plantToday as today, soloDecimal } from '@/lib/utils';
 import {
   statusLabels,
   statusTone,
@@ -36,10 +36,6 @@ const TABS: { key: Tab; label: string }[] = [
 ];
 
 const CAVAS = [1, 2, 3, 4, 5];
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 interface CanalRegistro {
   id: string;
@@ -309,7 +305,7 @@ export function ReciboCanalesPage() {
         <FieldBox label="Peso(kg):" className="flex-1">
           <input
             value={peso}
-            onChange={(e) => setPeso(e.target.value.replace(/[^0-9.]/g, ''))}
+            onChange={(e) => setPeso(soloDecimal(e.target.value))}
             onClick={() => colocar(setPeso)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') registrar();

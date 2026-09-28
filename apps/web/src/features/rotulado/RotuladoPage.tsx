@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { RotuladoDesposteIcon } from '@/components/icons/RotuladoDesposteIcon';
 import { RotuladoAcondicionamientoIcon } from '@/components/icons/RotuladoAcondicionamientoIcon';
+import { plantToday as today } from '@/lib/utils';
 import { useOrdenes, type RotuladoOrden, type RotuladoStage } from './api';
 import { OrdenesTab } from './tabs/OrdenesTab';
 import { TiendasTab } from './tabs/TiendasTab';
@@ -13,10 +14,6 @@ import { ProductosTab } from './tabs/ProductosTab';
 import { EmbalajeTab } from './tabs/EmbalajeTab';
 import { ReporteTab } from './tabs/ReporteTab';
 import { ReimpresionTab } from './tabs/ReimpresionTab';
-
-function today() {
-  return new Date().toISOString().slice(0, 10);
-}
 
 const META: Record<
   RotuladoStage,

@@ -1,6 +1,6 @@
 import { jsPDF } from 'jspdf';
 import JsBarcode from 'jsbarcode';
-import type { CanalTipo, CanalTurno } from './api';
+import type { CanalPiezaTipo, CanalTipo } from './api';
 
 export interface PresintoTicketData {
   fechaSacrificio: string; // DD/MM/YYYY
@@ -10,29 +10,41 @@ export interface PresintoTicketData {
   cliente: string;
   tipoAnimal: string; // etiqueta ya formateada (ej. "BUFALO")
   ref: number; // consecutivo del animal en el día
-  turno: CanalTurno;
+  turno: number; // consecutivo del animal en el día (mismo valor que ref)
   pesoKg: number;
   canalTipo: CanalTipo;
+  // Con/sin cola: solo aplica cuando canalTipo es el genérico 'media_canal'.
+  conCola?: boolean | null;
+  // Identifica cuál pieza es (canal completa / media izquierda / media derecha).
+  pieza: CanalPiezaTipo;
 }
 
-export const TURNO_DIGITO: Record<CanalTurno, 1 | 2> = { manana: 1, tarde: 2 };
-
 /** Dígito del tipo de canal para el código de barras del presinto (acordado con planta). */
-export const CANAL_TIPO_DIGITO: Record<CanalTipo, 1 | 2 | 3> = {
-  canal_completa: 1,
-  media_canal_con_cola: 2,
-  media_canal_sin_cola: 3,
-};
+function digitoCanalTipo(
+  d: Pick<PresintoTicketData, 'canalTipo' | 'pieza'>,
+): 1 | 2 | 3 {
+  if (d.canalTipo === 'canal_completa') return 1;
+  // La izquierda siempre va con cola y la derecha siempre sin cola.
+  return d.pieza === 'cizq' ? 2 : 3;
+}
 
-export const CANAL_TIPO_TITULO: Record<CanalTipo, string> = {
-  canal_completa: 'CANAL COMPLETA',
-  media_canal_con_cola: 'MEDIA CANAL CON COLA',
-  media_canal_sin_cola: 'MEDIA CANAL SIN COLA',
-};
+export function tituloCanalTipo(d: PresintoTicketData): string {
+  if (d.canalTipo === 'canal_completa') return 'CANAL COMPLETA';
+  return d.pieza === 'cizq' ? 'MEDIA CANAL CON COLA' : 'MEDIA CANAL SIN COLA';
+}
 
-/** Código de barras del presinto: {lote}-{turno}{tipoCanal}, ej. lote 1, turno mañana, media sin cola -> "1-13". */
-export function codigoBarras(d: PresintoTicketData): string {
-  return `${d.lote}-${TURNO_DIGITO[d.turno]}${CANAL_TIPO_DIGITO[d.canalTipo]}`;
+/** Sufijo de lateralidad para distinguir las dos mitades del mismo animal (media canal). */
+function sufijoPieza(pieza: CanalPiezaTipo): string {
+  if (pieza === 'cizq') return 'I';
+  if (pieza === 'cder') return 'D';
+  return '';
+}
+
+/** Código de barras del presinto: {lote}-{turno}{tipoCanal}{lateralidad}, ej. lote 1, turno 3, media sin cola izquierda -> "1-33I". */
+export function codigoBarras(
+  d: Pick<PresintoTicketData, 'lote' | 'turno' | 'canalTipo' | 'pieza'>,
+): string {
+  return `${d.lote}-${d.turno}${digitoCanalTipo(d)}${sufijoPieza(d.pieza)}`;
 }
 
 /**
@@ -112,7 +124,7 @@ function dibujarTicket(
   y2 += lineH;
   campo(labelX2, valueX2, y2, 'Ref', String(d.ref));
   y2 += lineH;
-  campo(labelX2, valueX2, y2, 'Turno', String(TURNO_DIGITO[d.turno]));
+  campo(labelX2, valueX2, y2, 'Turno', String(d.turno));
 
   // Recuadro PESO (kg).
   const pesoBoxX = 170;
@@ -136,7 +148,7 @@ function dibujarTicket(
   doc.text('TURNO', turnoBoxX + boxW / 2, boxY + 5 * s, { align: 'center' });
   doc.setFontSize(15 * s);
   doc.text(
-    String(TURNO_DIGITO[d.turno]),
+    String(d.turno),
     turnoBoxX + boxW / 2,
     boxY + boxH - 5 * s,
     { align: 'center' },
@@ -144,7 +156,7 @@ function dibujarTicket(
 
   // Título del tipo de canal, a la derecha.
   const tituloX = turnoBoxX + boxW + 4;
-  const titulo = CANAL_TIPO_TITULO[d.canalTipo];
+  const titulo = tituloCanalTipo(d);
   const palabras = titulo.split(' ');
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15 * s);

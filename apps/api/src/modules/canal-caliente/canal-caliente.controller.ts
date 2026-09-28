@@ -14,6 +14,7 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CanalCalienteService } from './canal-caliente.service';
 import { SetTipoDto } from './dto/set-tipo.dto';
+import { SetConColaDto } from './dto/set-con-cola.dto';
 import { RegistrarCanalDto } from './dto/registrar-canal.dto';
 import { ClasificarAnimalDto } from './dto/clasificar-animal.dto';
 import { ClasificarPiezaDto } from './dto/clasificar-pieza.dto';
@@ -58,6 +59,15 @@ export class CanalCalienteController {
     @Body() dto: SetTipoDto,
   ) {
     return this.service.setTipo(user, eventoId, dto.tipo);
+  }
+
+  @Patch('animales/:eventoId/con-cola')
+  setConCola(
+    @CurrentUser() user: AuthContext,
+    @Param('eventoId', ParseUUIDPipe) eventoId: string,
+    @Body() dto: SetConColaDto,
+  ) {
+    return this.service.setConCola(user, eventoId, dto.conCola);
   }
 
   @Patch('animales/:eventoId')
