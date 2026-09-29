@@ -120,7 +120,7 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
     texto(36, 387, 24, 17, loteCodigo),
     texto(36, 407, 24, 17, productoCodigo),
     texto(42, 427, 24, 17, piezaCodigo),
-    `^FO104,350^BQN,4,4^FDLA,${codigo}^FS`,
+    `^FO104,346^BQN,4,4^FDLA,${codigo}^FS`,
     texto(196, 372, 14, 18, 'Para: AGROPECUARIA SANTACRUZ'),
     texto(196, 390, 14, 18, 'KM 3 VIA ORIENTAL - MALAMBO'),
     texto(196, 408, 14, 18, 'Tel. 6053766701'),
