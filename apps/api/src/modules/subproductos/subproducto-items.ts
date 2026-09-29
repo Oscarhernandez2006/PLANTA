@@ -1,8 +1,7 @@
 export type SubproductoUnidad = 'unidad' | 'kg';
 
-// Clasificación para efectos de tiquete/precinto en Insensibilización:
-// "retoma" no genera tiquete aparte; "viscera_blanca"/"viscera_roja" sí.
-// "cabeza_patas" solo se genera si el lote lo pidió al crear la orden.
+// La clave "retoma" representa DESPOSTE CABEZA; "cabeza_patas" se conserva
+// solo para interpretar registros anteriores.
 export type SubproductoCategoria =
   | 'retoma'
   | 'viscera_blanca'
@@ -25,7 +24,25 @@ export interface SubproductoItemDef {
  * unidad/kg se registran por kilos, porque igual requieren peso.
  */
 export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
-  { tipo: 'cachete', codigo: '3002', label: 'Cachete', unidad: 'kg', categoria: 'retoma' },
+  { tipo: 'cachete', codigo: '3002', label: 'CACHETE X KG', unidad: 'kg', categoria: 'retoma' },
+  { tipo: 'puya', codigo: '3241', label: 'PUYA X KG', unidad: 'kg', categoria: 'retoma' },
+  { tipo: 'regaton', codigo: '3021', label: 'REGATON X KG', unidad: 'kg', categoria: 'retoma' },
+  { tipo: 'ojos', codigo: '3014', label: 'OJO X UND', unidad: 'unidad', categoria: 'retoma' },
+  { tipo: 'cocote', codigo: 'S/C', label: 'COCOTE X KG', unidad: 'kg', categoria: 'retoma' },
+  {
+    tipo: 'desperdicio_res_comestible',
+    codigo: '3217',
+    label: 'DESPERDICIO X KG',
+    unidad: 'kg',
+    categoria: 'retoma',
+  },
+  {
+    tipo: 'hueso_cabeza_res',
+    codigo: '3228',
+    label: 'HUESO CABEZA X KG',
+    unidad: 'kg',
+    categoria: 'retoma',
+  },
   {
     tipo: 'chinchurria_precocida',
     codigo: '3003',
@@ -33,8 +50,6 @@ export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
     unidad: 'kg',
     categoria: 'viscera_blanca',
   },
-  { tipo: 'ojos', codigo: '3014', label: 'Ojos', unidad: 'unidad', categoria: 'retoma' },
-  { tipo: 'regaton', codigo: '3021', label: 'Regatón', unidad: 'kg', categoria: 'viscera_blanca' },
   {
     tipo: 'ubres_comestible',
     codigo: '3026',
@@ -55,20 +70,6 @@ export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
     label: 'Canuta comestible',
     unidad: 'unidad',
     categoria: 'viscera_blanca',
-  },
-  {
-    tipo: 'carnecita_res_comestible',
-    codigo: '3208',
-    label: 'Carnecita res comestible',
-    unidad: 'kg',
-    categoria: 'retoma',
-  },
-  {
-    tipo: 'carnecita_res_industrial',
-    codigo: '3207',
-    label: 'Carnecita de res industrial',
-    unidad: 'kg',
-    categoria: 'retoma',
   },
   {
     tipo: 'chinchurria_cruda',
@@ -92,41 +93,6 @@ export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
     categoria: 'viscera_blanca',
   },
   {
-    tipo: 'desperdicio_res_comestible',
-    codigo: '3217',
-    label: 'Desperdicio res comestible',
-    unidad: 'kg',
-    categoria: 'retoma',
-  },
-  {
-    tipo: 'esofago_res_comestible',
-    codigo: '3219',
-    label: 'Esófago res comestible',
-    unidad: 'kg',
-    categoria: 'retoma',
-  },
-  {
-    tipo: 'fetos_res_comestible',
-    codigo: '3221',
-    label: 'Fetos res comestible',
-    unidad: 'kg',
-    categoria: 'retoma',
-  },
-  {
-    tipo: 'ganglios_comestible',
-    codigo: '3222',
-    label: 'Ganglios comestible',
-    unidad: 'kg',
-    categoria: 'retoma',
-  },
-  {
-    tipo: 'hueso_cabeza_res',
-    codigo: '3228',
-    label: 'Hueso de cabeza res',
-    unidad: 'kg',
-    categoria: 'retoma',
-  },
-  {
     tipo: 'libros_comestible',
     codigo: '3231',
     label: 'Libros comestible',
@@ -147,35 +113,12 @@ export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
     unidad: 'kg',
     categoria: 'viscera_blanca',
   },
-  { tipo: 'piel', codigo: '3238', label: 'Piel', unidad: 'kg', categoria: 'retoma' },
-  { tipo: 'puya', codigo: '3241', label: 'Puya', unidad: 'kg', categoria: 'retoma' },
   {
     tipo: 'recorte_libro_comestible',
     codigo: '3243',
     label: 'Recorte libro comestible',
     unidad: 'kg',
     categoria: 'viscera_blanca',
-  },
-  {
-    tipo: 'sangre_feto',
-    codigo: '3244',
-    label: 'Sangre de feto',
-    unidad: 'unidad',
-    categoria: 'retoma',
-  },
-  {
-    tipo: 'sebo_comestible',
-    codigo: '1',
-    label: 'Sebo comestible',
-    unidad: 'kg',
-    categoria: 'retoma',
-  },
-  {
-    tipo: 'sebo_aprovechamiento',
-    codigo: '3249',
-    label: 'Sebo de aprovechamiento',
-    unidad: 'kg',
-    categoria: 'retoma',
   },
   {
     tipo: 'tripa_ancha_cruda',
@@ -204,13 +147,6 @@ export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
     label: 'Vena orta de res comestible',
     unidad: 'kg',
     categoria: 'viscera_blanca',
-  },
-  {
-    tipo: 'viril_res_comestible',
-    codigo: '3258',
-    label: 'Viril res comestible',
-    unidad: 'kg',
-    categoria: 'retoma',
   },
   {
     tipo: 'viscera_roja_completa',
@@ -272,9 +208,7 @@ export const SUBPRODUCTO_ITEMS: SubproductoItemDef[] = [
   },
 ];
 
-// Cabeza y patas: solo se generan para los lotes que se crearon con
-// "Cabezas y patas: Sí". Una res tiene 4 patas, así que "patas" cuenta
-// como 4 unidades reales por cada animal que lo marca.
+// Definiciones históricas: los animales nuevos ya no generan estos ítems.
 export const SUBPRODUCTO_ITEMS_CABEZA_PATAS: SubproductoItemDef[] = [
   {
     tipo: 'cabeza',
@@ -302,10 +236,8 @@ export const SUBPRODUCTO_ITEM_BY_TIPO = new Map(
 );
 
 /** Checklist completo que debe generarse al caer un animal de este lote. */
-export function itemsParaAnimal(cabezasPatas: boolean): SubproductoItemDef[] {
-  return cabezasPatas
-    ? [...SUBPRODUCTO_ITEMS, ...SUBPRODUCTO_ITEMS_CABEZA_PATAS]
-    : SUBPRODUCTO_ITEMS;
+export function itemsParaAnimal(): SubproductoItemDef[] {
+  return SUBPRODUCTO_ITEMS;
 }
 
 export function itemsPorCategoria(categoria: SubproductoCategoria) {

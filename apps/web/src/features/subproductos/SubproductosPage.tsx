@@ -6,7 +6,6 @@ import {
   LoaderCircle,
   RefreshCw,
   Scale,
-  Undo2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -43,12 +42,10 @@ function hora(iso: string | null) {
   });
 }
 
-// Columnas del checklist "Por registrar": las cabeza/patas se agrupan
-// dentro de retomas para mantener solo 3 columnas.
 const CATEGORIA_COLUMNAS: { key: 'viscera_roja' | 'viscera_blanca' | 'retoma'; label: string }[] = [
-  { key: 'viscera_roja', label: 'Vísceras rojas' },
-  { key: 'viscera_blanca', label: 'Vísceras blancas' },
-  { key: 'retoma', label: 'Retomas' },
+  { key: 'retoma', label: 'DESPOSTE CABEZA' },
+  { key: 'viscera_blanca', label: 'VISCERAS BLANCAS' },
+  { key: 'viscera_roja', label: 'VISCERAS ROJAS' },
 ];
 
 // Un animal + un ítem puntual de su checklist (para trabajar la lista aplanada).
@@ -236,10 +233,7 @@ function LoteDetalle({
 
 function ResumenPanel({ data }: { data: SubLoteDetail }) {
   const categoriaLabel: Record<string, string> = {
-    retoma: 'Retoma',
-    viscera_blanca: 'Víscera blanca',
-    viscera_roja: 'Víscera roja',
-    cabeza_patas: 'Cabeza y patas',
+    ...Object.fromEntries(CATEGORIA_COLUMNAS.map(({ key, label }) => [key, label])),
   };
 
   // Totalizado por categoría (unidades y kilos), sumando todo lo registrado
@@ -317,11 +311,7 @@ function ResumenPanel({ data }: { data: SubLoteDetail }) {
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {(
-              ['viscera_roja', 'viscera_blanca', 'retoma'] as const
-            )
-              .concat(data.cabezasPatas ? (['cabeza_patas'] as const) : [])
-              .map((cat) => {
+            {CATEGORIA_COLUMNAS.map(({ key: cat }) => {
                 const t = totalesPorCategoria.get(cat) ?? {
                   totalUnidades: 0,
                   totalKg: 0,
@@ -560,11 +550,7 @@ function ChecklistView({
         ) : (
           <div className="flex flex-col divide-y divide-border sm:h-[460px] sm:flex-row sm:divide-x sm:divide-y-0">
             {CATEGORIA_COLUMNAS.map((col) => {
-              const matchCategoria = (ai: AnimalItem) =>
-                col.key === 'retoma'
-                  ? ai.item.categoria === 'retoma' ||
-                    ai.item.categoria === 'cabeza_patas'
-                  : ai.item.categoria === col.key;
+              const matchCategoria = (ai: AnimalItem) => ai.item.categoria === col.key;
               const items = pendientes.filter(matchCategoria);
               const registrados = pesados.filter(matchCategoria);
               // Se muestran primero los pendientes y luego los ya registrados con su chulo.

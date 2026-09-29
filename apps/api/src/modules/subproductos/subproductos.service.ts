@@ -18,8 +18,7 @@ function dateOnly(value?: string) {
   return plantDateOnly(value);
 }
 
-const TOTAL_ITEMS = SUBPRODUCTO_ITEMS.length;
-const TOTAL_ITEMS_CABEZA_PATAS = SUBPRODUCTO_ITEMS_CABEZA_PATAS.length;
+const TIPOS_ACTIVOS = new Set(SUBPRODUCTO_ITEMS.map((item) => item.tipo));
 // Posición de cada tipo en el catálogo, para listar el checklist en un orden fijo.
 const ORDEN_TIPO = new Map(
   [...SUBPRODUCTO_ITEMS, ...SUBPRODUCTO_ITEMS_CABEZA_PATAS].map((i, idx) => [
@@ -32,8 +31,8 @@ const ORDEN_TIPO = new Map(
 export class SubproductosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  private contarMarcados(subproductos: { marcado: boolean }[]) {
-    return subproductos.filter((s) => s.marcado).length;
+  private contarMarcados(subproductos: { tipo: string; marcado: boolean }[]) {
+    return subproductos.filter((s) => TIPOS_ACTIVOS.has(s.tipo) && s.marcado).length;
   }
 
   /**
@@ -74,7 +73,7 @@ export class SubproductosService {
       orderBy: [{ reference: 'asc' }],
       include: {
         eventos: {
-          select: { subproductos: { select: { marcado: true } } },
+          select: { subproductos: { select: { tipo: true, marcado: true } } },
         },
       },
     });
@@ -98,9 +97,10 @@ export class SubproductosService {
     for (const o of ordenes) {
       let pesados = 0;
       for (const e of o.eventos) pesados += this.contarMarcados(e.subproductos);
-      const total =
-        o.eventos.length * TOTAL_ITEMS +
-        (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0);
+      const total = o.eventos.reduce(
+        (sum, evento) => sum + evento.subproductos.filter((s) => TIPOS_ACTIVOS.has(s.tipo)).length,
+        0,
+      );
 
       const g = porCliente.get(o.cliente);
       if (!g) {
@@ -196,7 +196,7 @@ export class SubproductosService {
       for (const e of o.eventos) {
         pesados += this.contarMarcados(e.subproductos);
         for (const s of e.subproductos) {
-          if (!s.marcado) continue;
+          if (!s.marcado || !TIPOS_ACTIVOS.has(s.tipo)) continue;
           const acc = resumenPorTipo.get(s.tipo) ?? { marcados: 0, totalKg: 0 };
           acc.marcados += 1;
           acc.totalKg += s.pesoKg != null ? Number(s.pesoKg) : 0;
@@ -204,10 +204,7 @@ export class SubproductosService {
         }
       }
     }
-    const resumen = [
-      ...SUBPRODUCTO_ITEMS,
-      ...(cabezasPatas ? SUBPRODUCTO_ITEMS_CABEZA_PATAS : []),
-    ].map((def) => {
+    const resumen = SUBPRODUCTO_ITEMS.map((def) => {
       const acc = resumenPorTipo.get(def.tipo) ?? { marcados: 0, totalKg: 0 };
       const multiplicador = def.multiplicador ?? 1;
       return {
@@ -217,21 +214,22 @@ export class SubproductosService {
         unidad: def.unidad,
         categoria: def.categoria,
         marcados: acc.marcados,
-        esperados: caidos,
+        esperados: ordenes.reduce(
+          (sum, o) => sum + o.eventos.filter((e) => e.subproductos.some((s) => s.tipo === def.tipo)).length,
+          0,
+        ),
         totalKg: def.unidad === 'kg' ? acc.totalKg : null,
         cantidadTotal: def.unidad === 'unidad' ? acc.marcados * multiplicador : null,
       };
     });
 
-    const total =
-      caidos * TOTAL_ITEMS +
-      (cabezasPatas
-        ? ordenes.reduce(
-            (acc, o) =>
-              acc + (o.cabezasPatas ? o.eventos.length * TOTAL_ITEMS_CABEZA_PATAS : 0),
-            0,
-          )
-        : 0);
+    const total = ordenes.reduce(
+      (sum, o) => sum + o.eventos.reduce(
+        (count, e) => count + e.subproductos.filter((s) => TIPOS_ACTIVOS.has(s.tipo)).length,
+        0,
+      ),
+      0,
+    );
 
     return {
       cliente,
@@ -258,7 +256,7 @@ export class SubproductosService {
           sequence: e.sequence,
           consecutivo: base + e.sequence,
           stunnedAt: e.stunnedAt.toISOString(),
-          items: [...e.subproductos]
+          items: e.subproductos.filter((s) => TIPOS_ACTIVOS.has(s.tipo))
             .sort(
               (a, b) =>
                 (ORDEN_TIPO.get(a.tipo) ?? 0) - (ORDEN_TIPO.get(b.tipo) ?? 0),

@@ -151,7 +151,7 @@ export class SacrificioService {
       // Al caer el animal se genera de una vez su checklist de subproductos
       // (y cabeza/patas si el lote lo pidió al crearse).
       await tx.subproductoItem.createMany({
-        data: itemsParaAnimal(ob.cabezasPatas).map((item) => ({
+        data: itemsParaAnimal().map((item) => ({
           eventoId: evento.id,
           tipo: item.tipo,
         })),
