@@ -3,9 +3,20 @@ import axios from 'axios';
 let authToken: string | null = null;
 let onUnauthorized: (() => void) | null = null;
 
+const configuredApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const isDesktopRuntime =
+  typeof window !== 'undefined' &&
+  !!(window as unknown as { frigoDesktop?: unknown }).frigoDesktop;
+const isFileProtocol =
+  typeof window !== 'undefined' && window.location.protocol === 'file:';
+
 /** Cliente HTTP base. En dev, Vite proxya /api -> http://localhost:3000. */
 export const api = axios.create({
-  baseURL: '/api',
+  // En escritorio empaquetado (file://) no existe proxy de Vite, así que se
+  // apunta directo al backend local para evitar errores de validación.
+  baseURL:
+    configuredApiBase ||
+    (isDesktopRuntime || isFileProtocol ? 'http://127.0.0.1:3000/api' : '/api'),
   headers: { 'Content-Type': 'application/json' },
 });
 
