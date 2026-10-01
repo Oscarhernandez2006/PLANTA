@@ -10,6 +10,8 @@ interface DialogProps {
   description?: string;
   children: React.ReactNode;
   className?: string;
+  /** El contenido se desplaza dentro de la tarjeta (el encabezado queda fijo). */
+  scrollInterno?: boolean;
 }
 
 export function Dialog({
@@ -19,6 +21,7 @@ export function Dialog({
   description,
   children,
   className,
+  scrollInterno,
 }: DialogProps) {
   useEffect(() => {
     if (!open) return;
@@ -42,6 +45,7 @@ export function Dialog({
         className={cn(
           'relative z-10 mt-8 w-full max-w-2xl rounded-xl border border-border bg-card shadow-xl',
           'duration-200 animate-in fade-in-0 zoom-in-95',
+          scrollInterno && 'flex max-h-[calc(100vh-6rem)] flex-col',
           className,
         )}
       >
@@ -61,7 +65,7 @@ export function Dialog({
             <X />
           </Button>
         </div>
-        <div className="p-6">{children}</div>
+        <div className={cn('p-6', scrollInterno && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
       </div>
     </div>
   );

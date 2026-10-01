@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory } from 'lucide-react';
+import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
@@ -58,6 +58,7 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/productos', label: 'Productos', icon: Package },
       { to: '/clientes', label: 'Clientes', icon: Users },
       { to: '/conservacion', label: 'Conservación', icon: Snowflake },
+      { to: '/piezas-desposte', label: 'Piezas Desposte', icon: Puzzle },
       { to: '/informes', label: 'Informes', icon: FileBarChart },
       { to: '/recibo-canal', label: 'Orden recibo de canales', icon: CanalReciboIcon },
       { to: '/recibo-posta', label: 'Orden recibo en posta', icon: PostaReciboIcon },

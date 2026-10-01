@@ -5,6 +5,19 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { ActualizarConservacionDto } from './dto/actualizar-conservacion.dto';
 import { AsignarProductoDto } from './dto/asignar-producto.dto';
 
+function tipoPorCategoria(categoria: string | null): string {
+  switch (categoria) {
+    case 'PRODUCTO EN PROCESO':
+      return 'EN PROCESO';
+    case 'RES SUBPRODUCTOS':
+      return 'SUBPRODUCTO';
+    case 'RES PRODUCTOS TERMINADOS':
+      return 'TERMINADO';
+    default:
+      return 'MATERIA PRIMA';
+  }
+}
+
 @Injectable()
 export class ConservacionService {
   constructor(private readonly prisma: PrismaService) {}
@@ -42,6 +55,8 @@ export class ConservacionService {
         refrigeradoTemp: true,
         congeladoDias: true,
         congeladoTemp: true,
+        piezasPorCanal: true,
+        undsPorCaja: true,
         product: { select: { id: true, codigo: true, nombre: true, categoria: true, active: true } },
       },
       orderBy: { createdAt: 'asc' },
@@ -71,7 +86,7 @@ export class ConservacionService {
     const { productId, ...conservacion } = dto;
     const product = await this.prisma.product.findFirst({
       where: { id: productId, plantId: ctx.plantId },
-      select: { id: true },
+      select: { id: true, categoria: true },
     });
     if (!product) throw new NotFoundException('Producto no encontrado.');
     try {
@@ -80,6 +95,8 @@ export class ConservacionService {
           clienteId,
           productId,
           ...conservacion,
+          // Sin tipo explícito se toma el de la categoría del producto.
+          tipo: conservacion.tipo ?? tipoPorCategoria(product.categoria),
           refPluSku: conservacion.refPluSku || null,
         },
       });

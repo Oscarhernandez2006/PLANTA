@@ -330,6 +330,8 @@ export function PesoEnCamionPage() {
     if (!selectedGuia) return;
     const ref = selectedGuia.reference;
     const id = selectedGuia.id;
+    const nombre = selectedGuia.guia ?? formatReferencia(ref);
+    if (!window.confirm(`¿Estás seguro que quieres cerrar la guía ${nombre} en Peso en Camión?`)) return;
     setSaveError(null);
     try {
       await closeGuia.mutateAsync(id);

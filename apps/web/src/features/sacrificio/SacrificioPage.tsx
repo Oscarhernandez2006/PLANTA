@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import {
+  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
@@ -94,7 +95,7 @@ export function SacrificioPage() {
             });
           }
         }
-        // Lote completado: vuelve a la lista (ya no aparece, pasó a "procesado").
+        // Lote completado: vuelve a la lista, donde queda marcado como completado.
         if (data.insensibilizados >= data.animalCount) {
           setSelectedId(null);
           setTab('ordenes');
@@ -256,6 +257,7 @@ function OrdenesTab({
     <ul className="flex flex-col gap-2 p-2">
       {ordenes.map((o) => {
         const activo = o.id === selectedId;
+        const completada = o.status === 'procesado' || o.insensibilizados >= o.animalCount;
         return (
           <li key={o.id}>
             <button
@@ -264,7 +266,9 @@ function OrdenesTab({
                 'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
                 activo
                   ? 'border-emerald-500 bg-emerald-50'
-                  : 'border-border bg-card hover:bg-muted/50',
+                  : completada
+                    ? 'border-border bg-muted/40 text-muted-foreground hover:bg-muted/60'
+                    : 'border-border bg-card hover:bg-muted/50',
               )}
             >
               <span>
@@ -273,8 +277,14 @@ function OrdenesTab({
                 {o.clienteNit ? `${o.clienteNit} - ` : ''}
                 {o.cliente}
               </span>
-              <span className="tabular-nums text-sm text-muted-foreground">
+              <span className="flex shrink-0 items-center gap-2 tabular-nums text-sm text-muted-foreground">
                 {o.insensibilizados}/{o.animalCount}
+                {completada && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold uppercase text-emerald-700">
+                    <Check className="size-3.5" />
+                    Completada
+                  </span>
+                )}
               </span>
             </button>
           </li>
@@ -384,22 +394,22 @@ function AnimalesTab({
             <Clock className="size-4" /> Aún no hay animales marcados.
           </div>
         ) : (
-          <div className="max-h-72 overflow-auto">
+          <div className="max-h-72 overflow-auto rounded-md border border-border">
             <Table>
-              <THead>
-                <TR>
-                  <TH className="w-16">#</TH>
-                  <TH>Hora</TH>
+              <THead className="sticky top-0 z-10 bg-muted">
+                <TR className="border-b-2 border-border">
+                  <TH className="w-20 border-r border-border text-center">#</TH>
+                  <TH className="w-48 border-r border-border">Hora</TH>
                   <TH>Operario</TH>
                 </TR>
               </THead>
               <TBody>
                 {[...detail.eventos].reverse().map((e) => (
-                  <TR key={e.sequence}>
-                    <TD className="font-semibold tabular-nums">
+                  <TR key={e.sequence} className="border-b border-border even:bg-muted/30">
+                    <TD className="border-r border-border text-center font-semibold tabular-nums">
                       {(detail.consecutivoBase ?? 0) + e.sequence}
                     </TD>
-                    <TD className="tabular-nums">{hora(e.stunnedAt)}</TD>
+                    <TD className="border-r border-border tabular-nums">{hora(e.stunnedAt)}</TD>
                     <TD>{e.operatorName}</TD>
                   </TR>
                 ))}

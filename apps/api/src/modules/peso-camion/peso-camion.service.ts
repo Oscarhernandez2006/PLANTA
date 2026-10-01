@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
-import { PesoCamion, PesoCamionStatus } from '@prisma/client';
+import { PesoCamion, PesoCamionStatus, PesoEnPieStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { SavePesoCamionDto } from './dto/save-peso-camion.dto';
@@ -32,6 +32,7 @@ export class PesoCamionService {
       neto: r.netoKg == null ? null : Number(r.netoKg),
       pesoPromedioKg: r.pesoPromedioKg == null ? null : Number(r.pesoPromedioKg),
       status: r.status,
+      pieStatus: r.pieStatus,
     };
   }
 
@@ -148,10 +149,10 @@ export class PesoCamionService {
     if (!existing) throw new NotFoundException('Guía no encontrada.');
 
     // El total pesado uno a uno en Peso en Pie debe coincidir (±25%) con el
-    // neto pesado en camión; si no, hay un error de báscula y no se cierra.
+    // neto pesado en camión; solo se valida si Peso en Pie ya cerró la guía.
     const guia = existing.guia?.trim();
     const neto = existing.netoKg == null ? null : Number(existing.netoKg);
-    if (guia && neto != null) {
+    if (guia && neto != null && existing.pieStatus === PesoCamionStatus.cerrada) {
       const enPie = await this.prisma.pesoEnPie.aggregate({
         _sum: { pesoTotalKg: true },
         where: { plantId: ctx.plantId, date: existing.date, guia, deletedAt: null },
@@ -173,12 +174,52 @@ export class PesoCamionService {
     return this.toDto(rec);
   }
 
-  async findAll(ctx: AuthContext, status?: PesoCamionStatus) {
+  /**
+   * Cierra la guía en Peso en Pie (independiente del camión): sus animales
+   * pasan a beneficio y la guía sale de la lista de Peso en Pie.
+   */
+  async closePie(ctx: AuthContext, id: string) {
+    const existing = await this.prisma.pesoCamion.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Guía no encontrada.');
+    if (existing.pieStatus === PesoCamionStatus.cerrada) {
+      throw new BadRequestException('La guía ya está cerrada en Peso en Pie.');
+    }
+    const guia = existing.guia?.trim();
+    if (!guia) throw new BadRequestException('La guía no tiene número.');
+
+    const rec = await this.prisma.$transaction(async (tx) => {
+      const animales = await tx.pesoEnPie.updateMany({
+        where: {
+          plantId: ctx.plantId,
+          date: existing.date,
+          guia,
+          deletedAt: null,
+          status: PesoEnPieStatus.pendiente,
+        },
+        data: { status: PesoEnPieStatus.en_insensibilizacion },
+      });
+      const pesados = await tx.pesoEnPie.count({
+        where: { plantId: ctx.plantId, date: existing.date, guia, deletedAt: null },
+      });
+      if (!animales.count && !pesados) {
+        throw new BadRequestException('No hay animales pesados en esta guía.');
+      }
+      return tx.pesoCamion.update({
+        where: { id },
+        data: { pieStatus: PesoCamionStatus.cerrada },
+      });
+    });
+    return this.toDto(rec);
+  }
+
+  async findAll(ctx: AuthContext, status?: PesoCamionStatus, pieStatus?: PesoCamionStatus) {
     const rows = await this.prisma.pesoCamion.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        status: status ?? PesoCamionStatus.abierta,
+        ...(pieStatus ? { pieStatus } : { status: status ?? PesoCamionStatus.abierta }),
       },
       orderBy: [{ date: 'desc' }, { reference: 'desc' }],
       take: 1000,

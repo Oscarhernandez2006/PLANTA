@@ -71,12 +71,12 @@ export class OrdenBeneficioService {
   private async aggregate(ctx: AuthContext, date: Date) {
     const [camiones, pesosEnPie, ordenes] = await Promise.all([
       this.prisma.pesoCamion.findMany({
-        // La guía se cierra en Peso en Camión; solo las cerradas son candidatas.
+        // La guía se cierra en Peso en Pie; solo las cerradas allí son candidatas.
         where: {
           plantId: ctx.plantId,
           date,
           deletedAt: null,
-          status: PesoCamionStatus.cerrada,
+          pieStatus: PesoCamionStatus.cerrada,
         },
         select: { cliente: true, guia: true, reference: true },
       }),

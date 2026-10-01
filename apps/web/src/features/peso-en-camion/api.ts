@@ -169,6 +169,8 @@ export interface PesoCamionGuia {
   neto: number | null;
   pesoPromedioKg: number | null;
   status: 'abierta' | 'cerrada';
+  /** Estado de la guía en Peso en Pie (independiente del camión). */
+  pieStatus: 'abierta' | 'cerrada';
 }
 
 export interface SavePesoCamionInput {
@@ -194,6 +196,19 @@ export function usePesoCamionAbiertas() {
       (
         await api.get<PesoCamionGuia[]>('/peso-camion', {
           params: { status: 'abierta' },
+        })
+      ).data,
+  });
+}
+
+/** Guías abiertas en Peso en Pie (se abren solas al crear la guía en camión). */
+export function usePesoCamionPieAbiertas() {
+  return useQuery({
+    queryKey: ['peso-camion', 'pie-abiertas'],
+    queryFn: async () =>
+      (
+        await api.get<PesoCamionGuia[]>('/peso-camion', {
+          params: { pieStatus: 'abierta' },
         })
       ).data,
   });
@@ -246,5 +261,18 @@ export function useClosePesoCamion() {
     mutationFn: async (id: string) =>
       (await api.patch<PesoCamionGuia>(`/peso-camion/${id}/close`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['peso-camion'] }),
+  });
+}
+
+/** Cierra la guía solo en Peso en Pie; el camión sigue con su propio estado. */
+export function useCloseGuiaPie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.patch<PesoCamionGuia>(`/peso-camion/${id}/close-pie`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['peso-camion'] });
+      qc.invalidateQueries({ queryKey: ['peso-en-pie'] });
+    },
   });
 }

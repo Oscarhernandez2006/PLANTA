@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { Warehouse, LoaderCircle, Inbox, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { codigoBarras } from '../canal-caliente/canal-presinto-print';
+import { formatOD } from '../registrar/orden-despacho-api';
+import { formatOP } from '../registrar/orden-produccion-api';
 import {
   useCava,
   useCavaSubproducto,
@@ -137,6 +139,7 @@ function CavaTab({ cava }: { cava: string }) {
   const [cliente, setCliente] = useState('');
   const [tipo, setTipo] = useState('');
   const [pieza, setPieza] = useState('');
+  const [estado, setEstado] = useState('');
   const rows = data ?? [];
 
   const clientes = useMemo(
@@ -152,7 +155,8 @@ function CavaTab({ cava }: { cava: string }) {
     (r) =>
       (!cliente || r.cliente === cliente) &&
       (!tipo || r.canalAnimalTipo === tipo) &&
-      (!pieza || r.pieza === pieza),
+      (!pieza || r.pieza === pieza) &&
+      (!estado || (estado === 'orden') === !!r.enOrden),
   );
 
   if (isLoading) return <Loading />;
@@ -182,6 +186,15 @@ function CavaTab({ cava }: { cava: string }) {
             label: PIEZA_LABEL[p],
           }))}
         />
+        <FiltroSelect
+          label="Estado"
+          value={estado}
+          onChange={setEstado}
+          opciones={[
+            { value: 'libre', label: 'Disponible en cava' },
+            { value: 'orden', label: 'En orden / proceso' },
+          ]}
+        />
       </div>
       {!filtradas.length ? (
         <Empty text="No hay canales con estos filtros." />
@@ -198,6 +211,7 @@ function CavaTab({ cava }: { cava: string }) {
           <th>Fecha</th>
           <th>Tipo</th>
           <th>Pieza</th>
+          <th>Estado</th>
           <th>Destino</th>
           <th>Observación</th>
           <th className="text-right">Peso (kg)</th>
@@ -224,6 +238,23 @@ function CavaTab({ cava }: { cava: string }) {
             <td className="text-xs uppercase">{r.canalAnimalTipo ?? '—'}</td>
             <td className="text-xs font-semibold uppercase text-red-600">
               {r.pieza}
+            </td>
+            <td>
+              {r.enOrden ? (
+                <span
+                  title="Sigue en la cava, pero ya está asignada a esta orden"
+                  className="inline-flex flex-col rounded-sm border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-900"
+                >
+                  <span>{formatOD(r.enOrden.odNumber)}</span>
+                  {r.enOrden.opNumbers.length > 0 && (
+                    <span>
+                      {r.enOrden.opNumbers.map(formatOP).join(', ')} · EN PROCESO
+                    </span>
+                  )}
+                </span>
+              ) : (
+                <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>
+              )}
             </td>
             <td>{r.destino || '—'}</td>
             <td>{r.observaciones || '—'}</td>

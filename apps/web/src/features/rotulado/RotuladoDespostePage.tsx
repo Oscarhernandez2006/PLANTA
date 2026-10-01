@@ -1,25 +1,26 @@
 import { useRef, useState } from 'react';
-import { ChevronDown, ChevronUp, LoaderCircle, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, LoaderCircle, Monitor, X } from 'lucide-react';
 import { RotuladoDesposteIcon } from '@/components/icons/RotuladoDesposteIcon';
 import { KeyboardField } from '@/components/keyboard/KeyboardField';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { cn, plantToday as today } from '@/lib/utils';
-import { useTiendas, type Tienda } from '../clientes/api';
 import { useProductosCliente, type ProductoAsignado } from '../conservacion/api';
+import { useDevice } from '../device/device-context';
 import { formatOD } from '../registrar/orden-despacho-api';
 import {
   formatOP,
   useOrdenesProduccionActivas,
+  usePreparacion,
+  useAvanceRotulado,
   type OrdenProduccion,
 } from '../registrar/orden-produccion-api';
 import { EmbalajeDesposte } from './EmbalajeDesposte';
 import { FieldBox, Mensaje } from './ui';
 
-type Tab = 'ordenes' | 'tiendas' | 'productos' | 'embalaje' | 'reporte' | 'reimpresion';
+type Tab = 'ordenes' | 'productos' | 'embalaje' | 'reporte' | 'reimpresion';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'ordenes', label: 'Órdenes' },
-  { key: 'tiendas', label: 'Tiendas' },
   { key: 'productos', label: 'Productos' },
   { key: 'embalaje', label: 'Embalaje' },
   { key: 'reporte', label: 'Reporte' },
@@ -37,48 +38,21 @@ function Cargando() {
 const filaClase = (activa: boolean) =>
   cn(
     'w-full rounded-sm border-2 px-4 py-3 text-left text-lg font-medium transition-colors',
-    activa ? 'border-emerald-500 bg-emerald-50' : 'border-border bg-card hover:bg-muted/50',
+    activa ? 'border-sky-600 bg-sky-100' : 'border-border bg-card hover:bg-muted/50',
   );
 
-/** Tiendas activas del cliente de la orden. */
-function TiendasLista({
-  clienteId,
-  prefijo,
-  seleccionada,
-  onSelect,
-}: {
-  clienteId: string;
-  prefijo: string;
-  seleccionada: Tienda | null;
-  onSelect: (t: Tienda) => void;
-}) {
-  const tiendas = useTiendas(clienteId);
-  const rows = (tiendas.data ?? []).filter((t) => t.active);
-  if (tiendas.isLoading) return <Cargando />;
-  if (!rows.length) {
-    return <Mensaje text="Este cliente no tiene tiendas activas. Créalas en Administrativo → Clientes (clic en el NIT)." />;
+/** Solo se desposta si la orden tiene sus canales repartidas entre tiendas. */
+function ConPreparacion({ orden, children }: { orden: OrdenProduccion; children: React.ReactNode }) {
+  const prep = usePreparacion(orden.id);
+  if (prep.isLoading) return <Cargando />;
+  if (!prep.data?.tiendas.length) {
+    return (
+      <Mensaje
+        text={`La orden ${formatOP(orden.opNumber)} no tiene tiendas preparadas; no se puede despostar. Prepárala en Informes → Informe de Producción (clip).`}
+      />
+    );
   }
-  return (
-    <ul className="flex flex-col gap-2 p-2">
-      {rows.map((t) => (
-        <li key={t.id}>
-          <button onClick={() => onSelect(t)} className={filaClase(seleccionada?.id === t.id)}>
-            <span className="font-bold tabular-nums">
-              {prefijo}-{t.codigo}
-            </span>
-            <span className="mx-2 text-muted-foreground">|</span>
-            {t.nombre}
-            {t.ciudad && (
-              <>
-                <span className="mx-2 text-muted-foreground">|</span>
-                <span className="text-muted-foreground">{t.ciudad}</span>
-              </>
-            )}
-          </button>
-        </li>
-      ))}
-    </ul>
-  );
+  return <>{children}</>;
 }
 
 /** Productos de la conservación del cliente. */
@@ -94,15 +68,20 @@ const GRUPOS: { tipo: Grupo; label: string }[] = [
 const normalizar = (s: string) =>
   s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
 function ProductosLista({
+  ordenId,
   clienteId,
   seleccionado,
   onSelect,
 }: {
+  ordenId: string;
   clienteId: string;
   seleccionado: ProductoAsignado | null;
   onSelect: (p: ProductoAsignado) => void;
 }) {
   const productos = useProductosCliente(clienteId);
+  const equipo = useDevice();
+  const miEstacion = equipo.mac ?? equipo.hostname ?? '';
+  const avance = new Map((useAvanceRotulado(ordenId).data ?? []).map((a) => [a.productId, a]));
   const keyboard = useKeyboard();
   const [busqueda, setBusqueda] = useState('');
   const [grupo, setGrupo] = useState<Grupo | null>('MATERIA PRIMA');
@@ -157,7 +136,7 @@ function ProductosLista({
             className={cn(
               'h-12 rounded-sm border-2 px-4 text-sm font-semibold uppercase tracking-wide transition-colors',
               grupo === g.tipo
-                ? 'border-emerald-700 bg-emerald-500 text-white'
+                ? 'border-sky-700 bg-sky-600 text-white'
                 : 'border-border bg-card hover:bg-muted',
             )}
           >
@@ -178,24 +157,49 @@ function ProductosLista({
           />
         ) : (
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            {rows.map((p) => (
+            {rows.map((p) => {
+              const a = avance.get(p.id);
+              const otras = a?.estaciones.filter((e) => e.estacionId !== miEstacion) ?? [];
+              const enProceso = !!a && !a.completo && (a.iniciado || a.estaciones.length > 0);
+              return (
                 <button
                   key={p.id}
                   onClick={() => onSelect(p)}
-                  title={`${p.codigo} · ${p.tipo}`}
+                  title={`${p.codigo} · ${p.tipo}${a?.completo ? ' · completo en todas las tiendas' : ''}`}
                   className={cn(
-                    'flex min-h-12 flex-col items-center justify-center rounded-sm border-2 px-3 py-2 text-center text-base font-medium uppercase transition-colors',
+                    'relative flex min-h-12 flex-col items-center justify-center rounded-sm border-2 px-3 py-2 text-center text-base font-medium uppercase transition-colors',
                     seleccionado?.id === p.id
-                      ? 'border-emerald-500 bg-emerald-50'
-                      : 'border-border bg-card hover:bg-muted/50',
+                      ? 'border-sky-600 bg-sky-100'
+                      : a?.completo
+                        ? 'border-emerald-600 bg-emerald-100 text-emerald-900'
+                        : otras.length
+                          ? 'border-orange-500 bg-orange-100'
+                          : enProceso
+                            ? 'border-amber-400 bg-amber-50'
+                            : 'border-border bg-card hover:bg-muted/50',
                   )}
                 >
                   {p.nombre}
                   <span className="text-xs font-normal tabular-nums text-muted-foreground">
                     {p.codigo}
                   </span>
+                  {(otras.length > 0 || (enProceso && a?.tiendaActual)) && (
+                    <span className="mt-1 flex w-full flex-wrap items-center justify-end gap-x-2 text-right text-[11px] font-semibold normal-case leading-tight">
+                      {a?.tiendaActual && !a.completo && (
+                        <span className="text-amber-800">Va por: {a.tiendaActual.nombre}</span>
+                      )}
+                      {otras.map((e) => (
+                        <span key={e.estacionId} className="flex items-center gap-1 text-orange-700">
+                          <Monitor className="size-3" />
+                          {e.estacion}
+                          {e.usuario && ` · ${e.usuario.split(' ')[0]}`}
+                        </span>
+                      ))}
+                    </span>
+                  )}
                 </button>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -204,16 +208,15 @@ function ProductosLista({
 }
 
 export function RotuladoDespostePage() {
-  const [fecha, setFecha] = useState(today());
+  const fecha = today();
   const [tab, setTab] = useState<Tab>('ordenes');
   const [orden, setOrden] = useState<OrdenProduccion | null>(null);
-  const [tienda, setTienda] = useState<Tienda | null>(null);
   const [producto, setProducto] = useState<ProductoAsignado | null>(null);
-  const ordenes = useOrdenesProduccionActivas(fecha);
+  const ordenes = useOrdenesProduccionActivas();
   const scrollRef = useRef<HTMLDivElement>(null);
   const prefijo = orden?.cliente.nit ?? '';
   // PRODUCTOS tiene su propio scroll.
-  const enProductos = tab === 'productos' && !!orden && !!tienda;
+  const enProductos = tab === 'productos' && !!orden;
   const enEmbalaje = tab === 'embalaje' && !!producto;
 
   function irA(t: Tab) {
@@ -223,22 +226,8 @@ export function RotuladoDespostePage() {
 
   function elegirOrden(o: OrdenProduccion) {
     setOrden(o);
-    setTienda(null);
-    setProducto(null);
-    irA('tiendas');
-  }
-
-  function elegirTienda(t: Tienda) {
-    setTienda(t);
     setProducto(null);
     irA('productos');
-  }
-
-  function limpiar() {
-    setOrden(null);
-    setTienda(null);
-    setProducto(null);
-    irA('ordenes');
   }
 
   function scrollList(dir: 1 | -1) {
@@ -253,24 +242,13 @@ export function RotuladoDespostePage() {
           <RotuladoDesposteIcon className="size-10 text-foreground" />
         </div>
         <FieldBox label="Fecha:" className="w-56">
-          <input
-            type="date"
-            value={fecha}
-            onChange={(e) => {
-              setFecha(e.target.value);
-              limpiar();
-            }}
-            className="h-9 w-full bg-transparent text-xl font-medium outline-none"
-          />
+          <div className="flex h-9 items-center text-xl font-medium tabular-nums">
+            {fecha.split('-').reverse().join('/')}
+          </div>
         </FieldBox>
         <FieldBox label="Cliente:" className="flex-1">
           <div className="flex h-9 items-center truncate text-xl font-bold uppercase">
             {orden ? orden.cliente.concepto : ''}
-            {tienda && (
-              <span className="ml-2 truncate font-semibold text-muted-foreground">
-                — {tienda.nombre}
-              </span>
-            )}
           </div>
         </FieldBox>
       </div>
@@ -298,7 +276,7 @@ export function RotuladoDespostePage() {
         ref={scrollRef}
         className={cn(
           'min-h-0 flex-1 rounded-sm border-2 border-border bg-card',
-          enProductos ? 'overflow-hidden' : 'overflow-auto',
+          enProductos || enEmbalaje ? 'overflow-hidden' : 'overflow-auto',
         )}
       >
         {tab === 'ordenes' ? (
@@ -307,7 +285,7 @@ export function RotuladoDespostePage() {
               <LoaderCircle className="size-6 animate-spin" />
             </div>
           ) : !ordenes.data?.length ? (
-            <Mensaje text="No hay órdenes de producción activas para esta fecha de proceso. Créalas en Administrativo → Órdenes de Producción." />
+            <Mensaje text="No hay órdenes de producción activas. Créalas en Administrativo → Órdenes de Producción." />
           ) : (
             <ul className="flex flex-col gap-2 p-2">
               {ordenes.data.map((o) => (
@@ -319,6 +297,9 @@ export function RotuladoDespostePage() {
                     {o.cliente.concepto}
                     <span className="mx-2 text-muted-foreground">|</span>
                     <span className="tabular-nums">{formatOD(o.dispatchOrder.odNumber)}</span>
+                    <span className="ml-3 text-sm font-normal text-muted-foreground">
+                      Proceso: {o.processDate.slice(0, 10).split('-').reverse().join('/')}
+                    </span>
                   </button>
                 </li>
               ))}
@@ -326,33 +307,28 @@ export function RotuladoDespostePage() {
           )
         ) : !orden ? (
           <Mensaje text="Selecciona una orden en la pestaña ÓRDENES." />
-        ) : tab === 'tiendas' ? (
-          <TiendasLista
-            clienteId={orden.cliente.id}
-            prefijo={prefijo}
-            seleccionada={tienda}
-            onSelect={elegirTienda}
-          />
-        ) : !tienda ? (
-          <Mensaje text="Selecciona una tienda en la pestaña TIENDAS." />
         ) : tab === 'productos' ? (
-          <ProductosLista
-            clienteId={orden.cliente.id}
-            seleccionado={producto}
-            onSelect={(p) => {
-              setProducto(p);
-              irA('embalaje');
-            }}
-          />
+          <ConPreparacion orden={orden}>
+            <ProductosLista
+              ordenId={orden.id}
+              clienteId={orden.cliente.id}
+              seleccionado={producto}
+              onSelect={(p) => {
+                setProducto(p);
+                irA('embalaje');
+              }}
+            />
+          </ConPreparacion>
         ) : tab === 'embalaje' ? (
           producto ? (
-            <EmbalajeDesposte
-              key={`${tienda.id}:${producto.id}`}
-              orden={orden}
-              tienda={tienda}
-              producto={producto}
-              prefijo={prefijo}
-            />
+            <ConPreparacion orden={orden}>
+              <EmbalajeDesposte
+                key={`${orden.id}:${producto.id}`}
+                orden={orden}
+                producto={producto}
+                prefijo={prefijo}
+              />
+            </ConPreparacion>
           ) : (
             <Mensaje text="Selecciona un producto en la pestaña PRODUCTOS." />
           )

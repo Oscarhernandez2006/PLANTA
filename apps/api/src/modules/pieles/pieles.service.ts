@@ -162,17 +162,27 @@ export class PielesService {
    * Lotes (órdenes) con animales caídos pendientes de pesar la piel. Sin
    * `dateStr` no filtra por fecha: un lote debe seguir apareciendo hasta que
    * todas sus pieles queden pesadas, sin importar el día calendario guardado
-   * en la orden. Una vez pesados todos sus animales, el lote desaparece de
-   * esta lista (ya no queda nada por hacer).
+   * en la orden. Los lotes con todas sus pieles pesadas siguen apareciendo
+   * el día de hoy (como completados).
    */
   async lotes(ctx: AuthContext, dateStr?: string) {
     const date = dateStr ? dateOnly(dateStr) : undefined;
+    const hoy = dateOnly();
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
         ...(date ? { date } : {}),
-        eventos: { some: { pesoPielKg: null } },
+        OR: [
+          { eventos: { some: { pesoPielKg: null } } },
+          {
+            date: hoy,
+            AND: [
+              { eventos: { some: {} } },
+              { eventos: { every: { pesoPielKg: { not: null } } } },
+            ],
+          },
+        ],
       },
       orderBy: [{ date: 'desc' }, { reference: 'asc' }],
       include: { eventos: { select: { pesoPielKg: true } } },

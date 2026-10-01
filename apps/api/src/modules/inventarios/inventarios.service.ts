@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { DispatchOrderStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { parseCanalBarcode } from '../../common/canal-barcode';
 import type { AuthContext } from '../../common/auth/auth-context';
@@ -63,12 +64,24 @@ export class InventariosService {
     };
   }
 
-  /** Piezas de canal (CIZQ/CDER/completa) actualmente ubicadas en una cava de Canal Caliente. */
+  /**
+   * Piezas de canal (CIZQ/CDER/completa) en una cava de Canal Caliente. Las que ya están en
+   * una orden de despacho activa siguen contando en su cava hasta que la orden se cierre,
+   * marcadas con la orden (y la de producción) en la que están.
+   */
   async cava(ctx: AuthContext, cava: string, dateStr?: string) {
     const date = dateStr ? plantDateOnly(dateStr) : undefined;
     const piezas = await this.prisma.canalPieza.findMany({
       where: {
-        cava,
+        OR: [
+          { cava },
+          {
+            despacho: {
+              cavaOrigen: cava,
+              dispatchOrder: { status: DispatchOrderStatus.activo, deletedAt: null },
+            },
+          },
+        ],
         evento: {
           ordenBeneficio: {
             plantId: ctx.plantId,
@@ -83,6 +96,20 @@ export class InventariosService {
           include: {
             ordenBeneficio: {
               select: { reference: true, cliente: true, date: true },
+            },
+          },
+        },
+        despacho: {
+          select: {
+            dispatchOrder: {
+              select: {
+                odNumber: true,
+                productionOrders: {
+                  where: { deletedAt: null },
+                  select: { opNumber: true },
+                  orderBy: { opNumber: 'asc' },
+                },
+              },
             },
           },
         },
@@ -104,6 +131,12 @@ export class InventariosService {
       destino: p.destino,
       observaciones: p.observaciones,
       pesoKg: Number(p.pesoKg),
+      enOrden: p.despacho
+        ? {
+            odNumber: p.despacho.dispatchOrder.odNumber,
+            opNumbers: p.despacho.dispatchOrder.productionOrders.map((o) => o.opNumber),
+          }
+        : null,
     }));
   }
 

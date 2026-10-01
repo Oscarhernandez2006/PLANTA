@@ -1,12 +1,23 @@
 // Borra TODA la información transaccional (pruebas) dejando intactos los
-// catálogos (clientes, proveedores, procedencias, conductores, productos),
-// usuarios/operarios y equipos registrados. Pensado para dejar la BD lista
-// antes de salir a producción. Uso: node packages/database/scripts/reset-produccion.cjs
+// catálogos (clientes con sus tiendas, bodegas y conservación, proveedores,
+// procedencias, conductores, productos), usuarios/operarios y equipos registrados.
+// Pensado para dejar la BD lista antes de salir a producción.
+// Uso: node packages/database/scripts/reset-produccion.cjs
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
 async function main() {
   await prisma.$transaction([
+    // Rotulado Desposte / Órdenes de producción
+    prisma.rotuladoEtiqueta.deleteMany(),
+    prisma.rotuladoCanastilla.deleteMany(),
+    prisma.rotuladoConsecutivo.deleteMany(),
+    prisma.productionOrder.deleteMany(),
+
+    // Despacho (Canal Fría): los ítems apuntan a piezas de canal
+    prisma.dispatchOrderItem.deleteMany(),
+    prisma.dispatchOrder.deleteMany(),
+
     // Canal Caliente / Subproductos / Órdenes de beneficio (de más hijo a más padre)
     prisma.canalTraslado.deleteMany(),
     prisma.canalPieza.deleteMany(),
@@ -28,9 +39,6 @@ async function main() {
     prisma.canalReceiptItem.deleteMany(),
     prisma.canalReceiptOrder.deleteMany(),
 
-    // Despacho
-    prisma.dispatchOrder.deleteMany(),
-
     // Ingreso de mercancía + auditoría
     prisma.goodsReceiptItem.deleteMany(),
     prisma.goodsReceipt.deleteMany(),
@@ -43,7 +51,7 @@ async function main() {
   ]);
 
   console.log(
-    'Listo: se borraron todas las transacciones. Catálogos (clientes, proveedores, procedencias, conductores, productos), usuarios y equipos quedaron intactos.',
+    'Listo: se borraron todas las transacciones. Catálogos (clientes, tiendas, bodegas, conservación, proveedores, procedencias, conductores, productos), usuarios y equipos quedaron intactos.',
   );
 }
 

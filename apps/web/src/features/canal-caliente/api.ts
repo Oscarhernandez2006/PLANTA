@@ -39,8 +39,6 @@ export const CANAL_ANIMAL_TIPO_LABEL: Record<CanalAnimalTipo, string> = {
   bufalo: 'BUFALO',
 };
 
-export const BODEGAS = ['BODEGA 1', 'BODEGA 2', 'BODEGA 3'];
-
 export interface ClienteBodega {
   id: string;
   code: number;

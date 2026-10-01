@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
 import {
+  Check,
   ChevronDown,
   ChevronUp,
   Gauge,
@@ -15,9 +16,9 @@ import {
 import { Dialog } from '@/components/ui/dialog';
 import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { useBascula } from '@/components/bascula/Bascula';
-import { PrinterConexion } from '@/components/printer/PrinterConexion';
 import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
+import { useBodegas } from '../clientes/api';
 import {
   useCanalLotes,
   useCanalLoteDetail,
@@ -30,7 +31,6 @@ import {
   CANAL_TIPO_LABEL,
   CANAL_ANIMAL_TIPO_LABEL,
   PIEZA_LABEL,
-  BODEGAS,
   useClientesBodega,
   CAVAS,
   type CanalAnimal,
@@ -388,41 +388,93 @@ function FieldBox({
 }
 
 /**
- * Campo "Bodegas": la pieza se asigna al cliente que la compró, aunque ese
- * cliente luego la revenda a otro (la canal sigue figurando a nombre del
- * comprador principal; el revendido se anota aparte en "Destino"). Es texto
- * libre con sugerencias (clientes reales + las 3 bodegas fijas históricas)
- * para no depender de una lista cerrada: si hay un cliente nuevo, se escribe
- * y listo, no hace falta "crear" la bodega en ningún lado.
+ * Campo "Bodegas": solo las bodegas (internas del software) del cliente de la
+ * orden, como botones grandes para pantalla táctil. Se guarda el nombre.
  */
 function BodegaField({
+  clienteNombre,
   value,
   onChange,
 }: {
+  clienteNombre: string | undefined;
   value: string;
   onChange: (value: string) => void;
 }) {
   const clientes = useClientesBodega('');
-  const opciones = useMemo(() => {
-    const nombres = (clientes.data ?? []).map((c) => c.concepto);
-    return Array.from(new Set([...BODEGAS, ...nombres]));
-  }, [clientes.data]);
+  const cliente = (clientes.data ?? []).find((c) => c.concepto === clienteNombre);
+  if (clientes.isLoading) {
+    return <LoaderCircle className="my-2 size-5 animate-spin text-muted-foreground" />;
+  }
+  if (!cliente) {
+    return (
+      <p className="py-2 text-sm text-muted-foreground">
+        {clienteNombre ? `El cliente ${clienteNombre} no está en el catálogo de Clientes.` : 'Selecciona un animal.'}
+      </p>
+    );
+  }
+  return <BodegasCliente clienteId={cliente.id} value={value} onChange={onChange} />;
+}
 
+function BodegasCliente({
+  clienteId,
+  value,
+  onChange,
+}: {
+  clienteId: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const bodegas = useBodegas(clienteId);
+  const activas = (bodegas.data ?? []).filter((b) => b.active);
+
+  // Por defecto queda la primera bodega del cliente (se puede cambiar).
+  const primera = activas[0]?.nombre ?? '';
+  const valida = activas.some((b) => b.nombre === value);
+  useEffect(() => {
+    if (primera && !valida) onChange(primera);
+  }, [primera, valida]);
+
+  if (bodegas.isLoading) {
+    return <LoaderCircle className="my-2 size-5 animate-spin text-muted-foreground" />;
+  }
+  if (!activas.length) {
+    return (
+      <p className="py-2 text-sm text-muted-foreground">
+        El cliente no tiene bodegas activas (Administrativo → Clientes → Bodegas).
+      </p>
+    );
+  }
   return (
-    <>
-      <input
-        list="bodegas-opciones"
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder="Cliente / bodega…"
-        className="h-9 w-full bg-transparent text-base font-medium outline-none"
-      />
-      <datalist id="bodegas-opciones">
-        {opciones.map((o) => (
-          <option key={o} value={o} />
-        ))}
-      </datalist>
-    </>
+    <ul className="my-1 flex max-h-32 flex-col gap-1 overflow-auto">
+      {activas.map((b) => {
+        const sel = value === b.nombre;
+        return (
+          <li key={b.id}>
+            <button
+              type="button"
+              onClick={() => onChange(b.nombre)}
+              aria-pressed={sel}
+              className={cn(
+                'flex h-10 w-full select-none items-center gap-2 rounded-md border-2 px-3 text-left text-sm font-semibold uppercase transition-colors',
+                sel
+                  ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
+                  : 'border-border bg-card hover:bg-muted',
+              )}
+            >
+              <span
+                className={cn(
+                  'flex size-5 shrink-0 items-center justify-center rounded-full border-2',
+                  sel ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-muted-foreground/50',
+                )}
+              >
+                {sel && <Check className="size-3.5" />}
+              </span>
+              <span className="tabular-nums">{b.code}</span> - {b.nombre}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
@@ -878,7 +930,6 @@ function AnimalesTab({
 
   return (
     <div className="flex h-full flex-col gap-4">
-      <PrinterConexion />
       <div className="flex flex-1 flex-col gap-4 p-4">
       <div>
         <p className="mb-2 text-sm font-semibold text-muted-foreground">
@@ -932,7 +983,7 @@ function AnimalesTab({
       >
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <FieldBox label="Bodegas:">
-            <BodegaField value={bodega} onChange={setBodega} />
+            <BodegaField clienteNombre={detail?.cliente} value={bodega} onChange={setBodega} />
           </FieldBox>
           <FieldBox label="Destino:">
             <textarea

@@ -222,6 +222,7 @@ function OrdenesTab({
     <ul className="flex flex-col gap-2 p-3">
       {lotes.map((l) => {
         const activo = l.ordenBeneficioId === selectedId;
+        const completada = l.caidos >= l.animalCount && l.pesados >= l.caidos;
         return (
           <li key={l.ordenBeneficioId}>
             <button
@@ -230,15 +231,23 @@ function OrdenesTab({
                 'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
                 activo
                   ? 'border-emerald-500 bg-emerald-50'
-                  : 'border-border bg-card hover:bg-muted/50',
+                  : completada
+                    ? 'border-border bg-muted/40 text-muted-foreground hover:bg-muted/60'
+                    : 'border-border bg-card hover:bg-muted/50',
               )}
             >
               <span>
                 <span className="font-bold tabular-nums">{formatOB(l.reference)}</span>{' '}
                 <span className="text-muted-foreground">|</span> {l.cliente}
               </span>
-              <span className="tabular-nums text-sm text-muted-foreground">
+              <span className="flex shrink-0 items-center gap-2 tabular-nums text-sm text-muted-foreground">
                 {l.pesados}/{l.caidos} pesados
+                {completada && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold uppercase text-emerald-700">
+                    <Check className="size-3.5" />
+                    Completada
+                  </span>
+                )}
               </span>
             </button>
           </li>
@@ -317,14 +326,14 @@ function PielesTab({
             <Clock className="size-4" /> Aún no hay pieles pesadas.
           </div>
         ) : (
-          <div className="max-h-72 overflow-auto">
+          <div className="max-h-72 overflow-auto rounded-md border border-border">
             <Table>
-              <THead>
-                <TR>
-                  <TH className="w-16">#</TH>
-                  <TH>Hora</TH>
-                  <TH>Operario</TH>
-                  <TH>Peso (kg)</TH>
+              <THead className="sticky top-0 z-10 bg-muted">
+                <TR className="border-b-2 border-border">
+                  <TH className="w-20 border-r border-border text-center">#</TH>
+                  <TH className="w-48 border-r border-border">Hora</TH>
+                  <TH className="border-r border-border">Operario</TH>
+                  <TH className="w-32 text-right">Peso (kg)</TH>
                 </TR>
               </THead>
               <TBody>
@@ -332,11 +341,13 @@ function PielesTab({
                   .filter((a) => a.pesado)
                   .reverse()
                   .map((a) => (
-                    <TR key={a.eventoId}>
-                      <TD className="font-semibold tabular-nums">{codigoAnimal(a.sequence)}</TD>
-                      <TD className="tabular-nums">{hora(a.pieladoAt)}</TD>
-                      <TD>{a.operatorName ?? '—'}</TD>
-                      <TD className="tabular-nums">{a.pesoKg?.toFixed(2)}</TD>
+                    <TR key={a.eventoId} className="border-b border-border even:bg-muted/30">
+                      <TD className="border-r border-border text-center font-semibold tabular-nums">
+                        {codigoAnimal(a.sequence)}
+                      </TD>
+                      <TD className="border-r border-border tabular-nums">{hora(a.pieladoAt)}</TD>
+                      <TD className="border-r border-border">{a.operatorName ?? '—'}</TD>
+                      <TD className="text-right tabular-nums">{a.pesoKg?.toFixed(2)}</TD>
                     </TR>
                   ))}
               </TBody>

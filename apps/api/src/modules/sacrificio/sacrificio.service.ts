@@ -6,6 +6,7 @@ import {
 import { OrdenBeneficioStatus } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
+import { plantToday } from '../../common/plant-date';
 import { itemsParaAnimal } from '../subproductos/subproducto-items';
 
 @Injectable()
@@ -47,13 +48,17 @@ export class SacrificioService {
     return new Map(rows.map((r) => [r.concepto, r.nit]));
   }
 
-  /** Órdenes de beneficio activas: pendientes o en proceso de sacrificio. */
+  /** Órdenes activas y las ya completadas del día (quedan visibles como completadas). */
   async pendientes(ctx: AuthContext) {
+    const hoy = new Date(`${plantToday()}T00:00:00.000Z`);
     const rows = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        status: OrdenBeneficioStatus.activo,
+        OR: [
+          { status: OrdenBeneficioStatus.activo },
+          { status: OrdenBeneficioStatus.procesado, date: hoy },
+        ],
       },
       orderBy: [{ date: 'asc' }, { reference: 'asc' }],
       include: { _count: { select: { eventos: true } } },

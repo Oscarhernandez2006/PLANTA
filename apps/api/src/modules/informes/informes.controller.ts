@@ -22,4 +22,17 @@ export class InformesController {
   ) {
     return this.service.canalCalienteDetalle(user, ordenId);
   }
+
+  @Get('produccion')
+  produccion(@CurrentUser() user: AuthContext, @Query() query: QueryInformeDto) {
+    return this.service.produccion(user, query.hasta);
+  }
+
+  @Get('produccion/:opId')
+  produccionDetalle(
+    @CurrentUser() user: AuthContext,
+    @Param('opId', ParseUUIDPipe) opId: string,
+  ) {
+    return this.service.produccionDetalle(user, opId);
+  }
 }

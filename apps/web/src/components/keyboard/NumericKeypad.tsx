@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Check, Delete } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const TECLAS = ['7', '8', '9', '4', '5', '6', '1', '2', '3', ',', '0', '.'];
 
 /**
- * Teclado numérico en pantalla (dígitos, punto y coma) anclado debajo del campo.
- * El contenedor del campo debe ser `relative`.
+ * Teclado numérico en pantalla (dígitos, punto y coma) junto al campo que lo contiene.
+ * Se posiciona fijo en la ventana para no quedar recortado por contenedores con scroll.
  */
 export function NumericKeypad({
   value,
@@ -22,6 +22,18 @@ export function NumericKeypad({
   const ref = useRef<HTMLDivElement>(null);
   // La primera tecla reemplaza el valor (p. ej. "0.00").
   const [nuevo, setNuevo] = useState(true);
+  const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const campo = ref.current?.parentElement?.getBoundingClientRect();
+    const alto = ref.current?.offsetHeight ?? 0;
+    const ancho = ref.current?.offsetWidth ?? 0;
+    if (!campo) return;
+    const abajo = campo.bottom + 8;
+    const top = abajo + alto <= window.innerHeight ? abajo : Math.max(8, campo.top - alto - 8);
+    const left = Math.min(campo.left, window.innerWidth - ancho - 8);
+    setPos({ left, top });
+  }, []);
 
   useEffect(() => {
     function fuera(e: PointerEvent) {
@@ -59,8 +71,9 @@ export function NumericKeypad({
       ref={ref}
       // Evita que el campo pierda el foco al tocar las teclas.
       onPointerDown={(e) => e.preventDefault()}
+      style={pos ?? { visibility: 'hidden' }}
       className={cn(
-        'absolute left-0 top-full z-50 mt-2 w-64 rounded-lg border-2 border-border bg-background p-2 shadow-xl',
+        'fixed z-50 w-64 rounded-lg border-2 border-border bg-background p-2 shadow-xl',
         className,
       )}
     >

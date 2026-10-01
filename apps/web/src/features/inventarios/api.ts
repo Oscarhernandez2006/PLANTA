@@ -31,6 +31,8 @@ export interface CavaAnimalRow {
   destino: string | null;
   observaciones: string | null;
   pesoKg: number;
+  /** Orden de despacho activa (y de producción) en la que ya está la pieza; null = libre en cava. */
+  enOrden: { odNumber: number; opNumbers: number[] } | null;
 }
 
 export type CavaSubproductoCategoria =

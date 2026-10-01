@@ -3,7 +3,13 @@ import {
   codigoBarras,
   type PresintoTicketData,
 } from './canal-presinto-print';
-import { getSavedPrinterName, isDesktop, printRaw } from '@/lib/device';
+import {
+  getSavedPrinterName,
+  isDesktop,
+  listPrinters,
+  printRaw,
+  setSavedPrinterName,
+} from '@/lib/device';
 
 /**
  * Generador de ZPL para el presinto de Canal Caliente, pensado para una
@@ -335,13 +341,24 @@ export async function imprimirPresintoDirecto(
     };
   }
 
-  const printerName = getSavedPrinterName();
+  let printerName = getSavedPrinterName();
+  if (!printerName) {
+    // Sin configuración guardada: toma la Zebra instalada o la predeterminada de Windows.
+    const impresoras = await listPrinters();
+    const elegida =
+      impresoras.find((p) => /zebra|zdesigner/i.test(p.name)) ??
+      impresoras.find((p) => p.isDefault);
+    if (elegida) {
+      printerName = elegida.name;
+      setSavedPrinterName(elegida.name);
+    }
+  }
   if (!printerName) {
     descargarPresintoZPL(d);
     return {
       ok: false,
       directo: false,
-      error: 'No hay impresora configurada (abre "Impresora de presintos").',
+      error: 'No se encontró ninguna impresora instalada en este equipo.',
     };
   }
 

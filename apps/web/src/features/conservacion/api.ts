@@ -17,6 +17,9 @@ export interface DatosConservacion {
   refrigeradoTemp: string;
   congeladoDias: number;
   congeladoTemp: string;
+  /** Piezas Desposte: piezas que salen por canal y unidades por caja/canastilla. */
+  piezasPorCanal: number;
+  undsPorCaja: number;
 }
 
 export interface ProductoAsignado extends DatosConservacion {

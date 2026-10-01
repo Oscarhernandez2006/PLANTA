@@ -51,4 +51,16 @@ export class ActualizarConservacionDto {
   @IsNotEmpty()
   @MaxLength(40)
   congeladoTemp?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  piezasPorCanal?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(999)
+  undsPorCaja?: number;
 }

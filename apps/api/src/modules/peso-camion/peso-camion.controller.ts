@@ -41,7 +41,7 @@ export class PesoCamionController {
     @CurrentUser() user: AuthContext,
     @Query() query: QueryPesoCamionDto,
   ) {
-    return this.service.findAll(user, query.status);
+    return this.service.findAll(user, query.status, query.pieStatus);
   }
 
   @Get(':id')
@@ -67,5 +67,13 @@ export class PesoCamionController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.close(user, id);
+  }
+
+  @Patch(':id/close-pie')
+  closePie(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.closePie(user, id);
   }
 }

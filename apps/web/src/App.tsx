@@ -32,6 +32,7 @@ import { OrdenProduccionPage } from './features/registrar/OrdenProduccionPage';
 import { ProductosPage } from './features/products/ProductosPage';
 import { ClientesPage } from './features/clientes/ClientesPage';
 import { ConservacionPage } from './features/conservacion/ConservacionPage';
+import { PiezasDespostePage } from './features/piezas-desposte/PiezasDespostePage';
 import { InformesPage } from './features/informes/InformesPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { GoodsReceiptsPage } from './features/goods-receipts/GoodsReceiptsPage';
@@ -68,6 +69,7 @@ const router = createBrowserRouter([
       { path: 'productos', element: <ProductosPage /> },
       { path: 'clientes', element: <ClientesPage /> },
       { path: 'conservacion', element: <ConservacionPage /> },
+      { path: 'piezas-desposte', element: <PiezasDespostePage /> },
       { path: 'informes', element: <InformesPage /> },
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
       { path: 'equipos', element: <DevicesPage /> },

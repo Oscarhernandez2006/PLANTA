@@ -171,6 +171,9 @@ model ClienteTienda {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  etiquetas RotuladoEtiqueta[]
+  canastillas RotuladoCanastilla[]
+  ordenesProduccion ProductionOrderTienda[]
 
   @@unique([clienteId, codigo])
   @@unique([clienteId, nombre])
@@ -189,6 +192,7 @@ model Bodega {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  etiquetas RotuladoEtiqueta[]
 
   @@unique([clienteId, nombre])
   @@map("bodega")
@@ -204,6 +208,9 @@ model ClienteProducto {
   refrigeradoTemp String   @default("0°C A 4°C") @map("refrigerado_temp")
   congeladoDias   Int      @default(0) @map("congelado_dias")
   congeladoTemp   String   @default("-18°C A -25°C") @map("congelado_temp")
+  // Piezas Desposte: cuántas piezas de este producto salen por canal y cuántas van por caja/canastilla.
+  piezasPorCanal  Int      @default(1) @map("piezas_por_canal")
+  undsPorCaja     Int      @default(1) @map("unds_por_caja")
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
@@ -248,6 +255,8 @@ model PesoCamion {
   netoKg         Decimal?         @map("neto_kg") @db.Decimal(12, 2)
   pesoPromedioKg Decimal?         @map("peso_promedio_kg") @db.Decimal(12, 2)
   status         PesoCamionStatus @default(abierta)
+  // Estado de la guía en Peso en Pie: se abre con el camión y se cierra aparte.
+  pieStatus      PesoCamionStatus @default(abierta) @map("pie_status")
   createdById    String           @map("created_by") @db.Uuid
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -255,6 +264,7 @@ model PesoCamion {
 
   @@unique([plantId, date, reference])
   @@index([plantId, status])
+  @@index([plantId, pieStatus])
   @@map("peso_camion")
 }
 
@@ -305,6 +315,9 @@ model ProductionOrder {
   dispatchOrder DispatchOrder @relation(fields: [dispatchOrderId], references: [id])
   createdBy     AppUser       @relation("productionCreatedBy", fields: [createdById], references: [id])
   rotuladoConsecutivos RotuladoConsecutivo[]
+  etiquetas            RotuladoEtiqueta[]
+  canastillas          RotuladoCanastilla[]
+  tiendas              ProductionOrderTienda[]
 
   @@unique([plantId, opNumber])
   @@index([plantId, status])
@@ -327,9 +340,98 @@ model RotuladoConsecutivo {
   @@map("rotulado_consecutivo")
 }
 
-// Salida de una pieza de canal de su cava hacia una orden de despacho. La pieza
-// deja de figurar en el inventario de cavas, pero queda registrada su cava de
-// origen, el peso y quién la despachó (trazabilidad hacia atrás).
+// Preparar orden: cuántas canales de la orden de producción van a cada tienda del cliente.
+model ProductionOrderTienda {
+  id                String   @id @default(uuid()) @db.Uuid
+  productionOrderId String   @map("production_order_id") @db.Uuid
+  tiendaId          String   @map("tienda_id") @db.Uuid
+  cantidad          Int
+  createdById       String   @map("created_by") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id], onDelete: Cascade)
+  tienda          ClienteTienda   @relation(fields: [tiendaId], references: [id])
+  createdBy       AppUser         @relation("productionTiendaCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([productionOrderId, tiendaId])
+  @@map("production_order_tienda")
+}
+
+// Etiqueta de producto impresa en Rotulado Desposte, ligada a su orden de producción.
+model RotuladoEtiqueta {
+  id                String    @id @default(uuid()) @db.Uuid
+  plantId           String    @map("plant_id") @db.Uuid
+  productionOrderId String    @map("production_order_id") @db.Uuid
+  productId         String    @map("product_id") @db.Uuid
+  tiendaId          String    @map("tienda_id") @db.Uuid
+  bodegaId          String?   @map("bodega_id") @db.Uuid
+  pieza             Int
+  taraKg            Decimal   @map("tara_kg") @db.Decimal(12, 2)
+  brutoKg           Decimal   @map("bruto_kg") @db.Decimal(12, 2)
+  netoKg            Decimal   @map("neto_kg") @db.Decimal(12, 2)
+  empaque           String
+  conservacion      String
+  temperatura       String
+  fechaSacrificio   DateTime  @map("fecha_sacrificio") @db.Date
+  fechaEmpaque      DateTime  @map("fecha_empaque") @db.Date
+  fechaVencimiento  DateTime? @map("fecha_vencimiento") @db.Date
+  ref               String?
+  procesadoPara     String?   @map("procesado_para")
+  impresa           Boolean   @default(true)
+  // Pieza etiquetada cuando la tienda ya tenía completo el producto.
+  sobrante          Boolean   @default(false)
+  canastillaId      String?   @map("canastilla_id") @db.Uuid
+  createdById       String    @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(6)
+  deletedById       String?   @map("deleted_by") @db.Uuid
+
+  plant           Plant           @relation(fields: [plantId], references: [id])
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  product         Product         @relation(fields: [productId], references: [id])
+  tienda          ClienteTienda   @relation(fields: [tiendaId], references: [id])
+  bodega          Bodega?         @relation(fields: [bodegaId], references: [id])
+  canastilla      RotuladoCanastilla? @relation(fields: [canastillaId], references: [id])
+  createdBy       AppUser         @relation("rotuladoEtiquetaCreatedBy", fields: [createdById], references: [id])
+  deletedBy       AppUser?        @relation("rotuladoEtiquetaDeletedBy", fields: [deletedById], references: [id])
+
+  @@unique([productionOrderId, productId, pieza])
+  @@index([productionOrderId, productId, tiendaId])
+  @@index([canastillaId])
+  @@map("rotulado_etiqueta")
+}
+
+// Canastilla (caja) de Rotulado Desposte: agrupa piezas de un producto para una tienda.
+// Mientras cerradaAt es null sigue abierta (máximo una abierta por orden y producto).
+model RotuladoCanastilla {
+  id                String    @id @default(uuid()) @db.Uuid
+  plantId           String    @map("plant_id") @db.Uuid
+  productionOrderId String    @map("production_order_id") @db.Uuid
+  productId         String    @map("product_id") @db.Uuid
+  tiendaId          String    @map("tienda_id") @db.Uuid
+  numero            Int
+  taraKg            Decimal?  @map("tara_kg") @db.Decimal(12, 2)
+  brutoKg           Decimal?  @map("bruto_kg") @db.Decimal(12, 2)
+  netoKg            Decimal?  @map("neto_kg") @db.Decimal(12, 2)
+  unds              Int?
+  cerradaAt         DateTime? @map("cerrada_at") @db.Timestamptz(6)
+  cerradaById       String?   @map("cerrada_by") @db.Uuid
+  createdById       String    @map("created_by") @db.Uuid
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  productionOrder ProductionOrder    @relation(fields: [productionOrderId], references: [id])
+  tienda          ClienteTienda      @relation(fields: [tiendaId], references: [id])
+  etiquetas       RotuladoEtiqueta[]
+
+  @@unique([productionOrderId, productId, numero])
+  @@index([productionOrderId, productId, cerradaAt])
+  @@map("rotulado_canastilla")
+}
+
+// Salida de una pieza de canal de su cava hacia una orden de despacho. Mientras la
+// orden está activa la pieza sigue en el inventario de su cava de origen (marcada con
+// la orden); queda registrado el peso y quién la despachó (trazabilidad hacia atrás).
 model DispatchOrderItem {
   id              String   @id @default(uuid()) @db.Uuid
   dispatchOrderId String   @map("dispatch_order_id") @db.Uuid
@@ -455,6 +557,7 @@ model Product {
   postaReceiptItems PostaReceiptItem[]
   clientes          ClienteProducto[]
   rotuladoConsecutivos RotuladoConsecutivo[]
+  rotuladoEtiquetas    RotuladoEtiqueta[]
 
   @@unique([plantId, codigo])
   @@index([plantId])
@@ -479,6 +582,7 @@ model Plant {
   dispatchOrders DispatchOrder[]
   productionOrders ProductionOrder[]
   rotuladoConsecutivos RotuladoConsecutivo[]
+  rotuladoEtiquetas    RotuladoEtiqueta[]
   canalReceipts  CanalReceiptOrder[]
   canalReceiptItems CanalReceiptItem[]
   postaReceipts  PostaReceiptOrder[]
@@ -510,6 +614,9 @@ model AppUser {
   dispatchOrders     DispatchOrder[] @relation("dispatchCreatedBy")
   dispatchItems      DispatchOrderItem[] @relation("dispatchItemCreatedBy")
   productionOrders   ProductionOrder[] @relation("productionCreatedBy")
+  rotuladoEtiquetas         RotuladoEtiqueta[] @relation("rotuladoEtiquetaCreatedBy")
+  rotuladoEtiquetasBorradas RotuladoEtiqueta[] @relation("rotuladoEtiquetaDeletedBy")
+  productionTiendas         ProductionOrderTienda[] @relation("productionTiendaCreatedBy")
   canalReceipts      CanalReceiptOrder[] @relation("canalReceiptCreatedBy")
   canalReceiptItems  CanalReceiptItem[] @relation("canalReceiptItemCreatedBy")
   postaReceipts      PostaReceiptOrder[] @relation("postaReceiptCreatedBy")

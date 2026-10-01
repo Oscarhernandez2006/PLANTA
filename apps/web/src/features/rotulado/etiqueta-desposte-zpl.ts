@@ -14,6 +14,8 @@ export interface EtiquetaDesposteDatos {
   conservacion: string;
   temperatura: string;
   ref: string;
+  /** Solo en la etiqueta de canastilla: `pieza` son las unidades que lleva. */
+  canastilla?: { numero: number; taraKg: number; brutoKg: number };
 }
 
 const dots = (mm: number) => Math.round((mm * 203) / 25.4);
@@ -66,7 +68,11 @@ function fecha(value: string) {
 export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: string) {
   const loteCodigo = datos.lote.replace(/\D/g, '');
   const productoCodigo = datos.productoCodigo.replace(/\D/g, '');
-  const piezaCodigo = String(datos.pieza).padStart(4, '0');
+  const canastilla = datos.canastilla;
+  const piezaCodigo = canastilla
+    ? `C${String(canastilla.numero).padStart(3, '0')}`
+    : String(datos.pieza).padStart(4, '0');
+  const piezaTexto = canastilla ? String(datos.pieza).padStart(2, '0') : String(datos.pieza);
   const codigo = `${loteCodigo}${productoCodigo}${piezaCodigo}`;
   const nombreProducto = datos.productoNombre.trim().toUpperCase();
   const nombre = nombreProducto.endsWith(datos.empaque.toUpperCase())
@@ -94,14 +100,22 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
     texto(14, 151, 23, 18, datos.lote),
     texto(130, 148, 18, 18, datos.ref || '---'),
     texto(220, 151, 20, 18, 'BOVINO'),
-    texto(328, 151, 23, 18, String(datos.pieza)),
+    texto(328, 151, 23, 18, piezaTexto),
     '^FO360,124^GB2,116,2^FS',
     '^FO12,172^GB350,2,2^FS',
     texto(14, 180, 19, 22, `FECHA DE SACRIFICIO:    ${fecha(datos.sacrificio)}`),
     texto(14, 200, 19, 22, `FECHA DE PRODUCCION:  ${fecha(datos.produccion)}`),
     texto(14, 220, 19, 22, `FECHA DE VENCIMIENTO: ${fecha(datos.vencimiento)}`),
     texto(388, 130, 20, 14, 'NETO (kg)'),
-    texto(364, 152, 110, 55, datos.netoKg.toFixed(2)),
+    ...(canastilla
+      ? [
+          texto(366, 148, 70, 36, datos.netoKg.toFixed(2)),
+          texto(366, 200, 13, 9, 'TARA(kg)'),
+          texto(418, 200, 13, 9, 'BRUTO(kg)'),
+          texto(370, 215, 20, 14, canastilla.taraKg.toFixed(1)),
+          texto(422, 215, 20, 14, canastilla.brutoKg.toFixed(1)),
+        ]
+      : [texto(364, 152, 110, 55, datos.netoKg.toFixed(2))]),
     '^FO12,238^GB455,2,2^FS',
     texto(14, 243, 20, 20, `CONSERVACION: ${datos.conservacion.toUpperCase()} ${datos.temperatura}`),
     texto(14, 261, 20, 17, 'Instruciones de uso: Cocinar completamente antes de consumir.'),

@@ -6,6 +6,7 @@ import {
   Gauge,
   Inbox,
   LoaderCircle,
+  Lock,
   Package,
   Pencil,
   Printer,
@@ -35,7 +36,8 @@ import {
   type PesoEnPie,
 } from './api';
 import {
-  usePesoCamionAbiertas,
+  usePesoCamionPieAbiertas,
+  useCloseGuiaPie,
   formatReferencia,
   type PesoCamionGuia,
 } from '../peso-en-camion/api';
@@ -76,9 +78,19 @@ export function PesoEnPiePage() {
   const [notice, setNotice] = useState<string | null>(null);
   const [isReadingScale, setIsReadingScale] = useState(false);
 
+  // Los mensajes de error se quitan solos a los 3 segundos.
+  useEffect(() => {
+    if (!saveError) return;
+    const t = window.setTimeout(() => setSaveError(null), 3000);
+    return () => window.clearTimeout(t);
+  }, [saveError]);
+
   const { user } = useAuth();
   const lista = usePesoEnPieList();
-  const guiasCamion = usePesoCamionAbiertas();
+  const guiasCamion = usePesoCamionPieAbiertas();
+  const cerrarGuiaPie = useCloseGuiaPie();
+  const [guiaCamionId, setGuiaCamionId] = useState<string | null>(null);
+  const [netoCamion, setNetoCamion] = useState<number | null>(null);
   const crear = useCreatePesoEnPie();
   const actualizar = useUpdatePesoEnPie();
 
@@ -154,6 +166,8 @@ export function PesoEnPiePage() {
     setEntrada('');
     setSalida('');
     setBcReference(null);
+    setGuiaCamionId(null);
+    setNetoCamion(null);
     setTipoAnimal('');
     setCorral('');
     setPeso('');
@@ -184,6 +198,8 @@ export function PesoEnPiePage() {
     setEntrada(guiaCamion.entrada == null ? '' : String(guiaCamion.entrada));
     setSalida(guiaCamion.salida == null ? '' : String(guiaCamion.salida));
     setBcReference(guiaCamion.reference);
+    setGuiaCamionId(guiaCamion.id);
+    setNetoCamion(guiaCamion.neto);
     setCorral('');
     setTab('registro');
     setNotice(`Guía ${guiaCamion.guia ?? guiaCamion.reference} cargada para asignar animales.`);
@@ -219,6 +235,12 @@ export function PesoEnPiePage() {
     }
     if (guiaCompleta) {
       setSaveError(`Esta guía ya tiene registrados sus ${animalesObjetivo} animales.`);
+      return;
+    }
+    if (netoCamion != null && totalKg + pesoNum > netoCamion + 1e-6) {
+      setSaveError(
+        `El total en pie (${kg(totalKg + pesoNum)} kg) superaría el neto de báscula camión (${kg(netoCamion)} kg). Disponible: ${kg(Math.max(netoCamion - totalKg, 0))} kg.`,
+      );
       return;
     }
     setSaveError(null);
@@ -305,6 +327,27 @@ export function PesoEnPiePage() {
     });
   }
 
+  async function cerrarGuia() {
+    if (!guiaCamionId) return;
+    if (!window.confirm(`¿Cerrar la guía ${guia} en Peso en Pie? Sus animales pasan a beneficio.`)) return;
+    setSaveError(null);
+    try {
+      await cerrarGuiaPie.mutateAsync(guiaCamionId);
+      const cerrada = guia;
+      limpiar();
+      setTab('guias');
+      setNotice(`Guía ${cerrada} cerrada en Peso en Pie.`);
+      window.setTimeout(() => setNotice(null), 3000);
+    } catch (error) {
+      const detail = (
+        error as { response?: { data?: { message?: string | string[] } } }
+      ).response?.data?.message;
+      setSaveError(
+        Array.isArray(detail) ? detail.join(' ') : detail || 'No se pudo cerrar la guía.',
+      );
+    }
+  }
+
   function imprimirPrecinto() {
     if (!guiaSeleccionada) {
       setSaveError('Selecciona una guía abierta para imprimir precintos.');
@@ -349,6 +392,16 @@ export function PesoEnPiePage() {
             disabled={animalesRegistrados < 1}
           >
             <Printer className="size-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Cerrar guía en Peso en Pie (el camión sigue con su propio estado)"
+            onClick={cerrarGuia}
+            disabled={!guiaCamionId || cerrarGuiaPie.isPending}
+          >
+            <Lock className="size-4" />
           </Button>
           <Button
             variant="outline"

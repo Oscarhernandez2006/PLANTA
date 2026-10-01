@@ -56,3 +56,55 @@ export function useDetalleCanalCaliente(ordenId: string) {
       (await api.get<DetalleCanalCaliente>(`/informes/canal-caliente/${ordenId}`)).data,
   });
 }
+
+// ---- Informe de producción ----
+
+export type EstadoOP = 'activo' | 'inactivo' | 'facturado';
+
+export interface InformeProduccionRow {
+  id: string;
+  opNumber: number;
+  odNumber: number;
+  clienteId: string;
+  cliente: string;
+  clienteNit: string | null;
+  processDate: string;
+  status: EstadoOP;
+}
+
+export interface DetalleProduccion extends InformeProduccionRow {
+  productoTerminado: string | null;
+  fechaSacrificio: string | null;
+  fechaIngreso: string | null;
+  detalle: { codigo: string; producto: string; piezas: number; kg: number }[];
+  /** Canastillas etiquetadas en Rotulado Desposte (una fila por canastilla). */
+  etiquetado: {
+    codigo: string;
+    producto: string;
+    tiendaCodigo: string;
+    tienda: string;
+    canastilla: number | null;
+    unds: number;
+    sobrantes: number;
+    kg: number;
+    rendimiento: number;
+  }[];
+}
+
+export function useInformeProduccion(hasta: string) {
+  return useQuery({
+    queryKey: ['informes', 'produccion', hasta],
+    queryFn: async () =>
+      (
+        await api.get<InformeProduccionRow[]>('/informes/produccion', { params: { hasta } })
+      ).data,
+  });
+}
+
+export function useDetalleProduccion(opId: string) {
+  return useQuery({
+    queryKey: ['informes', 'produccion', 'detalle', opId],
+    queryFn: async () =>
+      (await api.get<DetalleProduccion>(`/informes/produccion/${opId}`)).data,
+  });
+}

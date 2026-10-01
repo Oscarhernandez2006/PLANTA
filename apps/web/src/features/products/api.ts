@@ -47,6 +47,20 @@ export const CATEGORIAS_PRODUCTO = [
   'RES PRODUCTOS TERMINADOS',
 ];
 
+/** Tipo de conservación que corresponde a la categoría del producto. */
+export function tipoPorCategoria(categoria?: string | null): string {
+  switch (categoria) {
+    case 'PRODUCTO EN PROCESO':
+      return 'EN PROCESO';
+    case 'RES SUBPRODUCTOS':
+      return 'SUBPRODUCTO';
+    case 'RES PRODUCTOS TERMINADOS':
+      return 'TERMINADO';
+    default:
+      return 'MATERIA PRIMA';
+  }
+}
+
 export function useNextProductCode() {
   return useQuery({
     queryKey: ['products', 'next-code'],

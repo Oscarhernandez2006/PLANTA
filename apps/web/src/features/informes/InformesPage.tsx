@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { FileBarChart, FileDown, FileSpreadsheet, FileText, Filter, ListOrdered } from 'lucide-react';
+import {
+  FileBarChart,
+  FileDown,
+  FileSpreadsheet,
+  FileText,
+  Filter,
+  ListOrdered,
+  Paperclip,
+  RefreshCw,
+  Search,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
@@ -10,16 +20,29 @@ import { codigoBarras } from '../canal-caliente/canal-presinto-print';
 import { useAuth } from '../auth/auth-context';
 import { descargarDespachoExcel, descargarDespachoPdf } from './despacho-canales-export';
 import { formatOB, type OrdenBeneficioStatus } from '../registrar/orden-beneficio-api';
+import { PrepararOrdenDialog } from '../registrar/PrepararOrden';
 import {
   useDetalleCanalCaliente,
+  useDetalleProduccion,
   useInformeCanalCaliente,
+  useInformeProduccion,
   type InformeCanalCalienteRow,
+  type InformeProduccionRow,
 } from './api';
+import {
+  ESTADO_OP_LABEL,
+  consecutivoProduccion,
+  descargarProduccionExcel,
+  descargarProduccionPdf,
+  totalesEtiquetado,
+  totalesProduccion,
+} from './produccion-export';
 
 const INFORMES = [
   { key: 'canal-caliente', label: '01.7 CANAL/CALIENTE' },
   { key: 'canal-fria', label: '01.7 CANAL/FRIA' },
   { key: 'productos', label: '01.7 PRODUCTOS' },
+  { key: 'produccion', label: 'INFORME PRODUCCIÓN' },
 ] as const;
 
 type InformeKey = (typeof INFORMES)[number]['key'];
@@ -40,7 +63,7 @@ export function InformesPage() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
         {INFORMES.map((i) => (
           <button
             key={i.key}
@@ -62,7 +85,8 @@ export function InformesPage() {
       </div>
 
       {seleccionado === 'canal-caliente' && <InformeCanalCaliente />}
-      {actual && seleccionado !== 'canal-caliente' && (
+      {seleccionado === 'produccion' && <InformeProduccion />}
+      {actual && seleccionado !== 'canal-caliente' && seleccionado !== 'produccion' && (
         <Card className="flex min-h-[240px] flex-col items-center justify-center gap-2 p-8 text-center">
           <p className="font-semibold">{actual.label}</p>
           <p className="text-sm text-muted-foreground">
@@ -79,6 +103,349 @@ const ESTADO_LABEL: Record<OrdenBeneficioStatus, string> = {
   inactivo: 'Inactivo',
   procesado: 'Procesado',
 };
+
+function InformeProduccion() {
+  const [hasta, setHasta] = useState(today());
+  const [busqueda, setBusqueda] = useState('');
+  const informe = useInformeProduccion(hasta);
+  const q = busqueda.trim().toUpperCase();
+  const rows = (informe.data ?? []).filter(
+    (r) =>
+      !q ||
+      consecutivoProduccion(r).includes(q) ||
+      String(r.opNumber) === q ||
+      String(r.odNumber) === q,
+  );
+  const [detalle, setDetalle] = useState<InformeProduccionRow | null>(null);
+
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <ListOrdered className="size-5" />
+            Lista de órdenes de producción
+          </CardTitle>
+          <div className="flex gap-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                className="h-9 w-64 pl-8 uppercase"
+                value={busqueda}
+                onChange={(e) => setBusqueda(e.target.value)}
+                placeholder="Buscar consecutivo (OD u OP)…"
+                aria-label="Buscar consecutivo"
+              />
+            </div>
+            <Input
+              type="date"
+              className="h-9 w-44"
+              value={hasta}
+              onChange={(e) => e.target.value && setHasta(e.target.value)}
+              aria-label="Fecha de proceso hasta"
+            />
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Muestra las órdenes registradas o con proceso en los últimos 60 días hasta la fecha elegida.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="max-h-[calc(100vh-20rem)] min-h-40 overflow-auto rounded-md border border-border">
+          <Table>
+            <THead className="sticky top-0 z-10 bg-card">
+              <TR>
+                <TH>Consecutivo</TH>
+                <TH>Cliente</TH>
+                <TH>Fec. de proceso</TH>
+                <TH className="text-center">Estado</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {informe.isLoading ? (
+                <TR>
+                  <TD colSpan={4} className="py-8 text-center text-muted-foreground">
+                    Cargando…
+                  </TD>
+                </TR>
+              ) : rows.length === 0 ? (
+                <TR>
+                  <TD colSpan={4} className="py-8 text-center text-muted-foreground">
+                    {q
+                      ? 'Ningún consecutivo coincide con la búsqueda.'
+                      : 'No hay órdenes de producción en este periodo.'}
+                  </TD>
+                </TR>
+              ) : (
+                rows.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="tabular-nums">
+                      <button
+                        type="button"
+                        onClick={() => setDetalle(r)}
+                        className="font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        {consecutivoProduccion(r)}
+                      </button>
+                    </TD>
+                    <TD>{r.clienteNit ? `${r.clienteNit} - ${r.cliente}` : r.cliente}</TD>
+                    <TD className="tabular-nums">{r.processDate}</TD>
+                    <TD className="text-center">{ESTADO_OP_LABEL[r.status]}</TD>
+                  </TR>
+                ))
+              )}
+            </TBody>
+          </Table>
+        </div>
+      </CardContent>
+      {detalle && <DetalleProduccionDialog orden={detalle} onClose={() => setDetalle(null)} />}
+    </Card>
+  );
+}
+
+function DetalleProduccionDialog({
+  orden,
+  onClose,
+}: {
+  orden: InformeProduccionRow;
+  onClose: () => void;
+}) {
+  const detalle = useDetalleProduccion(orden.id);
+  const { user } = useAuth();
+  const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
+  const [preparando, setPreparando] = useState(false);
+  const d = detalle.data;
+  const tot = d ? totalesProduccion(d) : { piezas: 0, kg: 0 };
+  const te = d ? totalesEtiquetado(d) : { canastillas: 0, unds: 0, kg: 0, rendimiento: 0 };
+  const generado = new Date(detalle.dataUpdatedAt || Date.now()).toLocaleString('es-CO', {
+    dateStyle: 'short',
+    timeStyle: 'short',
+  });
+  const cab = 'border border-border bg-muted px-3 py-2 text-center text-xs font-semibold uppercase';
+  const cel = 'border border-border px-3 py-2 text-center';
+
+  async function exportar(tipo: 'pdf' | 'excel') {
+    if (!d) return;
+    setExportando(tipo);
+    try {
+      if (tipo === 'pdf') await descargarProduccionPdf(d, user?.fullName ?? '');
+      else await descargarProduccionExcel(d, user?.fullName ?? '');
+    } finally {
+      setExportando(null);
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Informe de producción consecutivo: ${consecutivoProduccion(orden)} | ${generado}`}
+      className="max-w-6xl"
+      scrollInterno
+    >
+      <div className="space-y-5">
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => detalle.refetch()}
+            disabled={detalle.isFetching}
+            title="Actualizar"
+          >
+            <RefreshCw className={cn('size-4', detalle.isFetching && 'animate-spin')} />
+            Actualizar
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-9"
+            aria-label="Preparar orden"
+            title="Preparar orden"
+            onClick={() => setPreparando(true)}
+          >
+            <Paperclip className="size-4" />
+          </Button>
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => exportar('pdf')}
+            disabled={!d || exportando !== null}
+            title="Exportar a PDF"
+          >
+            <FileDown className="size-4 text-red-700" />
+            {exportando === 'pdf' ? 'Generando…' : 'PDF'}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => exportar('excel')}
+            disabled={!d || exportando !== null}
+            title="Exportar a Excel"
+          >
+            <FileSpreadsheet className="size-4 text-emerald-700" />
+            {exportando === 'excel' ? 'Generando…' : 'Excel'}
+          </Button>
+        </div>
+
+        {detalle.isLoading || !d ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
+        ) : (
+          <>
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className={cab}>Cliente</th>
+                  <th className={cab}>Producto terminado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td className={cel}>{d.cliente}</td>
+                  <td className={cn(cel, 'font-bold text-red-600')}>{d.productoTerminado ?? '—'}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th className={cab}>Consecutivo</th>
+                  <th className={cab}>Fecha de sacrificio</th>
+                  <th className={cab}>Fecha de ingreso</th>
+                  <th className={cab}>Lote</th>
+                  <th className={cab}>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="tabular-nums">
+                  <td className={cn(cel, 'font-bold text-red-600')}>{consecutivoProduccion(d)}</td>
+                  <td className={cel}>{d.fechaSacrificio ?? '—'}</td>
+                  <td className={cel}>{d.fechaIngreso ?? '—'}</td>
+                  <td className={cel}>{d.opNumber}</td>
+                  <td className={cel}>{ESTADO_OP_LABEL[d.status]}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th colSpan={5} className={cab}>
+                    Orden de traslado de M.P a sala No. {d.odNumber}
+                  </th>
+                </tr>
+                <tr>
+                  <th className={cn(cab, 'w-20')}>No.</th>
+                  <th className={cn(cab, 'w-32')}>Código</th>
+                  <th className={cab}>Producto</th>
+                  <th className={cn(cab, 'w-40')}>Piezas</th>
+                  <th className={cn(cab, 'w-48')}>Cant.(kg)</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {d.detalle.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className={cn(cel, 'py-6 text-muted-foreground')}>
+                      La orden de despacho aún no tiene canales pesadas en Canal Fría.
+                    </td>
+                  </tr>
+                ) : (
+                  d.detalle.map((r, i) => (
+                    <tr key={r.codigo} className="even:bg-muted/30">
+                      <td className={cel}>{String(i + 1).padStart(2, '0')}</td>
+                      <td className={cel}>{r.codigo}</td>
+                      <td className={cel}>{r.producto}</td>
+                      <td className={cel}>{r.piezas}</td>
+                      <td className={cn(cel, 'text-right')}>{kg(r.kg)}</td>
+                    </tr>
+                  ))
+                )}
+                <tr className="text-base font-bold">
+                  <td colSpan={3} className={cn(cel, 'text-right uppercase')}>
+                    Totales
+                  </td>
+                  <td className={cel}>{tot.piezas}</td>
+                  <td className={cn(cel, 'text-right')}>{kg(tot.kg)}</td>
+                </tr>
+              </tbody>
+            </table>
+
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  <th colSpan={8} className={cab}>
+                    Orden de producción (pesaje y etiquetado) No. {d.opNumber}
+                  </th>
+                </tr>
+                <tr>
+                  <th className={cn(cab, 'w-14')}>No.</th>
+                  <th className={cn(cab, 'w-24')}>Código</th>
+                  <th className={cab}>Producto</th>
+                  <th className={cab}>Tienda</th>
+                  <th className={cn(cab, 'w-32')}>N.º canastilla</th>
+                  <th className={cn(cab, 'w-20')}>Unds</th>
+                  <th className={cn(cab, 'w-32')}>Cant.(kg)</th>
+                  <th className={cn(cab, 'w-24')}>RND(%)</th>
+                </tr>
+              </thead>
+              <tbody className="tabular-nums">
+                {d.etiquetado.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className={cn(cel, 'py-6 text-muted-foreground')}>
+                      Aún no hay productos etiquetados en Rotulado Desposte para esta orden.
+                    </td>
+                  </tr>
+                ) : (
+                  d.etiquetado.map((r, i) => (
+                    <tr key={`${r.codigo}-${r.tiendaCodigo}-${r.canastilla ?? i}`} className="even:bg-muted/30">
+                      <td className={cel}>{String(i + 1).padStart(2, '0')}</td>
+                      <td className={cel}>{r.codigo}</td>
+                      <td className={cel}>{r.producto}</td>
+                      <td className={cel}>
+                        {r.tiendaCodigo} - {r.tienda}
+                        {r.sobrantes > 0 && (
+                          <span className="ml-1.5 rounded-sm bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
+                            {r.sobrantes} SOBRANTE{r.sobrantes > 1 ? 'S' : ''}
+                          </span>
+                        )}
+                      </td>
+                      <td className={cn(cel, 'font-semibold')}>{r.canastilla ?? '—'}</td>
+                      <td className={cel}>{r.unds}</td>
+                      <td className={cn(cel, 'text-right')}>{kg(r.kg)}</td>
+                      <td className={cel}>{kg(r.rendimiento)}</td>
+                    </tr>
+                  ))
+                )}
+                <tr className="text-base font-bold">
+                  <td colSpan={4} className={cn(cel, 'text-right uppercase')}>
+                    Totales
+                  </td>
+                  <td className={cel}>{te.canastillas} canast.</td>
+                  <td className={cel}>{te.unds}</td>
+                  <td className={cn(cel, 'text-right')}>{kg(te.kg)}</td>
+                  <td className={cel}>{kg(te.rendimiento)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
+      {preparando && (
+        <PrepararOrdenDialog
+          orden={{
+            id: orden.id,
+            opNumber: orden.opNumber,
+            odNumber: orden.odNumber,
+            clienteId: orden.clienteId,
+            clienteNit: orden.clienteNit,
+            clienteNombre: orden.cliente,
+          }}
+          onClose={() => setPreparando(false)}
+        />
+      )}
+    </Dialog>
+  );
+}
 
 function InformeCanalCaliente() {
   const [fecha, setFecha] = useState(today());

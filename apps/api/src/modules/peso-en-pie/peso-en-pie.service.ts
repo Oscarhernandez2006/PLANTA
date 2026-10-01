@@ -3,6 +3,7 @@ import {
   PesoEnPie,
   PesoEnPieStatus,
   PesoEnPieTipoPesaje,
+  Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
@@ -132,6 +133,12 @@ export class PesoEnPieService {
       }
       // Serializa la numeración de BP por planta.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:pep`}))`;
+      await this.assertNoSuperaNeto(tx, ctx, {
+        date,
+        guia: dto.guia,
+        bcReference: dto.bcReference,
+        pesoKg: dto.pesoTotalKg ?? 0,
+      });
 
       // Un BP por guía (asociado a la BC). Reusa el BP existente de la guía o
       // asigna el próximo consecutivo global; los animales se numeran dentro del BP.
@@ -182,12 +189,56 @@ export class PesoEnPieService {
       where: { id, plantId: ctx.plantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Reporte no encontrado.');
+    await this.assertNoSuperaNeto(this.prisma, ctx, {
+      date: existing.date,
+      guia: dto.guia ?? existing.guia,
+      bcReference: existing.bcReference ?? undefined,
+      pesoKg: dto.pesoTotalKg ?? 0,
+      excludeId: id,
+    });
 
     const rec = await this.prisma.pesoEnPie.update({
       where: { id },
       data: this.fields(dto),
     });
     return this.toDto(rec);
+  }
+
+  /** El total en pie de la guía no puede superar el neto pesado en báscula camión. */
+  private async assertNoSuperaNeto(
+    db: Prisma.TransactionClient,
+    ctx: AuthContext,
+    p: { date: Date; guia?: string | null; bcReference?: number; pesoKg: number; excludeId?: string },
+  ) {
+    const guia = p.guia?.trim();
+    if (!guia && p.bcReference == null) return;
+    const camion = await db.pesoCamion.findFirst({
+      where: {
+        plantId: ctx.plantId,
+        deletedAt: null,
+        ...(p.bcReference != null ? { reference: p.bcReference } : { date: p.date, guia }),
+      },
+      select: { netoKg: true },
+    });
+    if (camion?.netoKg == null) return;
+    const neto = Number(camion.netoKg);
+
+    const agg = await db.pesoEnPie.aggregate({
+      _sum: { pesoTotalKg: true },
+      where: {
+        plantId: ctx.plantId,
+        date: p.date,
+        guia,
+        deletedAt: null,
+        ...(p.excludeId ? { id: { not: p.excludeId } } : {}),
+      },
+    });
+    const total = Number(agg._sum.pesoTotalKg ?? 0) + p.pesoKg;
+    if (total > neto + 1e-6) {
+      throw new BadRequestException(
+        `El total en pie (${total.toFixed(2)} kg) superaría el neto de báscula camión (${neto.toFixed(2)} kg). Disponible: ${Math.max(neto - (total - p.pesoKg), 0).toFixed(2)} kg.`,
+      );
+    }
   }
 
   async findAll(ctx: AuthContext, status?: PesoEnPieStatus) {
