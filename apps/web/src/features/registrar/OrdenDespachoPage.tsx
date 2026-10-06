@@ -28,9 +28,9 @@ export function OrdenDespachoPage() {
       <div className="flex items-center gap-3">
         <OrdenDespachoFrioIcon className="size-9 text-foreground" />
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Orden de Despacho</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Orden de Despacho a Proceso</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Registra una orden de despacho para un cliente.
+            Registra una orden de despacho a proceso para un cliente.
           </p>
         </div>
       </div>
@@ -94,7 +94,7 @@ function RegistrarOrdenDespachoForm() {
   return (
     <Card className="w-full">
       <CardHeader>
-        <CardTitle>Registrar orden de despacho</CardTitle>
+        <CardTitle>Registrar orden de despacho a proceso</CardTitle>
       </CardHeader>
       <CardContent>
         <form onSubmit={guardar} className="space-y-4">

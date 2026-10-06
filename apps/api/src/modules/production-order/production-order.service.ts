@@ -24,6 +24,7 @@ const include = {
 const etiquetaSelect = {
   id: true,
   pieza: true,
+  codigo: true,
   taraKg: true,
   brutoKg: true,
   netoKg: true,
@@ -47,6 +48,7 @@ const dia = (d: Date) => d.toISOString().slice(0, 10);
 const etiquetaDto = (e: EtiquetaRow) => ({
   id: e.id,
   pieza: e.pieza,
+  codigo: e.codigo,
   taraKg: Number(e.taraKg),
   brutoKg: Number(e.brutoKg),
   netoKg: Number(e.netoKg),
@@ -69,6 +71,8 @@ const etiquetaDto = (e: EtiquetaRow) => ({
 const canastillaSelect = {
   id: true,
   numero: true,
+  codigo: true,
+  productId: true,
   tiendaId: true,
   taraKg: true,
   brutoKg: true,
@@ -101,6 +105,7 @@ const canastillaDto = (c: CanastillaRow) => {
   return {
     id: c.id,
     numero: c.numero,
+    codigo: c.codigo,
     tiendaId: c.tiendaId,
     tiendaCodigo: c.tienda.codigo,
     tiendaNombre: c.tienda.nombre,
@@ -129,6 +134,12 @@ const canastillaDto = (c: CanastillaRow) => {
 
 type Db = Prisma.TransactionClient;
 type EstadoRotulado = Awaited<ReturnType<ProductionOrderService['estadoProducto']>>;
+
+/** Código de barras: lote (OP, 7 dígitos) + código de producto + pieza (4 dígitos) o C + canastilla (3). */
+const codigoBarras = (opNumber: number, productoCodigo: string, sufijo: string) =>
+  `${String(opNumber).padStart(7, '0')}${productoCodigo.replace(/\D/g, '')}${sufijo}`;
+const sufijoPieza = (pieza: number) => String(pieza).padStart(4, '0');
+const sufijoCanastilla = (numero: number) => `C${String(numero).padStart(3, '0')}`;
 
 @Injectable()
 export class ProductionOrderService {
@@ -422,7 +433,22 @@ export class ProductionOrderService {
       update: { ultimo: { increment: 1 } },
       select: { ultimo: true },
     });
-    return { pieza: counter.ultimo };
+    const { opNumber, productoCodigo } = await this.datosCodigo(productionOrderId, dto.productId);
+    return {
+      pieza: counter.ultimo,
+      codigo: codigoBarras(opNumber, productoCodigo, sufijoPieza(counter.ultimo)),
+    };
+  }
+
+  private async datosCodigo(productionOrderId: string, productId: string) {
+    const [op, product] = await Promise.all([
+      this.prisma.productionOrder.findUniqueOrThrow({
+        where: { id: productionOrderId },
+        select: { opNumber: true },
+      }),
+      this.prisma.product.findUniqueOrThrow({ where: { id: productId }, select: { codigo: true } }),
+    ]);
+    return { opNumber: op.opNumber, productoCodigo: product.codigo };
   }
 
   /** Registra una etiqueta impresa; la pieza debe haber sido reservada antes. */
@@ -433,7 +459,7 @@ export class ProductionOrderService {
     });
     if (!order) throw new BadRequestException('La orden de producción no existe.');
 
-    const [bodega, consecutivo] = await Promise.all([
+    const [bodega, consecutivo, { opNumber, productoCodigo }] = await Promise.all([
       dto.bodegaId
         ? this.prisma.bodega.findFirst({
             where: { id: dto.bodegaId, clienteId: order.clienteId },
@@ -450,11 +476,13 @@ export class ProductionOrderService {
         },
         select: { ultimo: true },
       }),
+      this.datosCodigo(productionOrderId, dto.productId),
     ]);
     if (dto.bodegaId && !bodega) throw new BadRequestException('La bodega no pertenece al cliente de la orden.');
     if (!consecutivo || dto.pieza > consecutivo.ultimo) {
       throw new BadRequestException(`La pieza #${dto.pieza} no fue reservada para este producto.`);
     }
+    const codigo = codigoBarras(opNumber, productoCodigo, sufijoPieza(dto.pieza));
 
     try {
       const creada = await this.prisma.$transaction(async (tx) => {
@@ -475,13 +503,15 @@ export class ProductionOrderService {
             _max: { numero: true },
             where: { productionOrderId, productId: dto.productId },
           });
+          const numero = (agg._max.numero ?? 0) + 1;
           const nueva = await tx.rotuladoCanastilla.create({
             data: {
               plantId: ctx.plantId,
               productionOrderId,
               productId: dto.productId,
               tiendaId: dto.tiendaId,
-              numero: (agg._max.numero ?? 0) + 1,
+              numero,
+              codigo: codigoBarras(opNumber, productoCodigo, sufijoCanastilla(numero)),
               createdById: ctx.userId,
             },
             select: { id: true },
@@ -499,6 +529,7 @@ export class ProductionOrderService {
             canastillaId,
             sobrante: dto.sobrante ?? false,
             pieza: dto.pieza,
+            codigo,
             taraKg: dto.taraKg,
             brutoKg: dto.brutoKg,
             netoKg: dto.netoKg,
@@ -511,6 +542,7 @@ export class ProductionOrderService {
             ref: dto.ref || null,
             procesadoPara: dto.procesadoPara || null,
             impresa: dto.impresa,
+            estacion: dto.estacion || null,
             createdById: ctx.userId,
           },
           select: etiquetaSelect,
@@ -519,7 +551,7 @@ export class ProductionOrderService {
       return etiquetaDto(creada);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException(`La pieza #${dto.pieza} ya está registrada.`);
+        throw new ConflictException(`La pieza #${dto.pieza} (código ${codigo}) ya está registrada.`);
       }
       throw err;
     }
@@ -561,6 +593,131 @@ export class ProductionOrderService {
       });
       return canastillaDto(cerrada);
     });
+  }
+
+  /**
+   * Reimpresión: busca la etiqueta por su código de barras
+   * (lote + producto + pieza de 4 dígitos, o + C + canastilla de 3 dígitos).
+   */
+  async buscarEtiqueta(ctx: AuthContext, codigoBarras: string) {
+    const valor = codigoBarras.trim().toUpperCase();
+    if (!/^\d{7}\d+(\d{4}|C\d{3})$/.test(valor)) {
+      throw new BadRequestException('Código de barras no válido.');
+    }
+    const wherePieza: Prisma.RotuladoEtiquetaWhereInput | null = valor.includes('C')
+      ? null
+      : { codigo: valor };
+    const whereCanastilla: Prisma.RotuladoCanastillaWhereInput | null = valor.includes('C')
+      ? { codigo: valor }
+      : null;
+    const ordenSelect = {
+      select: { opNumber: true, cliente: { select: { concepto: true, nit: true } } },
+    } as const;
+
+    if (whereCanastilla) {
+      const c = await this.prisma.rotuladoCanastilla.findFirst({
+        where: { ...whereCanastilla, plantId: ctx.plantId },
+        select: { ...canastillaSelect, productionOrder: ordenSelect },
+      });
+      if (!c) throw new NotFoundException('No se encontró la canastilla.');
+      const dto = canastillaDto(c);
+      if (!dto.cerrada || !dto.datos) {
+        throw new BadRequestException(`La canastilla N.º ${dto.numero} aún no está cerrada.`);
+      }
+      const product = await this.prisma.product.findUniqueOrThrow({
+        where: { id: c.productId },
+        select: { codigo: true, nombre: true },
+      });
+      return {
+        tipo: 'canastilla' as const,
+        codigo: dto.codigo,
+        opNumber: c.productionOrder.opNumber,
+        cliente: c.productionOrder.cliente.concepto,
+        clienteNit: c.productionOrder.cliente.nit,
+        productoCodigo: product.codigo,
+        productoNombre: product.nombre,
+        canastillaNumero: dto.numero,
+        tiendaCodigo: dto.tiendaCodigo,
+        tiendaNombre: dto.tiendaNombre,
+        piezas: dto.unds,
+        brutoKg: dto.brutoKg ?? 0,
+        taraKg: dto.taraKg ?? 0,
+        netoKg: dto.netoKg,
+        ...dto.datos,
+      };
+    }
+
+    const e = await this.prisma.rotuladoEtiqueta.findFirst({
+      where: { ...wherePieza, plantId: ctx.plantId, deletedAt: null },
+      select: {
+        ...etiquetaSelect,
+        productionOrder: ordenSelect,
+        product: { select: { codigo: true, nombre: true } },
+      },
+    });
+    if (!e) throw new NotFoundException('No se encontró la etiqueta (o fue borrada).');
+    const d = etiquetaDto(e);
+    return {
+      tipo: 'pieza' as const,
+      codigo: d.codigo,
+      opNumber: e.productionOrder.opNumber,
+      cliente: e.productionOrder.cliente.concepto,
+      clienteNit: e.productionOrder.cliente.nit,
+      productoCodigo: e.product.codigo,
+      productoNombre: e.product.nombre,
+      canastillaNumero: d.canastillaNumero,
+      tiendaCodigo: d.tiendaCodigo,
+      tiendaNombre: d.tiendaNombre,
+      piezas: d.pieza,
+      brutoKg: d.brutoKg,
+      taraKg: d.taraKg,
+      netoKg: d.netoKg,
+      empaque: d.empaque,
+      conservacion: d.conservacion,
+      temperatura: d.temperatura,
+      fechaSacrificio: d.fechaSacrificio,
+      fechaEmpaque: d.fechaEmpaque,
+      fechaVencimiento: d.fechaVencimiento,
+      ref: d.ref,
+    };
+  }
+
+  /** Reporte de Rotulado: todas las etiquetas vigentes de la orden con sus datos completos. */
+  async reporteRotulado(ctx: AuthContext, productionOrderId: string) {
+    const rows = await this.prisma.rotuladoEtiqueta.findMany({
+      where: { plantId: ctx.plantId, productionOrderId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        ...etiquetaSelect,
+        procesadoPara: true,
+        impresa: true,
+        estacion: true,
+        product: { select: { codigo: true, nombre: true } },
+        bodega: { select: { code: true, nombre: true } },
+        createdBy: { select: { fullName: true } },
+        traslado: { select: { transferOrder: { select: { otNumber: true } } } },
+        canastilla: {
+          select: {
+            numero: true,
+            cerradaAt: true,
+            traslado: { select: { transferOrder: { select: { otNumber: true } } } },
+          },
+        },
+      },
+    });
+    return rows.map((e) => ({
+      ...etiquetaDto(e),
+      productoCodigo: e.product.codigo,
+      productoNombre: e.product.nombre,
+      bodega: e.bodega ? `${e.bodega.code} - ${e.bodega.nombre}` : null,
+      procesadoPara: e.procesadoPara,
+      impresa: e.impresa,
+      estacion: e.estacion,
+      usuario: e.createdBy.fullName,
+      // Orden de traslado en la que está (sola o dentro de su canastilla): "en proceso".
+      trasladoOt:
+        e.traslado?.transferOrder.otNumber ?? e.canastilla?.traslado?.transferOrder.otNumber ?? null,
+    }));
   }
 
   async listarEtiquetas(ctx: AuthContext, productionOrderId: string, query: QueryEtiquetasDto) {

@@ -4,6 +4,8 @@ import { cn } from '@/lib/utils';
 import { codigoBarras } from '../canal-caliente/canal-presinto-print';
 import { formatOD } from '../registrar/orden-despacho-api';
 import { formatOP } from '../registrar/orden-produccion-api';
+import { formatDC } from '../registrar/despacho-canales-api';
+import { BodegasTab } from './BodegasTab';
 import {
   useCava,
   useCavaSubproducto,
@@ -14,7 +16,7 @@ import {
   type CavaSubproductoCategoria,
 } from './api';
 
-type Tab = `cava-${string}` | `sub-${string}`;
+type Tab = `cava-${string}` | `sub-${string}` | 'bodegas';
 
 function hora(iso: string | null) {
   if (!iso) return '—';
@@ -53,6 +55,7 @@ export function InventariosPage() {
       key: `sub-${c}` as Tab,
       label: c === '3' ? 'CAVA SUBPRODUCTO DESPACHO' : `CAVA SUBPRODUCTO ${c}`,
     })),
+    { key: 'bodegas', label: 'BODEGAS' },
   ];
   const [tab, setTab] = useState<Tab>(tabs[0].key);
 
@@ -63,7 +66,7 @@ export function InventariosPage() {
         <div>
           <h1 className="text-lg font-bold">Inventarios</h1>
           <p className="text-sm text-muted-foreground">
-            Existencias por cava de canales y subproductos.
+            Existencias por cava de canales y subproductos, y por bodega de cada cliente.
           </p>
         </div>
       </div>
@@ -86,7 +89,9 @@ export function InventariosPage() {
       </div>
 
       <div className="flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
-        {tab.startsWith('cava-') ? (
+        {tab === 'bodegas' ? (
+          <BodegasTab />
+        ) : tab.startsWith('cava-') ? (
           <CavaTab cava={tab.replace('cava-', '')} />
         ) : (
           <div className="h-full overflow-auto">
@@ -156,7 +161,7 @@ function CavaTab({ cava }: { cava: string }) {
       (!cliente || r.cliente === cliente) &&
       (!tipo || r.canalAnimalTipo === tipo) &&
       (!pieza || r.pieza === pieza) &&
-      (!estado || (estado === 'orden') === !!r.enOrden),
+      (!estado || (estado === 'orden') === !!(r.enOrden || r.enDespacho)),
   );
 
   if (isLoading) return <Loading />;
@@ -251,6 +256,14 @@ function CavaTab({ cava }: { cava: string }) {
                       {r.enOrden.opNumbers.map(formatOP).join(', ')} · EN PROCESO
                     </span>
                   )}
+                </span>
+              ) : r.enDespacho ? (
+                <span
+                  title="Sigue en la cava hasta que se cierre la orden de despacho"
+                  className="inline-flex flex-col rounded-sm border border-sky-400 bg-sky-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-sky-900"
+                >
+                  <span>{formatDC(r.enDespacho.dcNumber)}</span>
+                  <span>DESPACHO {r.enDespacho.tipo === 'caliente' ? 'CALIENTE' : 'FRÍO'}</span>
                 </span>
               ) : (
                 <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>

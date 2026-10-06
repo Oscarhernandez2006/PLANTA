@@ -14,6 +14,8 @@ export interface EtiquetaDesposteDatos {
   conservacion: string;
   temperatura: string;
   ref: string;
+  /** Código de barras guardado; si falta se arma igual: lote + producto + pieza. */
+  codigo?: string;
   /** Solo en la etiqueta de canastilla: `pieza` son las unidades que lleva. */
   canastilla?: { numero: number; taraKg: number; brutoKg: number };
 }
@@ -65,7 +67,17 @@ function fecha(value: string) {
   return value ? value.slice(0, 10).split('-').reverse().join('/') : '---';
 }
 
-export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: string) {
+/** Piezas de la etiqueta en puntos de impresora (203 dpi); de aquí salen el ZPL y la vista en pantalla. */
+export type ElementoEtiqueta =
+  | { t: 'logo' }
+  | { t: 'texto'; x: number; y: number; alto: number; ancho: number; valor: string; centradoEn?: number }
+  | { t: 'caja'; x: number; y: number; ancho: number; alto: number; grosor: number }
+  | { t: 'qr'; x: number; y: number; aumento: number; valor: string }
+  | { t: 'barras'; x: number; y: number; alto: number; modulo: number; valor: string };
+
+export const TAMANO_ETIQUETA = dots(60);
+
+export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): ElementoEtiqueta[] {
   const loteCodigo = datos.lote.replace(/\D/g, '');
   const productoCodigo = datos.productoCodigo.replace(/\D/g, '');
   const canastilla = datos.canastilla;
@@ -73,24 +85,41 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
     ? `C${String(canastilla.numero).padStart(3, '0')}`
     : String(datos.pieza).padStart(4, '0');
   const piezaTexto = canastilla ? String(datos.pieza).padStart(2, '0') : String(datos.pieza);
-  const codigo = `${loteCodigo}${productoCodigo}${piezaCodigo}`;
+  const codigo = datos.codigo || `${loteCodigo}${productoCodigo}${piezaCodigo}`;
   const nombreProducto = datos.productoNombre.trim().toUpperCase();
   const nombre = nombreProducto.endsWith(datos.empaque.toUpperCase())
     ? nombreProducto
     : `${nombreProducto} ${datos.empaque.toUpperCase()}`;
-  const texto = (x: number, y: number, height: number, width: number, value: string) =>
-    `^FO${x},${y}^A0N,${height},${width}^FD${limpiar(value)}^FS`;
+  const texto = (
+    x: number,
+    y: number,
+    alto: number,
+    ancho: number,
+    valor: string,
+    centradoEn?: number,
+  ): ElementoEtiqueta => ({
+    t: 'texto',
+    x,
+    y,
+    alto,
+    ancho,
+    valor: limpiar(valor),
+    centradoEn,
+  });
+  const caja = (x: number, y: number, ancho: number, alto: number, grosor: number): ElementoEtiqueta => ({
+    t: 'caja',
+    x,
+    y,
+    ancho,
+    alto,
+    grosor,
+  });
 
   return [
-    '^XA',
-    '^CI28',
-    `^PW${dots(60)}`,
-    `^LL${dots(60)}`,
-    '^LH0,0',
-    logo,
+    { t: 'logo' },
     texto(95, 19, 25, 25, 'AGROPECUARIA SANTACRUZ'),
     texto(100, 44, 30, 20, nombre),
-    '^FO15,78^GB76,50,3^FS',
+    caja(15, 78, 76, 50, 3),
     texto(22, 84, 17, 10, 'No. DE TIENDA'),
     texto(47, 100, 30, 17, datos.tienda),
     texto(14, 133, 20, 18, 'LOTE'),
@@ -101,8 +130,8 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
     texto(130, 148, 18, 18, datos.ref || '---'),
     texto(220, 151, 20, 18, 'BOVINO'),
     texto(328, 151, 23, 18, piezaTexto),
-    '^FO360,124^GB2,116,2^FS',
-    '^FO12,172^GB350,2,2^FS',
+    caja(360, 124, 2, 116, 2),
+    caja(12, 172, 350, 2, 2),
     texto(14, 180, 19, 22, `FECHA DE SACRIFICIO:    ${fecha(datos.sacrificio)}`),
     texto(14, 200, 19, 22, `FECHA DE PRODUCCION:  ${fecha(datos.produccion)}`),
     texto(14, 220, 19, 22, `FECHA DE VENCIMIENTO: ${fecha(datos.vencimiento)}`),
@@ -116,30 +145,60 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
           texto(422, 215, 20, 14, canastilla.brutoKg.toFixed(1)),
         ]
       : [texto(364, 152, 110, 55, datos.netoKg.toFixed(2))]),
-    '^FO12,238^GB455,2,2^FS',
+    caja(12, 238, 455, 2, 2),
     texto(14, 243, 20, 20, `CONSERVACION: ${datos.conservacion.toUpperCase()} ${datos.temperatura}`),
     texto(14, 261, 20, 17, 'Instruciones de uso: Cocinar completamente antes de consumir.'),
-    '^FO12,282^GB455,2,2^FS',
+    caja(12, 282, 455, 2, 2),
     texto(14, 287, 20, 17, 'Procesado y empacado por AGROPECUARIA SANTACRUZ LTDA.'),
-    '^FO15,309^GB88,50,3^FS',
-    '^FO100,309^GB88,50,3^FS',
+    caja(15, 309, 88, 50, 3),
+    caja(100, 309, 88, 50, 3),
     texto(20, 314, 14, 17, 'PLANTA DE'),
     texto(20, 329, 14, 17, 'BENEFICIO'),
     texto(20, 344, 14, 17, 'DESPOSTE'),
     texto(105, 318, 44, 30, '466BD'),
     texto(196, 318, 18, 16, 'Km 3 via Oriental, Malambo / Atlantico'),
     texto(196, 338, 18, 16, 'Tel. 3766701 - frigorificosantacruz.com'),
-    '^FO15,364^GB84,84,3^FS',
+    caja(15, 364, 84, 84, 3),
     texto(22, 367, 24, 17, 'BARCODE'),
     texto(36, 387, 24, 17, loteCodigo),
     texto(36, 407, 24, 17, productoCodigo),
     texto(42, 427, 24, 17, piezaCodigo),
-    `^FO104,346^BQN,4,4^FDLA,${codigo}^FS`,
+    { t: 'qr', x: 104, y: 346, aumento: 4, valor: codigo },
     texto(196, 372, 14, 18, 'Para: AGROPECUARIA SANTACRUZ'),
     texto(196, 390, 14, 18, 'KM 3 VIA ORIENTAL - MALAMBO'),
     texto(196, 408, 14, 18, 'Tel. 6053766701'),
-    `^FO220,426^BY1,2,22^BCN,22,N,N,N^FD${codigo}^FS`,
-    texto(290, 452, 13, 8, codigo),
+    { t: 'barras', x: 220, y: 426, alto: 22, modulo: 1, valor: codigo },
+    texto(220, 451, 13, 8, codigo, anchoCode128B(codigo)),
+  ];
+}
+
+/** Ancho en puntos (módulo 1) del Code 128 subconjunto B que imprime la Zebra con ^BCN. */
+function anchoCode128B(valor: string) {
+  return 11 * valor.length + 35;
+}
+
+export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: string) {
+  const zpl = elementosEtiquetaDesposte(datos).map((e) => {
+    switch (e.t) {
+      case 'logo':
+        return logo;
+      case 'texto':
+        return `^FO${e.x},${e.y}^A0N,${e.alto},${e.ancho}${e.centradoEn ? `^FB${e.centradoEn},1,0,C` : ''}^FD${e.valor}^FS`;
+      case 'caja':
+        return `^FO${e.x},${e.y}^GB${e.ancho},${e.alto},${e.grosor}^FS`;
+      case 'qr':
+        return `^FO${e.x},${e.y}^BQN,4,${e.aumento}^FDLA,${e.valor}^FS`;
+      case 'barras':
+        return `^FO${e.x},${e.y}^BY${e.modulo},2,${e.alto}^BCN,${e.alto},N,N,N^FD${e.valor}^FS`;
+    }
+  });
+  return [
+    '^XA',
+    '^CI28',
+    `^PW${TAMANO_ETIQUETA}`,
+    `^LL${TAMANO_ETIQUETA}`,
+    '^LH0,0',
+    ...zpl,
     '^XZ',
   ].join('\n');
 }

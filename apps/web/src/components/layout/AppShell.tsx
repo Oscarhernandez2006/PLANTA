@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle } from 'lucide-react';
+import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
@@ -47,14 +47,26 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
       { to: '/rotulado-desposte', label: 'Rotulado Desposte', icon: RotuladoDesposteIcon },
       { to: '/rotulado-acondicionamiento', label: 'Rotulado Acondicionamiento', icon: RotuladoAcondicionamientoIcon },
+      { to: '/traslado', label: 'Traslado', icon: Truck },
+    ],
+  },
+  {
+    title: 'Logística',
+    items: [
+      { to: '/despacho-caliente', label: 'Despacho Caliente', icon: ThermometerSun },
+      { to: '/despacho-frio', label: 'Despacho Frío', icon: ThermometerSnowflake },
+      { to: '/despacho-posta', label: 'Despacho Posta', icon: Beef },
     ],
   },
   {
     title: 'Administrativo',
     items: [
       { to: '/orden-beneficio', label: 'Orden de Beneficio', icon: OrdenBeneficioIcon },
-      { to: '/orden-despacho', label: 'Orden de Despacho', icon: OrdenDespachoFrioIcon },
+      { to: '/orden-despacho', label: 'Orden de Despacho a Proceso', icon: OrdenDespachoFrioIcon },
+      { to: '/despacho-canales', label: 'Órdenes Despacho Canales', icon: Container },
+      { to: '/orden-traslado', label: 'Orden de Traslado', icon: ArrowLeftRight },
       { to: '/orden-produccion', label: 'Órdenes de Producción', icon: Factory },
+      { to: '/orden-acondicionamiento', label: 'Órdenes de Acondicionamiento', icon: PackageCheck },
       { to: '/productos', label: 'Productos', icon: Package },
       { to: '/clientes', label: 'Clientes', icon: Users },
       { to: '/conservacion', label: 'Conservación', icon: Snowflake },

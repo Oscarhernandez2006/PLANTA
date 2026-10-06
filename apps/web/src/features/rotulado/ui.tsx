@@ -1,5 +1,26 @@
+import { useEffect, useState } from 'react';
 import { Inbox } from 'lucide-react';
+import { listPrinters } from '@/lib/device';
 import { cn } from '@/lib/utils';
+
+const PRINTER_KEY = 'frigo.rotulado.printer.name';
+export const SIN_IMPRESORA = 'No se encontró la impresora de etiquetas (Zebra) en este equipo.';
+
+/** Impresora de etiquetas: la guardada si sigue instalada, si no la Zebra o la predeterminada. */
+export function useImpresoraEtiquetas() {
+  const [impresora, setImpresora] = useState(() => localStorage.getItem(PRINTER_KEY) ?? '');
+  useEffect(() => {
+    void listPrinters().then((lista) => {
+      const guardada = localStorage.getItem(PRINTER_KEY);
+      const elegida =
+        lista.find((p) => p.name === guardada) ??
+        lista.find((p) => /zebra|zdesigner/i.test(p.name)) ??
+        lista.find((p) => p.isDefault);
+      if (elegida) setImpresora(elegida.name);
+    });
+  }, []);
+  return impresora;
+}
 
 /** Caja con la etiqueta sobre el borde (estilo FrigoAPP). */
 export function FieldBox({

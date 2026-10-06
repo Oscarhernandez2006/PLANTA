@@ -27,7 +27,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'totales', label: 'Totales' },
 ];
 
-function FieldBox({
+export function FieldBox({
   label,
   children,
   className,
@@ -51,7 +51,7 @@ function FieldBox({
   );
 }
 
-function Mensaje({ text }: { text: string }) {
+export function Mensaje({ text }: { text: string }) {
   return (
     <div className="flex h-full min-h-40 flex-col items-center justify-center gap-2 p-6 text-center text-muted-foreground">
       <Inbox className="size-8" />
@@ -70,7 +70,7 @@ const num = (n: number, dec = 1) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: dec, maximumFractionDigits: dec });
 
 /** Pestaña REGISTRO: piezas que salieron de cava hacia la orden y totales contra su peso en caliente. */
-function RegistroTab({
+export function RegistroTab({
   items,
   seleccionadoId,
   onSeleccionar,
@@ -225,7 +225,7 @@ function resumen(items: ItemDespacho[]) {
 }
 
 /** Pestaña TOTALES: cómo llegó cada canal (caliente) contra cómo salió (frío). */
-function TotalesTab({ items }: { items: ItemDespacho[] }) {
+export function TotalesTab({ items }: { items: ItemDespacho[] }) {
   if (!items.length) {
     return <Mensaje text="Esta orden aún no tiene canales. Escanéalas en REGISTRO." />;
   }

@@ -2,6 +2,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Query,
   UseGuards,
 } from '@nestjs/common';
@@ -27,6 +28,16 @@ export class InventariosController {
     @Query('date') date?: string,
   ) {
     return this.service.cava(user, cava, date);
+  }
+
+  @Get('bodegas')
+  bodegas(@CurrentUser() user: AuthContext) {
+    return this.service.bodegas(user);
+  }
+
+  @Get('bodegas/:id')
+  bodega(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.bodega(user, id);
   }
 
   @Get('cavas-subproducto/:cava')

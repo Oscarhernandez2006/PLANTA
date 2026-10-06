@@ -7,7 +7,7 @@ import { NumericKeypad } from '@/components/keyboard/NumericKeypad';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { api } from '@/lib/api';
-import { listPrinters, printRaw } from '@/lib/device';
+import { printRaw } from '@/lib/device';
 import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 import { useBodegas } from '../clientes/api';
 import type { ProductoAsignado } from '../conservacion/api';
@@ -29,7 +29,7 @@ import {
   type OrdenProduccion,
 } from '../registrar/orden-produccion-api';
 import { generarEtiquetaDesposteZpl, obtenerLogoEtiquetaZpl } from './etiqueta-desposte-zpl';
-import { FieldBox } from './ui';
+import { FieldBox, SIN_IMPRESORA, useImpresoraEtiquetas } from './ui';
 
 type Conservacion = 'refrigerado' | 'congelado';
 
@@ -47,9 +47,6 @@ function sumarDias(iso: string, dias: number) {
 
 const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-const PRINTER_KEY = 'frigo.rotulado.printer.name';
-const SIN_IMPRESORA = 'No se encontró la impresora de etiquetas (Zebra) en este equipo.';
 
 const mensajeApi = (err: unknown, porDefecto: string) => {
   const m = isAxiosError(err) ? err.response?.data?.message : null;
@@ -195,7 +192,7 @@ export function EmbalajeDesposte({
   const equipo = useDevice();
   usePresenciaRotulado(orden.id, producto.id, {
     id: equipo.mac ?? equipo.hostname ?? '',
-    nombre: equipo.deviceName ?? equipo.hostname ?? 'Estación',
+    nombre: equipo.hostname ?? equipo.deviceName ?? 'Estación',
     usuario: user?.fullName ?? '',
   });
   const guardarEtiqueta = useGuardarEtiqueta(orden.id);
@@ -223,21 +220,9 @@ export function EmbalajeDesposte({
   }
   // Etiqueta ya impresa cuyo guardado falló: se reintenta sin reimprimir.
   const [registroPendiente, setRegistroPendiente] = useState<GuardarEtiquetaInput | null>(null);
-  const [impresora, setImpresora] = useState(() => localStorage.getItem(PRINTER_KEY) ?? '');
+  const impresora = useImpresoraEtiquetas();
   const [imprimiendo, setImprimiendo] = useState(false);
-  const [piezaPendiente, setPiezaPendiente] = useState<number | null>(null);
-
-  // Sin selector en pantalla: usa la guardada si sigue instalada, si no la Zebra o la predeterminada.
-  useEffect(() => {
-    void listPrinters().then((lista) => {
-      const guardada = localStorage.getItem(PRINTER_KEY);
-      const elegida =
-        lista.find((p) => p.name === guardada) ??
-        lista.find((p) => /zebra|zdesigner/i.test(p.name)) ??
-        lista.find((p) => p.isDefault);
-      if (elegida) setImpresora(elegida.name);
-    });
-  }, []);
+  const [piezaPendiente, setPiezaPendiente] = useState<{ pieza: number; codigo: string } | null>(null);
 
   // Fecha de sacrificio: la más antigua de las canales despachadas en la OD.
   const itemsOd = useItemsDespacho(orden.dispatchOrder.id);
@@ -312,6 +297,7 @@ export function EmbalajeDesposte({
         conservacion: c.datos.conservacion,
         temperatura: c.datos.temperatura,
         ref: c.datos.ref ?? '',
+        codigo: c.codigo ?? undefined,
         canastilla: { numero: c.numero, taraKg: c.taraKg, brutoKg: c.brutoKg },
       }, logo));
       setAlerta({
@@ -362,6 +348,7 @@ export function EmbalajeDesposte({
         conservacion: e.conservacion,
         temperatura: e.temperatura,
         ref: e.ref ?? '',
+        codigo: e.codigo ?? undefined,
       }, logo));
       setAlerta({
         id: Date.now(),
@@ -434,15 +421,16 @@ export function EmbalajeDesposte({
     }
     setImprimiendo(true);
     try {
-      let pieza = piezaPendiente;
-      if (pieza === null) {
-        const response = await api.post<{ pieza: number }>(
+      let reserva = piezaPendiente;
+      if (reserva === null) {
+        const response = await api.post<{ pieza: number; codigo: string }>(
           `/production-orders/${orden.id}/etiquetas/reservar`,
           { productId: producto.id, tiendaId, sobrante, taraKg: Number(taraKg.toFixed(2)) },
         );
-        pieza = response.data.pieza;
-        setPiezaPendiente(pieza);
+        reserva = response.data;
+        setPiezaPendiente(reserva);
       }
+      const { pieza, codigo } = reserva;
       if (pieza > 9999) {
         setAlerta({ id: Date.now(), texto: 'Se agotó el consecutivo de etiquetas para este producto.' });
         return;
@@ -463,6 +451,7 @@ export function EmbalajeDesposte({
           conservacion,
           temperatura: temp,
           ref,
+          codigo,
         }, logo));
         if (!resultado.ok) {
           setAlerta({ id: Date.now(), texto: resultado.error || 'No se pudo imprimir la etiqueta.' });
@@ -476,6 +465,7 @@ export function EmbalajeDesposte({
         sobrante,
         bodegaId: bodegaSel || undefined,
         pieza,
+        codigo,
         taraKg: Number(taraKg.toFixed(2)),
         brutoKg: Number(brutoKg.toFixed(2)),
         netoKg: Number(netoKg.toFixed(2)),
@@ -488,6 +478,7 @@ export function EmbalajeDesposte({
         ref: ref || undefined,
         procesadoPara: procesadoPara || undefined,
         impresa: imprimir,
+        estacion: equipo.hostname ?? equipo.deviceName ?? undefined,
       });
     } catch (err) {
       setAlerta({
@@ -858,6 +849,7 @@ export function EmbalajeDesposte({
             <thead className="sticky top-0 bg-card">
               <tr className="border-b-2 border-border text-left text-xs font-semibold uppercase text-muted-foreground">
                 <th className="px-2 py-1">Pieza</th>
+                <th className="px-2 py-1">Código de barras</th>
                 <th className="px-2 py-1">Hora</th>
                 <th className="px-2 py-1">Tienda</th>
                 <th className="px-2 py-1">N.º canastilla</th>
@@ -879,6 +871,7 @@ export function EmbalajeDesposte({
                   )}
                 >
                   <td className="px-2 py-1 font-semibold">#{e.pieza}</td>
+                  <td className="px-2 py-1 font-semibold">{e.codigo ?? '—'}</td>
                   <td className="px-2 py-1">{horaDe(e.createdAt)}</td>
                   <td className="px-2 py-1">
                     {e.tiendaCodigo}

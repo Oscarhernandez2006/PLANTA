@@ -65,7 +65,7 @@ export function Dialog({
             <X />
           </Button>
         </div>
-        <div className={cn('p-6', scrollInterno && 'min-h-0 flex-1 overflow-y-auto')}>{children}</div>
+        <div className={cn('p-6', scrollInterno && 'scrollbar-app min-h-0 flex-1 overflow-y-auto')}>{children}</div>
       </div>
     </div>
   );

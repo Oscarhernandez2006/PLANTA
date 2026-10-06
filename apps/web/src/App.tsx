@@ -21,13 +21,18 @@ import { PesoEnCamionPage } from './features/peso-en-camion/PesoEnCamionPage';
 import { PesoEnPiePage } from './features/peso-en-pie/PesoEnPiePage';
 import { ReciboCanalesPage } from './features/recibo-canales/ReciboCanalesPage';
 import { ReciboEnPostaPage } from './features/recibo-en-posta/ReciboEnPostaPage';
-import { RotuladoPage } from './features/rotulado/RotuladoPage';
 import { RotuladoDespostePage } from './features/rotulado/RotuladoDespostePage';
+import { RotuladoAcondicionamientoPage } from './features/rotulado/RotuladoAcondicionamientoPage';
 import { SacrificioPage } from './features/sacrificio/SacrificioPage';
 import { PielesPage } from './features/pieles/PielesPage';
 import { SubproductosPage } from './features/subproductos/SubproductosPage';
 import { OrdenBeneficioPage } from './features/registrar/OrdenBeneficioPage';
 import { OrdenDespachoPage } from './features/registrar/OrdenDespachoPage';
+import { DespachoCanalesPage } from './features/registrar/DespachoCanalesPage';
+import { DespachoLogisticaPage } from './features/logistica/DespachoLogisticaPage';
+import { OrdenTrasladoPage } from './features/registrar/OrdenTrasladoPage';
+import { OrdenAcondicionamientoPage } from './features/registrar/OrdenAcondicionamientoPage';
+import { TrasladoPage } from './features/traslado/TrasladoPage';
 import { OrdenProduccionPage } from './features/registrar/OrdenProduccionPage';
 import { ProductosPage } from './features/products/ProductosPage';
 import { ClientesPage } from './features/clientes/ClientesPage';
@@ -58,14 +63,21 @@ const router = createBrowserRouter([
       },
       {
         path: 'rotulado-acondicionamiento',
-        element: <RotuladoPage stage="acondicionamiento" />,
+        element: <RotuladoAcondicionamientoPage />,
       },
       { path: 'sacrificio', element: <SacrificioPage /> },
       { path: 'pieles', element: <PielesPage /> },
       { path: 'subproductos', element: <SubproductosPage /> },
       { path: 'orden-beneficio', element: <OrdenBeneficioPage /> },
       { path: 'orden-despacho', element: <OrdenDespachoPage /> },
+      { path: 'despacho-canales', element: <DespachoCanalesPage /> },
+      { path: 'despacho-caliente', element: <DespachoLogisticaPage key="caliente" tipo="caliente" /> },
+      { path: 'despacho-frio', element: <DespachoLogisticaPage key="frio" tipo="frio" /> },
+      { path: 'despacho-posta', element: <DespachoLogisticaPage key="posta" tipo="posta" /> },
+      { path: 'orden-traslado', element: <OrdenTrasladoPage /> },
+      { path: 'traslado', element: <TrasladoPage /> },
       { path: 'orden-produccion', element: <OrdenProduccionPage /> },
+      { path: 'orden-acondicionamiento', element: <OrdenAcondicionamientoPage /> },
       { path: 'productos', element: <ProductosPage /> },
       { path: 'clientes', element: <ClientesPage /> },
       { path: 'conservacion', element: <ConservacionPage /> },

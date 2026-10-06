@@ -58,6 +58,19 @@ export class ProductionOrderController {
     return this.service.estado(user, id, query.productId);
   }
 
+  @Get('rotulado/etiqueta')
+  buscarEtiqueta(@CurrentUser() user: AuthContext, @Query('codigo') codigo = '') {
+    return this.service.buscarEtiqueta(user, codigo);
+  }
+
+  @Get(':id/rotulado/reporte')
+  reporteRotulado(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.reporteRotulado(user, id);
+  }
+
   @Get(':id/rotulado/avance')
   avanceProductos(
     @CurrentUser() user: AuthContext,

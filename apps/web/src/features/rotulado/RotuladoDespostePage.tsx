@@ -15,6 +15,8 @@ import {
   type OrdenProduccion,
 } from '../registrar/orden-produccion-api';
 import { EmbalajeDesposte } from './EmbalajeDesposte';
+import { ReporteDesposte } from './ReporteDesposte';
+import { ReimpresionDesposte } from './ReimpresionDesposte';
 import { FieldBox, Mensaje } from './ui';
 
 type Tab = 'ordenes' | 'productos' | 'embalaje' | 'reporte' | 'reimpresion';
@@ -67,16 +69,19 @@ const GRUPOS: { tipo: Grupo; label: string }[] = [
 /** Mayúsculas y sin tildes, para buscar. */
 const normalizar = (s: string) =>
   s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
-function ProductosLista({
+export function ProductosLista({
   ordenId,
   clienteId,
   seleccionado,
   onSelect,
+  grupoInicial = 'MATERIA PRIMA',
 }: {
-  ordenId: string;
+  /** Orden de producción para colorear el avance; null = sin avance. */
+  ordenId: string | null;
   clienteId: string;
   seleccionado: ProductoAsignado | null;
   onSelect: (p: ProductoAsignado) => void;
+  grupoInicial?: Grupo | null;
 }) {
   const productos = useProductosCliente(clienteId);
   const equipo = useDevice();
@@ -84,7 +89,7 @@ function ProductosLista({
   const avance = new Map((useAvanceRotulado(ordenId).data ?? []).map((a) => [a.productId, a]));
   const keyboard = useKeyboard();
   const [busqueda, setBusqueda] = useState('');
-  const [grupo, setGrupo] = useState<Grupo | null>('MATERIA PRIMA');
+  const [grupo, setGrupo] = useState<Grupo | null>(grupoInicial);
 
   const q = normalizar(busqueda.trim());
   const rows = (productos.data ?? [])
@@ -217,7 +222,7 @@ export function RotuladoDespostePage() {
   const prefijo = orden?.cliente.nit ?? '';
   // PRODUCTOS tiene su propio scroll.
   const enProductos = tab === 'productos' && !!orden;
-  const enEmbalaje = tab === 'embalaje' && !!producto;
+  const enEmbalaje = (tab === 'embalaje' && !!producto) || tab === 'reimpresion';
 
   function irA(t: Tab) {
     setTab(t);
@@ -305,6 +310,8 @@ export function RotuladoDespostePage() {
               ))}
             </ul>
           )
+        ) : tab === 'reimpresion' ? (
+          <ReimpresionDesposte />
         ) : !orden ? (
           <Mensaje text="Selecciona una orden en la pestaña ÓRDENES." />
         ) : tab === 'productos' ? (
@@ -332,6 +339,8 @@ export function RotuladoDespostePage() {
           ) : (
             <Mensaje text="Selecciona un producto en la pestaña PRODUCTOS." />
           )
+        ) : tab === 'reporte' ? (
+          <ReporteDesposte orden={orden} prefijo={prefijo} />
         ) : (
           <Mensaje text="Pestaña en construcción." />
         )}

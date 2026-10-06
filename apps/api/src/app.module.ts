@@ -8,6 +8,9 @@ import { ClienteModule } from './modules/cliente/cliente.module';
 import { ConductorModule } from './modules/conductor/conductor.module';
 import { DeviceModule } from './modules/device/device.module';
 import { DispatchOrderModule } from './modules/dispatch-order/dispatch-order.module';
+import { TransferOrderModule } from './modules/transfer-order/transfer-order.module';
+import { ConditioningOrderModule } from './modules/conditioning-order/conditioning-order.module';
+import { CanalDispatchOrderModule } from './modules/canal-dispatch-order/canal-dispatch-order.module';
 import { ProductionOrderModule } from './modules/production-order/production-order.module';
 import { GoodsReceiptModule } from './modules/goods-receipt/goods-receipt.module';
 import { PesoCamionModule } from './modules/peso-camion/peso-camion.module';
@@ -40,6 +43,9 @@ import { InformesModule } from './modules/informes/informes.module';
     ClienteModule,
     ConductorModule,
     DispatchOrderModule,
+    TransferOrderModule,
+    ConditioningOrderModule,
+    CanalDispatchOrderModule,
     ProductionOrderModule,
     GoodsReceiptModule,
     PesoCamionModule,

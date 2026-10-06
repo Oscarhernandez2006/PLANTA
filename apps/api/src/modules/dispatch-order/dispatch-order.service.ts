@@ -15,7 +15,7 @@ const clienteSelect = {
   select: { id: true, nit: true, concepto: true },
 } as const;
 
-const itemInclude = {
+export const itemInclude = {
   canalPieza: {
     include: {
       evento: {
@@ -27,9 +27,13 @@ const itemInclude = {
   },
 } as const;
 
-type ItemConPieza = Prisma.DispatchOrderItemGetPayload<{ include: typeof itemInclude }>;
+// Estructural: sirve para ítems de OD a proceso y de despacho de canales (DC).
+type ItemConPieza = Pick<
+  Prisma.DispatchOrderItemGetPayload<{ include: typeof itemInclude }>,
+  'id' | 'cavaOrigen' | 'pesoCalienteKg' | 'despachoKg' | 'createdAt' | 'canalPieza'
+>;
 
-function itemRow(i: ItemConPieza, barcode: string) {
+export function itemRow(i: ItemConPieza, barcode: string) {
   const p = i.canalPieza;
   return {
     itemId: i.id,
@@ -53,7 +57,7 @@ function itemRow(i: ItemConPieza, barcode: string) {
 }
 
 /** Código de barras del presinto a partir de los datos de la pieza (mismo formato que Canal Caliente). */
-function barcodeDe(i: ItemConPieza) {
+export function barcodeDe(i: ItemConPieza) {
   const p = i.canalPieza;
   const tipo = p.evento.canalTipo;
   const digito = tipo === 'canal_completa' ? 1 : p.pieza === 'cizq' ? 2 : 3;
@@ -178,6 +182,7 @@ export class DispatchOrderService {
         cava: true,
         pesoKg: true,
         despacho: { select: { dispatchOrder: { select: { odNumber: true } } } },
+        despachoCanal: { select: { canalDispatchOrder: { select: { dcNumber: true } } } },
       },
     });
     const etiqueta = barcode.trim().toUpperCase();
@@ -185,6 +190,10 @@ export class DispatchOrderService {
     if (pieza.despacho) {
       const od = `OD${String(pieza.despacho.dispatchOrder.odNumber).padStart(7, '0')}`;
       throw new ConflictException(`La canal ${etiqueta} ya fue despachada en la orden ${od}.`);
+    }
+    if (pieza.despachoCanal) {
+      const dc = `DC${String(pieza.despachoCanal.canalDispatchOrder.dcNumber).padStart(7, '0')}`;
+      throw new ConflictException(`La canal ${etiqueta} ya fue despachada en la orden ${dc}.`);
     }
     if (!pieza.cava) {
       throw new BadRequestException(`La canal ${etiqueta} no está en ninguna cava.`);

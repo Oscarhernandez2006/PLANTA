@@ -94,6 +94,8 @@ export function useQuitarTienda(ordenId: string) {
 export interface EtiquetaRotulado {
   id: string;
   pieza: number;
+  /** Código de barras: lote (7) + producto + pieza (4 dígitos). */
+  codigo: string | null;
   taraKg: number;
   brutoKg: number;
   netoKg: number;
@@ -118,6 +120,7 @@ export interface GuardarEtiquetaInput {
   tiendaId: string;
   bodegaId?: string;
   pieza: number;
+  codigo: string;
   taraKg: number;
   brutoKg: number;
   netoKg: number;
@@ -131,11 +134,14 @@ export interface GuardarEtiquetaInput {
   procesadoPara?: string;
   impresa: boolean;
   sobrante?: boolean;
+  estacion?: string;
 }
 
 export interface CanastillaRotulado {
   id: string;
   numero: number;
+  /** Código de barras: lote (7) + producto + C + canastilla (3 dígitos). */
+  codigo: string | null;
   tiendaId: string;
   tiendaCodigo: string;
   tiendaNombre: string;
@@ -195,6 +201,27 @@ export function useEstadoRotulado(ordenId: string, productId: string) {
   });
 }
 
+export interface EtiquetaReporte extends EtiquetaRotulado {
+  productoCodigo: string;
+  productoNombre: string;
+  bodega: string | null;
+  procesadoPara: string | null;
+  impresa: boolean;
+  estacion: string | null;
+  usuario: string;
+  /** Orden de traslado en la que está la pieza (en proceso); null si sigue disponible. */
+  trasladoOt: number | null;
+}
+
+export function useReporteRotulado(ordenId: string) {
+  return useQuery({
+    queryKey: ['production-orders', ordenId, 'rotulado', 'reporte'],
+    queryFn: async () =>
+      (await api.get<EtiquetaReporte[]>(`/production-orders/${ordenId}/rotulado/reporte`)).data,
+    refetchInterval: 10000,
+  });
+}
+
 export interface AvanceProducto {
   productId: string;
   iniciado: boolean;
@@ -203,11 +230,12 @@ export interface AvanceProducto {
   estaciones: { estacionId: string; estacion: string; usuario: string }[];
 }
 
-export function useAvanceRotulado(ordenId: string) {
+export function useAvanceRotulado(ordenId: string | null) {
   return useQuery({
     queryKey: ['production-orders', ordenId, 'rotulado', 'avance'],
     queryFn: async () =>
       (await api.get<AvanceProducto[]>(`/production-orders/${ordenId}/rotulado/avance`)).data,
+    enabled: !!ordenId,
     refetchInterval: 5000,
   });
 }

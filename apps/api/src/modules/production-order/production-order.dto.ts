@@ -105,6 +105,12 @@ export class GuardarEtiquetaDto {
   @Max(9999)
   pieza!: number;
 
+  /** Lo calcula el servidor (lote + producto + pieza); se acepta solo por compatibilidad. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(40)
+  codigo?: string;
+
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
@@ -160,6 +166,11 @@ export class GuardarEtiquetaDto {
   @IsOptional()
   @IsBoolean()
   sobrante?: boolean;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  estacion?: string;
 }
 
 export class QueryEtiquetasDto {
