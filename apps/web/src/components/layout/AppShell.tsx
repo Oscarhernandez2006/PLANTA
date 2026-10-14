@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef } from 'lucide-react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
@@ -43,16 +43,23 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
       { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
       { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
+    ],
+  },
+  {
+    // Sin título: ítems temporalmente sueltos mientras se definen sus
+    // grupos definitivos.
+    title: '',
+    items: [
       { to: '/inventarios', label: 'Inventarios', icon: Warehouse },
-      { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
       { to: '/rotulado-desposte', label: 'Rotulado Desposte', icon: RotuladoDesposteIcon },
       { to: '/rotulado-acondicionamiento', label: 'Rotulado Acondicionamiento', icon: RotuladoAcondicionamientoIcon },
-      { to: '/traslado', label: 'Traslado', icon: Truck },
     ],
   },
   {
     title: 'Logística',
     items: [
+      { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
+      { to: '/traslado', label: 'Traslado', icon: Truck },
       { to: '/despacho-caliente', label: 'Despacho Caliente', icon: ThermometerSun },
       { to: '/despacho-frio', label: 'Despacho Frío', icon: ThermometerSnowflake },
       { to: '/despacho-posta', label: 'Despacho Posta', icon: Beef },
@@ -89,6 +96,11 @@ const areaLabels: Record<string, string> = {
 };
 
 const COLLAPSE_KEY = 'frigo_sidebar_collapsed';
+const OPEN_GROUPS_KEY = 'frigo_sidebar_open_groups';
+
+function groupHasActiveRoute(group: { items: NavItem[] }, pathname: string) {
+  return group.items.some((item) => pathname.startsWith(item.to));
+}
 
 function initials(name: string) {
   return name
@@ -101,6 +113,7 @@ function initials(name: string) {
 export function AppShell() {
   const { user, logout } = useAuth();
   const { deviceName, hostname } = useDevice();
+  const location = useLocation();
   const area = user ? (areaLabels[user.role] ?? user.role) : '';
   const equipo = deviceName ?? hostname ?? 'Equipo sin nombre';
 
@@ -112,6 +125,43 @@ export function AppShell() {
   useEffect(() => {
     localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
+
+  // Grupos del menú desplegables (acordeón): por defecto solo se abre el
+  // grupo que contiene la página activa; el resto queda plegado.
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
+    const saved = localStorage.getItem(OPEN_GROUPS_KEY);
+    if (saved) {
+      try {
+        return JSON.parse(saved) as Record<string, boolean>;
+      } catch {
+        // ignora JSON inválido y recalcula el estado por defecto
+      }
+    }
+    const initial: Record<string, boolean> = {};
+    navGroups.forEach((group) => {
+      initial[group.title] = groupHasActiveRoute(group, location.pathname);
+    });
+    return initial;
+  });
+  useEffect(() => {
+    localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(openGroups));
+  }, [openGroups]);
+
+  // Si la navegación activa está dentro de un grupo plegado, lo abre
+  // automáticamente para que el usuario vea la opción seleccionada.
+  useEffect(() => {
+    const activeGroup = navGroups.find((group) =>
+      groupHasActiveRoute(group, location.pathname),
+    );
+    if (activeGroup && !openGroups[activeGroup.title]) {
+      setOpenGroups((prev) => ({ ...prev, [activeGroup.title]: true }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname]);
+
+  const toggleGroup = (title: string) => {
+    setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
+  };
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
@@ -146,42 +196,60 @@ export function AppShell() {
             collapsed ? 'p-2' : 'p-3',
           )}
         >
-          {navGroups.map((group, gi) => (
-            <div
-              key={group.title}
-              className={cn(
-                gi > 0 &&
-                  (collapsed
-                    ? 'mt-2 border-t border-sidebar-border pt-2'
-                    : 'mt-1'),
-              )}
-            >
-              {!collapsed && (
-                <p className="px-3 pb-2 pt-3 text-xs font-medium uppercase tracking-wider text-sidebar-muted">
-                  {group.title}
-                </p>
-              )}
-              {group.items.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  title={collapsed ? item.label : undefined}
-                  onDoubleClick={() => setCollapsed((c) => !c)}
-                  className={({ isActive }) =>
-                    cn(
-                      'flex items-center rounded-md text-sm font-medium transition-colors',
-                      collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2',
-                      'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground',
-                      isActive && 'bg-sidebar-accent text-sidebar-foreground',
-                    )
-                  }
-                >
-                  <item.icon className={collapsed ? 'size-6' : 'size-5'} />
-                  {!collapsed && item.label}
-                </NavLink>
-              ))}
-            </div>
-          ))}
+          {navGroups.map((group, gi) => {
+            // Grupos sin título (ítems "sueltos" aún sin categoría) no son
+            // desplegables: siempre se muestran, sin botón de acordeón.
+            const isOpen =
+              collapsed || !group.title || (openGroups[group.title] ?? false);
+            return (
+              <div
+                key={group.title || 'sin-grupo'}
+                className={cn(
+                  gi > 0 &&
+                    (collapsed
+                      ? 'mt-2 border-t border-sidebar-border pt-2'
+                      : 'mt-1'),
+                )}
+              >
+                {!collapsed && group.title && (
+                  <button
+                    type="button"
+                    onClick={() => toggleGroup(group.title)}
+                    aria-expanded={isOpen}
+                    className="flex w-full items-center justify-between rounded-md px-3 pb-2 pt-3 text-xs font-medium uppercase tracking-wider text-sidebar-muted transition-colors hover:text-sidebar-foreground"
+                  >
+                    <span>{group.title}</span>
+                    <ChevronDown
+                      className={cn(
+                        'size-3.5 shrink-0 transition-transform duration-200',
+                        !isOpen && '-rotate-90',
+                      )}
+                    />
+                  </button>
+                )}
+                {isOpen &&
+                  group.items.map((item) => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      title={collapsed ? item.label : undefined}
+                      onDoubleClick={() => setCollapsed((c) => !c)}
+                      className={({ isActive }) =>
+                        cn(
+                          'flex items-center rounded-md text-sm font-medium transition-colors',
+                          collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2',
+                          'text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground',
+                          isActive && 'bg-sidebar-accent text-sidebar-foreground',
+                        )
+                      }
+                    >
+                      <item.icon className={collapsed ? 'size-6' : 'size-5'} />
+                      {!collapsed && item.label}
+                    </NavLink>
+                  ))}
+              </div>
+            );
+          })}
         </nav>
 
         <div

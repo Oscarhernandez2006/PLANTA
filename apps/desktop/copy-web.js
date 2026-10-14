@@ -8,7 +8,7 @@ const dest = path.join(__dirname, 'web');
 
 if (!fs.existsSync(src)) {
   console.error(
-    'No se encontró apps/web/dist. Ejecutá primero: pnpm --filter @frigorifico/web build',
+    'No se encontró apps/web/dist. Ejecutá primero: pnpm --filter @frigorifico/web build:desktop',
   );
   process.exit(1);
 }

@@ -1,5 +1,6 @@
 import {
   createBrowserRouter,
+  createHashRouter,
   Navigate,
   RouterProvider,
 } from 'react-router-dom';
@@ -42,7 +43,12 @@ import { InformesPage } from './features/informes/InformesPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { GoodsReceiptsPage } from './features/goods-receipts/GoodsReceiptsPage';
 
-const router = createBrowserRouter([
+// La app de escritorio empaquetada carga index.html desde file://, donde las
+// rutas del navegador no funcionan; ahí se usa enrutado por hash (#/ruta).
+const createRouter =
+  window.location.protocol === 'file:' ? createHashRouter : createBrowserRouter;
+
+const router = createRouter([
   {
     path: '/',
     element: <AppShell />,

@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/*.tsbuildinfo
+.git
+.env
+.env.*
+!.env.example
+apps/web
+apps/desktop
+apps/agent
+FOTOS AGRO
+*.xlsx
+*.csv
+*.log

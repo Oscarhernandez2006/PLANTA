@@ -23,8 +23,16 @@ async function bootstrap() {
     }),
   );
 
+  // CORS_ORIGIN: lista separada por comas de orígenes permitidos. Si no se
+  // define, se acepta cualquier origen (la app de escritorio carga desde
+  // file:// y envía Origin "null").
+  const corsOrigin = config
+    .get<string>('CORS_ORIGIN')
+    ?.split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
   app.enableCors({
-    origin: config.get<string>('VITE_API_URL') ?? true,
+    origin: corsOrigin?.length ? corsOrigin : true,
     credentials: true,
   });
 
