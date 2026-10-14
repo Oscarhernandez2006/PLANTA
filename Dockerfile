@@ -1,5 +1,5 @@
 # Imagen de la API (NestJS + Prisma) para Dokploy.
-# Contexto de build: raíz del monorepo  ->  docker build -f apps/api/Dockerfile .
+# Contexto de build: raíz del monorepo  ->  docker build .
 FROM node:20-bookworm-slim
 
 RUN apt-get update \
