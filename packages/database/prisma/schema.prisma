@@ -79,6 +79,7 @@ enum UserRole {
   operario_desposte
   despacho
   calidad
+  operario
 }
 
 enum DispatchOrderStatus {

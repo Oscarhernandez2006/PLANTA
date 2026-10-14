@@ -90,6 +90,7 @@ const areaLabels: Record<string, string> = {
   admin: 'Administración',
   supervisor_desposte: 'Supervisor desposte',
   operario_desposte: 'Desposte',
+  operario: 'Operario',
   despacho: 'Despacho',
   calidad: 'Calidad',
   desarrollador: 'Desarrollador',
