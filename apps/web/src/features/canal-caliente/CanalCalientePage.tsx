@@ -1104,7 +1104,13 @@ function TipoButton({
 
 function ReporteTab({ date }: { date: string }) {
   const piezas = useCanalPiezas(date);
-  const rows = piezas.data ?? [];
+  // El reporte va en orden consecutivo (A01, A02…); en media canal, CIZQ antes que CDER.
+  const ordenPieza: Record<string, number> = { canal: 0, cizq: 1, cder: 2 };
+  const rows = [...(piezas.data ?? [])].sort(
+    (a, b) =>
+      a.consecutivo - b.consecutivo ||
+      (ordenPieza[a.pieza] ?? 9) - (ordenPieza[b.pieza] ?? 9),
+  );
   if (piezas.isLoading) return <Loading />;
   const hayDatos = rows.length > 0;
   return (

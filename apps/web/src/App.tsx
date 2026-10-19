@@ -13,6 +13,7 @@ import { LoginPage } from './features/auth/LoginPage';
 import { WelcomeScreen } from './features/auth/WelcomeScreen';
 import { DeviceGate } from './features/device/DeviceGate';
 import { DevicesPage } from './features/device/DevicesPage';
+import { ParametrosEstacionPage } from './features/configuracion/ParametrosEstacionPage';
 import { CanalFriaPage } from './features/canal-fria/CanalFriaPage';
 import { CanalReciboPage } from './features/canal-recibo/CanalReciboPage';
 import { PostaReciboPage } from './features/recibo-posta/PostaReciboPage';
@@ -90,7 +91,8 @@ const router = createRouter([
       { path: 'piezas-desposte', element: <PiezasDespostePage /> },
       { path: 'informes', element: <InformesPage /> },
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
-      { path: 'equipos', element: <DevicesPage /> },
+      { path: 'configuracion/estaciones', element: <DevicesPage /> },
+      { path: 'configuracion/parametros-estacion', element: <ParametrosEstacionPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

@@ -194,7 +194,7 @@ export async function descargarDespachoPdf(d: DetalleCanalCaliente, operario: st
 
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('Elaboró: © FrigoAPP v1.0, 2026', margin, pageH - 8);
+  doc.text('Elaboró: © Grupo Santacruz, 2026', margin, pageH - 8);
   doc.text(`Operario: ${operario.toUpperCase()} | ${ahora()}`, pageW - margin, pageH - 8, {
     align: 'right',
   });
@@ -295,7 +295,7 @@ export async function descargarDespachoExcel(d: DetalleCanalCaliente, operario: 
 
   // Pie.
   row += 5;
-  ws.getCell(`A${row}`).value = 'Elaboró: © FrigoAPP v1.0, 2026';
+  ws.getCell(`A${row}`).value = 'Elaboró: © Grupo Santacruz, 2026';
   ws.getCell(`A${row}`).font = { bold: true, size: 9 };
   ws.getCell(`A${row + 1}`).value = `Operario: ${operario.toUpperCase()} | ${ahora()}`;
   ws.getCell(`A${row + 1}`).font = { bold: true, size: 9 };

@@ -75,7 +75,7 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
           <div className="flex flex-col items-center gap-4">
             <LoaderCircle className="size-14 animate-spin text-muted-foreground" />
             <p className="text-xl text-muted-foreground">
-              Validando este equipo…
+              Validando esta estación…
             </p>
           </div>
         )}
@@ -83,31 +83,31 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
         {state === 'agent_missing' && (
           <Panel
             icon={<MonitorX className="size-12 text-amber-600" />}
-            title="No se pudo leer el equipo"
+            title="No se pudo leer la estación"
             onRetry={run}
           >
             {isDesktop()
-              ? 'No se pudo obtener la información del equipo. Reiniciá la aplicación e intentá de nuevo.'
-              : 'No se pudo contactar el agente de este equipo. Verificá que el agente del Frigorífico esté instalado y en ejecución en este PC.'}
+              ? 'No se pudo obtener la información de la estación. Reiniciá la aplicación e intentá de nuevo.'
+              : 'No se pudo contactar el agente de esta estación. Verificá que el agente del Frigorífico esté instalado y en ejecución en este PC.'}
           </Panel>
         )}
 
         {state === 'blocked' && (
           <Panel
             icon={<ShieldAlert className="size-12 text-red-600" />}
-            title="Equipo no autorizado"
+            title="Estación no autorizada"
             onRetry={run}
           >
             {reason === 'inactive'
-              ? 'Este equipo está registrado pero se encuentra inactivo.'
-              : 'Este equipo no está registrado en el sistema.'}
+              ? 'Esta estación está registrada pero se encuentra inactiva.'
+              : 'Esta estación no está registrada en el sistema.'}
             {mac && (
               <span className="mt-3 block rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-lg text-foreground">
                 {mac}
               </span>
             )}
             <span className="mt-2 block text-base text-muted-foreground">
-              {info?.hostname && `Equipo: ${info.hostname} · `}
+              {info?.hostname && `Estación: ${info.hostname} · `}
               Pasá esta MAC al administrador para habilitar el acceso.
             </span>
           </Panel>
@@ -119,7 +119,7 @@ export function DeviceGate({ children }: { children: React.ReactNode }) {
             title="No se pudo validar"
             onRetry={run}
           >
-            Ocurrió un error validando el equipo. ¿Está disponible el servidor?
+            Ocurrió un error validando la estación. ¿Está disponible el servidor?
           </Panel>
         )}
       </div>

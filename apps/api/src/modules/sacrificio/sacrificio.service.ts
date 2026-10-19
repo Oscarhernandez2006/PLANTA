@@ -4,6 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { OrdenBeneficioStatus } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { plantToday } from '../../common/plant-date';
@@ -125,8 +126,13 @@ export class SacrificioService {
     };
   }
 
-  /** Marca el siguiente animal de la orden como sacrificado. */
-  async stunNext(ctx: AuthContext, ordenBeneficioId: string) {
+  /**
+   * Marca un animal de la orden como sacrificado. Se puede tumbar en cualquier
+   * orden: `sequence` es el número de la tarjeta tocada (A05 = 5) y queda como
+   * identidad del animal en Pieles, Subproductos, Canal Caliente, etc. Sin
+   * `sequence` se toma el primer animal pendiente.
+   */
+  async stunNext(ctx: AuthContext, ordenBeneficioId: string, sequenceElegida?: number) {
     await this.prisma.$transaction(async (tx) => {
       const ob = await tx.ordenBeneficio.findFirst({
         where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
@@ -139,16 +145,53 @@ export class SacrificioService {
       // Serializa el conteo por orden para evitar secuencias duplicadas.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ins:${ordenBeneficioId}`}))`;
 
-      const count = await tx.ordenBeneficioEvento.count({
-        where: { ordenBeneficioId },
+      // El peso que cuenta para el beneficio es el repesado: no se sacrifica
+      // mientras alguna guía del lote esté en repesaje en Peso en Pie.
+      const enRepesaje = await tx.pesoCamion.findFirst({
+        where: {
+          plantId: ctx.plantId,
+          deletedAt: null,
+          date: ob.date,
+          guia: { in: ob.guias },
+          repesajeAbierto: true,
+        },
+        select: { guia: true },
       });
+      if (enRepesaje) {
+        throw new BadRequestException(
+          `La guía ${enRepesaje.guia} está en repesaje en Peso en Pie. Termina el repesaje antes de sacrificar.`,
+        );
+      }
+
+      const existentes = await tx.ordenBeneficioEvento.findMany({
+        where: { ordenBeneficioId },
+        select: { sequence: true },
+      });
+      const count = existentes.length;
       if (count >= ob.animalCount) {
         throw new BadRequestException(
           'Todos los animales de la orden ya están sacrificados.',
         );
       }
 
-      const sequence = count + 1;
+      const tomados = new Set(existentes.map((e) => e.sequence));
+      let sequence: number;
+      if (sequenceElegida != null) {
+        if (sequenceElegida > ob.animalCount) {
+          throw new BadRequestException(
+            `La orden solo tiene ${ob.animalCount} animales.`,
+          );
+        }
+        if (tomados.has(sequenceElegida)) {
+          throw new BadRequestException(
+            `El animal A${String(sequenceElegida).padStart(2, '0')} ya fue sacrificado.`,
+          );
+        }
+        sequence = sequenceElegida;
+      } else {
+        sequence = 1;
+        while (tomados.has(sequence)) sequence++;
+      }
       const evento = await tx.ordenBeneficioEvento.create({
         data: { ordenBeneficioId, sequence, operatorId: ctx.userId },
       });
@@ -164,7 +207,7 @@ export class SacrificioService {
 
       // La orden se queda "activa" mientras se sacrifican animales; solo
       // pasa a "procesado" cuando cae el último (no hay estado intermedio).
-      if (sequence >= ob.animalCount) {
+      if (count + 1 >= ob.animalCount) {
         await tx.ordenBeneficio.update({
           where: { id: ob.id },
           data: { status: OrdenBeneficioStatus.procesado },
@@ -174,8 +217,11 @@ export class SacrificioService {
     return this.findOne(ctx, ordenBeneficioId);
   }
 
-  /** Deshace el último animal marcado (corrige un clic erróneo). */
-  async undoLast(ctx: AuthContext, ordenBeneficioId: string) {
+  /**
+   * Deshace el último animal tumbado (por hora), para corregir un toque
+   * erróneo. Requiere el PIN de inicio de sesión de quien tumbó ese animal.
+   */
+  async undoLast(ctx: AuthContext, ordenBeneficioId: string, pin: string) {
     await this.prisma.$transaction(async (tx) => {
       const ob = await tx.ordenBeneficio.findFirst({
         where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
@@ -186,10 +232,26 @@ export class SacrificioService {
 
       const last = await tx.ordenBeneficioEvento.findFirst({
         where: { ordenBeneficioId },
-        orderBy: { sequence: 'desc' },
+        orderBy: [{ stunnedAt: 'desc' }, { createdAt: 'desc' }],
       });
       if (!last) {
         throw new BadRequestException('No hay registros para deshacer.');
+      }
+
+      // Error 400 (no 401) para que un PIN mal digitado no cierre la sesión.
+      const operario = await tx.appUser.findUnique({
+        where: { id: last.operatorId },
+        select: { fullName: true, pinHash: true, active: true },
+      });
+      const pinOk =
+        !!operario?.active &&
+        !!operario.pinHash &&
+        (await bcrypt.compare(pin, operario.pinHash));
+      if (!pinOk) {
+        const animal = `A${String(last.sequence).padStart(2, '0')}`;
+        throw new BadRequestException(
+          `PIN incorrecto. Solo ${operario?.fullName ?? 'quien lo tumbó'}, que tumbó el animal ${animal}, puede devolverlo.`,
+        );
       }
 
       await tx.ordenBeneficioEvento.delete({ where: { id: last.id } });

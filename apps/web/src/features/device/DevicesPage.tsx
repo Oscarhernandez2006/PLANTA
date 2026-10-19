@@ -45,15 +45,15 @@ export function DevicesPage() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Equipos</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">Estaciones</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             PCs autorizados a acceder al sistema. El acceso se valida por la MAC
-            que reporta el agente local de cada equipo.
+            que reporta el agente local de cada estación.
           </p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" onClick={addThisDevice}>
-            <Laptop /> Agregar este equipo
+            <Laptop /> Agregar esta estación
           </Button>
           <Button
             onClick={() => {
@@ -61,7 +61,7 @@ export function DevicesPage() {
               setDialogOpen(true);
             }}
           >
-            <Plus /> Agregar equipo
+            <Plus /> Agregar estación
           </Button>
         </div>
       </div>
@@ -70,7 +70,7 @@ export function DevicesPage() {
         <Table>
           <THead>
             <TR>
-              <TH>Equipo</TH>
+              <TH>Estación</TH>
               <TH>MAC</TH>
               <TH>Estado</TH>
               <TH>Últref. visto</TH>
@@ -92,7 +92,7 @@ export function DevicesPage() {
             {isError && (
               <TR>
                 <TD colSpan={5} className="py-10 text-center text-sm text-red-600">
-                  Error al cargar los equipos.
+                  Error al cargar las estaciones.
                 </TD>
               </TR>
             )}
@@ -102,9 +102,9 @@ export function DevicesPage() {
                 <TD colSpan={5}>
                   <div className="flex flex-col items-center gap-2 py-12 text-center">
                     <MonitorSmartphone className="size-8 text-muted-foreground/50" />
-                    <p className="text-sm font-medium">Sin equipos registrados</p>
+                    <p className="text-sm font-medium">Sin estaciones registradas</p>
                     <p className="text-sm text-muted-foreground">
-                      Mientras no haya equipos, el acceso está abierto. Registrá
+                      Mientras no haya estaciones, el acceso está abierto. Registrá
                       este PC para empezar a restringir.
                     </p>
                   </div>
@@ -150,7 +150,7 @@ export function DevicesPage() {
                       disabled={del.isPending}
                       aria-label="Eliminar"
                       onClick={() => {
-                        if (confirm(`¿Eliminar el equipo "${d.name}"?`))
+                        if (confirm(`¿Eliminar la estación "${d.name}"?`))
                           del.mutate(d.id);
                       }}
                     >
@@ -211,7 +211,7 @@ function CreateDeviceDialog({
     } catch (err) {
       const message =
         (err as { response?: { data?: { message?: string | string[] } } })
-          ?.response?.data?.message ?? 'No se pudo registrar el equipo.';
+          ?.response?.data?.message ?? 'No se pudo registrar la estación.';
       setError(Array.isArray(message) ? message.join(' · ') : message);
     }
   }
@@ -220,8 +220,8 @@ function CreateDeviceDialog({
     <Dialog
       open={open}
       onClose={onClose}
-      title="Registrar equipo"
-      description="La MAC la reporta el agente local del PC. Podés usar “Agregar este equipo” para autocompletarla."
+      title="Registrar estación"
+      description="La MAC la reporta el agente local del PC. Podés usar “Agregar esta estación” para autocompletarla."
       className="max-w-lg"
     >
       <form onSubmit={submit} className="space-y-4">
@@ -236,7 +236,7 @@ function CreateDeviceDialog({
           />
         </div>
         <div className="space-y-1.5">
-          <Label htmlFor="name">Nombre del equipo</Label>
+          <Label htmlFor="name">Nombre de la estación</Label>
           <Input
             id="name"
             value={name}
@@ -265,7 +265,7 @@ function CreateDeviceDialog({
             Cancelar
           </Button>
           <Button type="submit" disabled={create.isPending}>
-            {create.isPending ? 'Guardando…' : 'Registrar equipo'}
+            {create.isPending ? 'Guardando…' : 'Registrar estación'}
           </Button>
         </div>
       </form>

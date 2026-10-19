@@ -47,8 +47,9 @@ export function useSacrificioDetail(id: string | null) {
 export function useStunNext() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) =>
-      (await api.post<SacrificioDetail>(`/sacrificio/${id}/stun`)).data,
+    // `sequence`: número del animal (tarjeta) a sacrificar; sin él, el primero pendiente.
+    mutationFn: async ({ id, sequence }: { id: string; sequence?: number }) =>
+      (await api.post<SacrificioDetail>(`/sacrificio/${id}/stun`, { sequence })).data,
     onSuccess: (data) => {
       qc.setQueryData(['sacrificio', 'detail', data.id], data);
       qc.invalidateQueries({ queryKey: ['sacrificio', 'pendientes'] });
@@ -60,8 +61,9 @@ export function useStunNext() {
 export function useUndoLast() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) =>
-      (await api.post<SacrificioDetail>(`/sacrificio/${id}/undo`)).data,
+    // `pin`: PIN de inicio de sesión de quien tumbó el último animal.
+    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
+      (await api.post<SacrificioDetail>(`/sacrificio/${id}/undo`, { pin })).data,
     onSuccess: (data) => {
       qc.setQueryData(['sacrificio', 'detail', data.id], data);
       qc.invalidateQueries({ queryKey: ['sacrificio', 'pendientes'] });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Beef,
   Check,
@@ -11,28 +11,43 @@ import {
   Pencil,
   Printer,
   RefreshCw,
+  RotateCcw,
   Scale,
   Sigma,
   Tag,
+  Eye,
+  TrendingDown,
+  Divide,
 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import { Dialog } from '@/components/ui/dialog';
 import { Input, Label, Select } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
 import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
-import { readScale } from '@/lib/device';
+import { getSavedScaleBaud, getSavedScalePort, readScale } from '@/lib/device';
 import { useAuth } from '@/features/auth/auth-context';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { downloadReciboPiePdf } from './recibo-print';
 import {
   usePesoEnPieList,
   useCreatePesoEnPie,
+  useRegistrarPromediado,
   useUpdatePesoEnPie,
   useBpPreview,
   formatBP,
   formatAnimal,
+  formatAnimalCorto,
+  useGuiasCerradas,
+  useGuiaCerradaDetalle,
+  useIniciarRepesaje,
+  useFinalizarRepesaje,
+  useRepesarAnimal,
+  type AnimalRepesaje,
+  type GuiaCerrada,
   type PesoEnPie,
 } from './api';
 import {
@@ -51,6 +66,38 @@ function kg(n: number | null | undefined) {
     minimumFractionDigits: 1,
     maximumFractionDigits: 1,
   });
+}
+function pct(n: number) {
+  return `${n.toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+// Merma positiva = el animal perdió peso; negativa = ganó.
+function MermaValor({
+  kgValor,
+  porcentaje,
+  unidad = false,
+}: {
+  kgValor: number;
+  porcentaje?: number;
+  unidad?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        'tabular-nums',
+        kgValor > 0 && 'font-semibold text-amber-700',
+        kgValor < 0 && 'font-semibold text-sky-700',
+      )}
+    >
+      {kg(kgValor)}
+      {unidad && ' kg'}
+      {porcentaje != null && ` (${pct(porcentaje)})`}
+    </span>
+  );
+}
+function mensajeError(error: unknown, fallback: string) {
+  const detail = (error as { response?: { data?: { message?: string | string[] } } })
+    .response?.data?.message;
+  return Array.isArray(detail) ? detail.join(' ') : detail || fallback;
 }
 
 export function PesoEnPiePage() {
@@ -92,9 +139,30 @@ export function PesoEnPiePage() {
   const [guiaCamionId, setGuiaCamionId] = useState<string | null>(null);
   const [netoCamion, setNetoCamion] = useState<number | null>(null);
   const crear = useCreatePesoEnPie();
+  const promediar = useRegistrarPromediado();
   const actualizar = useUpdatePesoEnPie();
 
+  // Repesaje de una guía cerrada: id de la guía (Peso en Camión) en repesaje.
+  const guiasCerradas = useGuiasCerradas();
+  const [repesajeId, setRepesajeId] = useState<string | null>(null);
+  const [confirmarRepesaje, setConfirmarRepesaje] = useState<GuiaCerrada | null>(null);
+  const [detalleId, setDetalleId] = useState<string | null>(null);
+  const repesajeDetalle = useGuiaCerradaDetalle(repesajeId);
+  const iniciarRepesaje = useIniciarRepesaje();
+  const finalizarRepesaje = useFinalizarRepesaje();
+  const repesar = useRepesarAnimal();
+  const enRepesaje = repesajeId != null;
+  const rep = repesajeDetalle.data;
+  const animalRepesar = rep?.items.find((i) => i.id === rep.siguienteId) ?? null;
+
+  function avisar(texto: string, ms = 3500) {
+    setNotice(texto);
+    window.setTimeout(() => setNotice(null), ms);
+  }
+
   useEffect(() => {
+    // En repesaje el peso siempre se lee de nuevo: no se precarga el promedio.
+    if (repesajeId) return;
     try {
       const raw = window.localStorage.getItem('frigo:last-peso-camion');
       if (!raw || peso) return;
@@ -108,7 +176,15 @@ export function PesoEnPiePage() {
     } catch {
       // Ignora almacenamiento no válido.
     }
-  }, [peso]);
+  }, [peso, repesajeId]);
+
+  // En repesaje, corral y tipo son los del animal que toca repesar.
+  useEffect(() => {
+    if (!animalRepesar) return;
+    setCorral(animalRepesar.corral ?? '');
+    setTipoAnimal(animalRepesar.tipoAnimal ?? '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animalRepesar?.id]);
 
   const pesoNum = num(peso);
   const reportes = lista.data ?? [];
@@ -128,27 +204,44 @@ export function PesoEnPiePage() {
   // (se confirma recién al guardar el primer animal) apenas se selecciona la guía.
   const bpPreview = useBpPreview(bcReference);
   const bpActual = reportesGuia[0]?.bpReference ?? bpPreview.data?.bpReference ?? null;
-  // Corral del primer animal registrado en la guía: se usa como valor por
-  // defecto para los siguientes animales (editable).
-  const corralGuia =
+  // Corral y tipo del último animal registrado en la guía: valores por defecto
+  // al cargar la guía (editables). Tras cada registro se conserva lo escogido.
+  const ultimoDeGuia = (campo: 'corral' | 'tipoAnimal') =>
     reportesGuia
       .slice()
-      .sort((a, b) => a.reference - b.reference)
-      .map((reporte) => reporte.corral?.trim())
+      .sort((a, b) => b.reference - a.reference)
+      .map((reporte) => reporte[campo]?.trim())
       .find((valor): valor is string => Boolean(valor)) ?? '';
+  const corralGuia = ultimoDeGuia('corral');
+  const tipoGuia = ultimoDeGuia('tipoAnimal');
 
   useEffect(() => {
     if (corralGuia && !corral) setCorral(corralGuia);
   }, [corralGuia, corral]);
 
+  useEffect(() => {
+    if (tipoGuia && !tipoAnimal) setTipoAnimal(tipoGuia);
+  }, [tipoGuia, tipoAnimal]);
+
   const tabs: TabItem[] = [
     { value: 'guias', label: `Guías abiertas (${guiasCamion.data?.length ?? 0})` },
-    { value: 'registro', label: 'Registro de animales' },
+    { value: 'cerradas', label: `Guías cerradas (${guiasCerradas.data?.length ?? 0})` },
+    { value: 'registro', label: enRepesaje ? 'Repesaje de animales' : 'Registro de animales' },
     { value: 'observaciones', label: 'Nota general de la guía' },
   ];
 
   const guiaSeleccionada = guia.trim().length > 0 && animalesObjetivo > 0;
   const guiaCompleta = guiaSeleccionada && animalesRegistrados >= animalesObjetivo;
+  // Consecutivo del próximo animal dentro de la guía (A01, A02…): visible
+  // antes de pesar para que el operario marque el animal antes de la báscula.
+  // En repesaje es el siguiente animal en el orden original.
+  const proximoAnimal = enRepesaje
+    ? animalRepesar
+      ? formatAnimalCorto(animalRepesar.reference)
+      : null
+    : guiaSeleccionada && !guiaCompleta && bpPreview.data
+      ? formatAnimalCorto(bpPreview.data.nextAnimal)
+      : null;
   const camposFaltantes = [
     !guiaSeleccionada && 'Guía de movilización',
     !corral.trim() && 'Corral',
@@ -175,11 +268,12 @@ export function PesoEnPiePage() {
     setNotaGeneral('');
     setSaveError(null);
     setIsReadingScale(false);
+    setRepesajeId(null);
   }
 
+  // Tras guardar un animal se conservan corral y tipo para el siguiente
+  // (normalmente iguales): solo se limpian peso y observación.
   function limpiarCaptura() {
-    setTipoAnimal('');
-    setCorral('');
     setPeso('');
     setObservaciones('');
     setSaveError(null);
@@ -187,6 +281,7 @@ export function PesoEnPiePage() {
   }
 
   function seleccionarGuia(guiaCamion: PesoCamionGuia) {
+    setRepesajeId(null);
     setFecha(guiaCamion.date);
     setGuia(guiaCamion.guia ?? '');
     setProcedencia(guiaCamion.procedencia ?? '');
@@ -201,9 +296,82 @@ export function PesoEnPiePage() {
     setGuiaCamionId(guiaCamion.id);
     setNetoCamion(guiaCamion.neto);
     setCorral('');
+    setTipoAnimal('');
     setTab('registro');
     setNotice(`Guía ${guiaCamion.guia ?? guiaCamion.reference} cargada para asignar animales.`);
     window.setTimeout(() => setNotice(null), 3000);
+  }
+
+  // Carga la guía cerrada en la zona de captura para repesar sus animales.
+  function entrarRepesaje(g: GuiaCerrada) {
+    limpiar();
+    setFecha(g.date);
+    setGuia(g.guia ?? '');
+    setProcedencia(g.procedencia ?? '');
+    setProveedor(g.proveedor ?? '');
+    setCliente(g.cliente ?? '');
+    setPlaca(g.placa ?? '');
+    setConductor(g.conductor ?? '');
+    setCantidad(String(g.cantidad ?? g.animales));
+    setEntrada(g.entrada == null ? '' : String(g.entrada));
+    setSalida(g.salida == null ? '' : String(g.salida));
+    setRepesajeId(g.id);
+    setTab('registro');
+  }
+
+  function pedirRepesaje(g: GuiaCerrada) {
+    setSaveError(null);
+    if (g.repesajeAbierto) {
+      entrarRepesaje(g);
+      avisar(`Continuando el repesaje de la guía ${g.guia}.`);
+      return;
+    }
+    setConfirmarRepesaje(g);
+  }
+
+  async function aceptarRepesaje() {
+    const g = confirmarRepesaje;
+    if (!g) return;
+    try {
+      const detalle = await iniciarRepesaje.mutateAsync(g.id);
+      setConfirmarRepesaje(null);
+      entrarRepesaje(detalle);
+      const primero = detalle.items[0];
+      avisar(
+        `Repesaje iniciado (ronda ${detalle.repesajeRonda}). Repesa en el mismo orden${primero ? `, empezando por ${formatAnimalCorto(primero.reference)}` : ''}.`,
+      );
+    } catch (error) {
+      setConfirmarRepesaje(null);
+      setSaveError(mensajeError(error, 'No se pudo iniciar el repesaje.'));
+    }
+  }
+
+  async function terminarRepesaje() {
+    if (!repesajeId || !rep) return;
+    const pendientes = rep.animales - rep.repesadosRonda;
+    const pregunta =
+      rep.repesadosRonda === 0
+        ? '¿Cancelar el repesaje? Aún no se ha repesado ningún animal.'
+        : `¿Terminar el repesaje? ${pendientes} ${pendientes === 1 ? 'animal sin repesar conservará' : 'animales sin repesar conservarán'} su peso anterior.`;
+    if (!window.confirm(pregunta)) return;
+    try {
+      const res = await finalizarRepesaje.mutateAsync(repesajeId);
+      limpiar();
+      setTab('cerradas');
+      avisar(
+        res.cancelado
+          ? `Repesaje de la guía ${res.guia} cancelado.`
+          : `Repesaje terminado. Merma de la guía: ${kg(res.mermaKg)} kg (${pct(res.mermaPct)}).`,
+      );
+    } catch (error) {
+      setSaveError(mensajeError(error, 'No se pudo terminar el repesaje.'));
+    }
+  }
+
+  function salirRepesaje() {
+    limpiar();
+    setTab('cerradas');
+    avisar('El repesaje sigue abierto: puedes continuarlo desde Guías cerradas.');
   }
 
   async function leerBascula() {
@@ -211,7 +379,12 @@ export function PesoEnPiePage() {
     setIsReadingScale(true);
 
     try {
-      const result = await readScale({ timeoutMs: 4000 });
+      // Puerto COM y baudios de Configuración → Parámetros estación (o autodetección).
+      const result = await readScale({
+        timeoutMs: 4000,
+        port: getSavedScalePort() ?? undefined,
+        baudRate: getSavedScaleBaud() ?? undefined,
+      });
       if (result.ok && result.value !== null) {
         setPeso(result.value.toFixed(2));
         return;
@@ -228,7 +401,52 @@ export function PesoEnPiePage() {
     }
   }
 
+  // Evita guardar dos veces el mismo animal si se pulsa Enter (o el botón)
+  // repetidamente mientras la primera petición está en curso.
+  const guardando = useRef(false);
+
+  async function guardarRepesaje() {
+    if (!rep || !animalRepesar) {
+      setSaveError('No hay animales pendientes por repesar en esta guía.');
+      return;
+    }
+    if (pesoNum <= 0) {
+      setSaveError(`Falta el peso del animal ${formatAnimalCorto(animalRepesar.reference)}.`);
+      return;
+    }
+    setSaveError(null);
+    guardando.current = true;
+    try {
+      const { repesado: r, guia: g } = await repesar.mutateAsync({
+        id: animalRepesar.id,
+        pesoKg: pesoNum,
+      });
+      setPeso('');
+      if (r.finalizado) {
+        limpiar();
+        setTab('cerradas');
+        avisar(
+          `Repesaje terminado: ${g.animales} animales. Merma de la guía: ${kg(g.mermaKg)} kg (${pct(g.mermaPct)}).`,
+          5000,
+        );
+      } else {
+        avisar(
+          `Animal ${formatAnimalCorto(r.reference)} repesado: ${kg(r.pesoNuevoKg)} kg (antes ${kg(r.pesoAnteriorKg)} kg, merma ${kg(r.mermaKg)} kg).`,
+        );
+      }
+    } catch (error) {
+      setSaveError(mensajeError(error, 'No se pudo guardar el repesaje.'));
+    } finally {
+      guardando.current = false;
+    }
+  }
+
   async function guardar() {
+    if (guardando.current) return;
+    if (enRepesaje) {
+      await guardarRepesaje();
+      return;
+    }
     if (camposFaltantes.length > 0) {
       setSaveError(`Faltan campos obligatorios: ${camposFaltantes.join(', ')}.`);
       return;
@@ -244,6 +462,7 @@ export function PesoEnPiePage() {
       return;
     }
     setSaveError(null);
+    guardando.current = true;
     try {
       const created = await crear.mutateAsync({
         date: fecha,
@@ -267,7 +486,7 @@ export function PesoEnPiePage() {
       limpiarCaptura();
       const siguiente = animalesRegistrados + 1;
       setNotice(
-        `Animal ${formatAnimal(created.bpReference, created.reference)} guardado. ${siguiente} de ${animalesObjetivo} animales de la guía.`,
+        `Animal A${String(created.reference).padStart(2, '0')} (${formatBP(created.bpReference)}) guardado. ${siguiente} de ${animalesObjetivo} animales de la guía.`,
       );
       window.setTimeout(() => setNotice(null), 3500);
     } catch (error) {
@@ -282,6 +501,77 @@ export function PesoEnPiePage() {
           ? detail.join(' ')
           : detail || 'No se pudo guardar el reporte.',
       );
+    } finally {
+      guardando.current = false;
+    }
+  }
+
+  // Enter = Guardar, esté donde esté el foco (también si quedó en el enlace
+  // del menú lateral o en el botón de leer báscula: se anula su acción para
+  // que Enter solo guarde). Se ignora en la zona de pestañas (guías, tabla
+  // de animales, nota general), donde Enter tiene su propio uso.
+  const guardarRef = useRef(guardar);
+  guardarRef.current = guardar;
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (e.key !== 'Enter' || e.repeat || e.isComposing) return;
+      if (e.defaultPrevented || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target?.closest('textarea, [role="dialog"], [data-enter-guardar="off"]')) return;
+      // Con un modal abierto (p. ej. confirmar repesaje) Enter no guarda.
+      if (document.querySelector('[role="dialog"]')) return;
+      e.preventDefault();
+      void guardarRef.current();
+    }
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  // Pesaje promediado: neto de báscula camión (menos lo ya pesado) dividido
+  // entre los animales pendientes; registra todos de una vez.
+  async function pesarPromediado() {
+    if (!guiaCamionId || !guiaSeleccionada) {
+      setSaveError('Selecciona una guía abierta para el pesaje promediado.');
+      return;
+    }
+    if (guiaCompleta) {
+      setSaveError(`Esta guía ya tiene registrados sus ${animalesObjetivo} animales.`);
+      return;
+    }
+    if (netoCamion == null || netoCamion <= 0) {
+      setSaveError('La guía no tiene peso neto de báscula camión.');
+      return;
+    }
+    const faltan = [!corral.trim() && 'Corral', !tipoAnimal.trim() && 'Tipo de animal'].filter(Boolean);
+    if (faltan.length) {
+      setSaveError(`Para el pesaje promediado selecciona: ${faltan.join(', ')}.`);
+      return;
+    }
+    const pendientes = animalesObjetivo - animalesRegistrados;
+    const disponible = netoCamion - totalKg;
+    const pesoKg = Math.floor((disponible / pendientes) * 100) / 100;
+    if (pesoKg <= 0) {
+      setSaveError('No queda peso disponible del neto de báscula camión para los animales pendientes.');
+      return;
+    }
+    const kg2 = (n: number) => n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const confirmado = window.confirm(
+      `Pesaje promediado de la guía ${guia}:\n\n` +
+        `${pendientes} animales × ${kg2(pesoKg)} kg cada uno\n` +
+        `(${animalesRegistrados ? 'neto pendiente' : 'neto báscula camión'} ${kg2(disponible)} kg ÷ ${pendientes} animales)\n` +
+        `Corral ${corral} · ${tipoAnimal}\n\n¿Registrar todos los animales?`,
+    );
+    if (!confirmado) return;
+    setSaveError(null);
+    try {
+      const r = await promediar.mutateAsync({ pesoCamionId: guiaCamionId, corral, tipoAnimal });
+      setPeso('');
+      avisar(
+        `Pesaje promediado: ${r.creados} animales (${formatAnimalCorto(r.desde)} a ${formatAnimalCorto(r.hasta)}) con ${kg2(r.pesoKg)} kg cada uno.`,
+        5000,
+      );
+    } catch (error) {
+      setSaveError(mensajeError(error, 'No se pudo registrar el pesaje promediado.'));
     }
   }
 
@@ -383,6 +673,22 @@ export function PesoEnPiePage() {
             <Eraser className="size-4" />
           </Button>
           <span className="mx-1 h-7 w-px bg-border" />
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-8"
+            title="Pesaje promediado: neto de báscula camión ÷ animales, para todos los animales de la guía"
+            onClick={pesarPromediado}
+            disabled={
+              enRepesaje || !guiaCamionId || guiaCompleta || netoCamion == null || promediar.isPending
+            }
+          >
+            {promediar.isPending ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Divide className="size-4" />
+            )}
+          </Button>
           <Button
             variant="outline"
             size="icon"
@@ -498,14 +804,14 @@ export function PesoEnPiePage() {
           </div>
           <div className="space-y-0.5 sm:col-span-2">
             <Label htmlFor="corral">Ubicación (Corral)</Label>
-            <Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-8">
+            <Select id="corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-8" disabled={enRepesaje}>
               <option value="">Seleccione...</option>
               {Array.from({ length: 26 }, (_, i) => <option key={i} value={String(i + 1)}>Corral {i + 1}</option>)}
             </Select>
           </div>
           <div className="space-y-0.5 sm:col-span-1">
             <Label htmlFor="tipo-animal">Tipo de Animal</Label>
-            <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-8">
+            <Select id="tipo-animal" value={tipoAnimal} onChange={(e) => setTipoAnimal(e.target.value)} className="h-8" disabled={enRepesaje}>
               <option value="">Seleccione...</option>
               <option value="MACHO">MACHO</option>
               <option value="HEMBRA">HEMBRA</option>
@@ -522,8 +828,9 @@ export function PesoEnPiePage() {
               id="observacion-animal"
               value={observaciones}
               onChange={(e) => setObservaciones(e.target.value)}
-              placeholder="Ej: cojera, marca visible, etc."
+              placeholder={enRepesaje ? 'No aplica en el repesaje' : 'Ej: cojera, marca visible, etc.'}
               className="h-8"
+              disabled={enRepesaje}
             />
           </div>
         </div>
@@ -545,10 +852,10 @@ export function PesoEnPiePage() {
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <Beef className="size-3.5" />
-                Registrados
+                {enRepesaje ? 'Repesados' : 'Registrados'}
               </div>
               <p className="text-2xl font-semibold tabular-nums">
-                {animalesRegistrados}
+                {enRepesaje ? (rep?.repesadosRonda ?? 0) : animalesRegistrados}
               </p>
             </div>
           </div>
@@ -558,25 +865,48 @@ export function PesoEnPiePage() {
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
                 <Scale className="size-3.5" />
-                Total (kg)
+                {enRepesaje ? 'Inicial (kg)' : 'Total (kg)'}
               </div>
               <p className="text-2xl font-semibold tabular-nums text-emerald-600">
-                {kg(totalKg)}
+                {kg(enRepesaje ? rep?.pesoInicialKg : totalKg)}
               </p>
             </div>
             <div className="h-8 w-px bg-border" />
             <div className="flex flex-col items-center">
               <div className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-                <Sigma className="size-3.5" />
-                Prom. (kg)
+                {enRepesaje ? <TrendingDown className="size-3.5" /> : <Sigma className="size-3.5" />}
+                {enRepesaje ? 'Merma (kg)' : 'Prom. (kg)'}
               </div>
               <p className="text-2xl font-semibold tabular-nums">
-                {kg(animalesRegistrados > 0 ? totalKg / animalesRegistrados : 0)}
+                {enRepesaje
+                  ? <MermaValor kgValor={rep?.mermaKg ?? 0} />
+                  : kg(animalesRegistrados > 0 ? totalKg / animalesRegistrados : 0)}
               </p>
             </div>
           </div>
         </Card>
         <div className="col-span-2 flex h-16 items-stretch gap-2">
+          <div
+            className={cn(
+              'relative flex h-16 w-28 shrink-0 items-center justify-center rounded-sm border-2 px-2',
+              proximoAnimal
+                ? 'border-emerald-400 bg-emerald-50'
+                : 'border-border bg-card',
+            )}
+            title="Consecutivo que se asignará al guardar este animal"
+          >
+            <span className="absolute -top-3 left-3 bg-background px-1.5 text-sm font-medium">
+              Animal:
+            </span>
+            <span
+              className={cn(
+                'text-3xl font-bold tabular-nums',
+                proximoAnimal ? 'text-emerald-700' : 'text-muted-foreground/40',
+              )}
+            >
+              {proximoAnimal ?? '—'}
+            </span>
+          </div>
           <div
             className="relative flex h-16 flex-1 items-center rounded-sm border-2 border-border bg-card px-3"
           >
@@ -608,11 +938,11 @@ export function PesoEnPiePage() {
           <Button
             size="lg"
             className="h-16 shrink-0 px-5"
-            title="Guardar registro"
+            title="Guardar registro (Enter)"
             onClick={guardar}
-            disabled={crear.isPending || guiaCompleta}
+            disabled={enRepesaje ? repesar.isPending || !animalRepesar : crear.isPending || guiaCompleta}
           >
-            {crear.isPending ? (
+            {crear.isPending || repesar.isPending ? (
               <LoaderCircle className="size-5 animate-spin" />
             ) : (
               <Check className="size-5" />
@@ -622,18 +952,45 @@ export function PesoEnPiePage() {
         </div>
       </div>
 
-      {guiaCompleta && (
-        <div className="shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-700">
-          Esta guía ya tiene registrados sus {animalesObjetivo} animales.
+      {enRepesaje ? (
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-md border border-sky-200 bg-sky-50 px-4 py-1.5 text-sm font-medium text-sky-800">
+          <span className="flex items-center gap-2">
+            <RotateCcw className="size-4" />
+            {repesajeDetalle.isLoading || !rep
+              ? 'Cargando repesaje…'
+              : `Repesaje (ronda ${rep.repesajeRonda}) de la guía ${rep.guia}: ${rep.repesadosRonda} de ${rep.animales} animales repesados. Se repesan en el mismo orden en que se pesaron.`}
+          </span>
+          <span className="flex gap-2">
+            <Button size="sm" variant="outline" className="h-7" onClick={salirRepesaje}>
+              Salir
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-7"
+              onClick={terminarRepesaje}
+              disabled={!rep || finalizarRepesaje.isPending}
+            >
+              {rep && rep.repesadosRonda === 0 ? 'Cancelar repesaje' : 'Terminar repesaje'}
+            </Button>
+          </span>
         </div>
-      )}
-      {!guiaSeleccionada && (
-        <div className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-4 py-1.5 text-sm font-medium text-amber-700">
-          Selecciona una guía abierta para comenzar a pesar sus animales.
-        </div>
+      ) : (
+        <>
+          {guiaCompleta && (
+            <div className="shrink-0 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-700">
+              Esta guía ya tiene registrados sus {animalesObjetivo} animales.
+            </div>
+          )}
+          {!guiaSeleccionada && (
+            <div className="shrink-0 rounded-md border border-amber-200 bg-amber-50 px-4 py-1.5 text-sm font-medium text-amber-700">
+              Selecciona una guía abierta para comenzar a pesar sus animales.
+            </div>
+          )}
+        </>
       )}
 
-      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden">
+      <Card className="flex min-h-0 flex-1 flex-col overflow-hidden" data-enter-guardar="off">
         <div className="shrink-0 px-4 pt-2">
           <Tabs tabs={tabs} value={tab} onChange={setTab} />
         </div>
@@ -650,8 +1007,35 @@ export function PesoEnPiePage() {
               className="h-32 items-start py-3"
             />
           </div>
-        ) : tab === 'guias' ? <GuiasCamionList guias={guiasCamion.data ?? []} loading={guiasCamion.isLoading} onSelect={seleccionarGuia} /> : null}
-        {tab === 'registro' && lista.isLoading ? (
+        ) : tab === 'guias' ? (
+          <GuiasCamionList guias={guiasCamion.data ?? []} loading={guiasCamion.isLoading} onSelect={seleccionarGuia} />
+        ) : tab === 'cerradas' ? (
+          <GuiasCerradasList
+            guias={guiasCerradas.data ?? []}
+            loading={guiasCerradas.isLoading}
+            activaId={repesajeId}
+            iniciando={iniciarRepesaje.isPending}
+            onRepesar={pedirRepesaje}
+            onVerDetalle={(g) => setDetalleId(g.id)}
+          />
+        ) : null}
+        {tab === 'registro' && enRepesaje ? (
+          !rep ? (
+            <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+              <LoaderCircle className="size-4 animate-spin" /> Cargando…
+            </div>
+          ) : (
+            <div className="scrollbar-app flex min-h-0 flex-1 flex-col overflow-hidden">
+              <div className="shrink-0 border-b border-border px-4 py-2 text-sm font-medium text-muted-foreground">
+                Inicial: {kg(rep.pesoInicialKg)} kg · Actual: {kg(rep.pesoActualKg)} kg · Merma:{' '}
+                <MermaValor kgValor={rep.mermaKg} porcentaje={rep.mermaPct} unidad />
+              </div>
+              <div className="min-h-0 flex-1 overflow-auto">
+                <AnimalesRepesajeTable items={rep.items} siguienteId={rep.siguienteId} modoRepesaje />
+              </div>
+            </div>
+          )
+        ) : tab === 'registro' && lista.isLoading ? (
           <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
             <LoaderCircle className="size-4 animate-spin" /> Cargando…
           </div>
@@ -731,6 +1115,282 @@ export function PesoEnPiePage() {
           </div>
         ) : null}
       </Card>
+
+      <Dialog
+        open={confirmarRepesaje != null}
+        onClose={() => !iniciarRepesaje.isPending && setConfirmarRepesaje(null)}
+        title="Repesaje de guía"
+        className="max-w-lg"
+      >
+        {confirmarRepesaje && (
+          <div className="space-y-4 p-6 pt-4">
+            <p className="text-base">
+              ¿Está seguro que quiere realizar un repesaje de la guía{' '}
+              <span className="font-semibold">{confirmarRepesaje.guia}</span> (
+              {confirmarRepesaje.animales} animales)?
+            </p>
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+              La información de cada animal repesado es la que se tomará en cuenta para el beneficio.
+              Los animales se repesan en el mismo orden en que fueron guardados, y el pesaje anterior,
+              el nuevo y la merma quedan guardados.
+            </p>
+            <div className="flex justify-end gap-2 border-t border-border pt-4">
+              <Button
+                variant="outline"
+                onClick={() => setConfirmarRepesaje(null)}
+                disabled={iniciarRepesaje.isPending}
+              >
+                Cancelar
+              </Button>
+              <Button autoFocus onClick={aceptarRepesaje} disabled={iniciarRepesaje.isPending}>
+                {iniciarRepesaje.isPending && <LoaderCircle className="animate-spin" />}
+                Aceptar
+              </Button>
+            </div>
+          </div>
+        )}
+      </Dialog>
+
+      <DetalleGuiaCerradaDialog id={detalleId} onClose={() => setDetalleId(null)} />
+    </div>
+  );
+}
+
+function DetalleGuiaCerradaDialog({ id, onClose }: { id: string | null; onClose: () => void }) {
+  const detalle = useGuiaCerradaDetalle(id);
+  const d = detalle.data;
+  return (
+    <Dialog
+      open={id != null}
+      onClose={onClose}
+      title={d ? `Guía ${d.guia} — ${d.bpReference != null ? formatBP(d.bpReference) : ''}` : 'Guía cerrada'}
+      description={d ? `${d.cliente ?? '—'} · ${d.date} · ${d.animales} animales` : undefined}
+      className="max-w-5xl"
+      scrollInterno
+    >
+      {!d ? (
+        <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" /> Cargando…
+        </div>
+      ) : (
+        <div className="min-h-0 space-y-3 overflow-auto p-6 pt-4">
+          <div className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+            <ResumenDato label="Pesaje inicial" valor={`${kg(d.pesoInicialKg)} kg`} />
+            <ResumenDato label="Pesaje actualizado" valor={`${kg(d.pesoActualKg)} kg`} />
+            <ResumenDato
+              label="Merma"
+              valor={<MermaValor kgValor={d.mermaKg} porcentaje={d.mermaPct} unidad />}
+            />
+            <ResumenDato
+              label="Repesajes"
+              valor={d.repesajeAbierto ? `Ronda ${d.repesajeRonda} en curso` : String(d.repesajeRonda)}
+            />
+          </div>
+          <div className="overflow-x-auto rounded-md border border-border">
+            <AnimalesRepesajeTable items={d.items} siguienteId={d.siguienteId} />
+          </div>
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+function ResumenDato({ label, valor }: { label: string; valor: React.ReactNode }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="text-lg font-semibold tabular-nums">{valor}</div>
+    </div>
+  );
+}
+
+function AnimalesRepesajeTable({
+  items,
+  siguienteId,
+  modoRepesaje = false,
+}: {
+  items: AnimalRepesaje[];
+  siguienteId: string | null;
+  modoRepesaje?: boolean;
+}) {
+  return (
+    <Table>
+      <THead>
+        <TR>
+          <TH className="whitespace-nowrap">N.º Registro</TH>
+          <TH className="whitespace-nowrap">Tipo</TH>
+          <TH className="whitespace-nowrap">Corral</TH>
+          <TH className="whitespace-nowrap text-right">Pesaje inicial (kg)</TH>
+          <TH className="whitespace-nowrap text-right">Pesaje actual (kg)</TH>
+          <TH className="whitespace-nowrap text-right">Merma (kg)</TH>
+          <TH className="whitespace-nowrap">{modoRepesaje ? 'Estado' : 'Historial de repesajes'}</TH>
+        </TR>
+      </THead>
+      <TBody>
+        {items.map((a) => {
+          const esSiguiente = a.id === siguienteId;
+          return (
+            <TR key={a.id} className={cn(modoRepesaje && esSiguiente && 'bg-emerald-50')}>
+              <TD className="whitespace-nowrap font-medium tabular-nums">
+                {formatAnimal(a.bpReference, a.reference)}
+              </TD>
+              <TD className="whitespace-nowrap">{a.tipoAnimal ?? '—'}</TD>
+              <TD className="whitespace-nowrap">{a.corral ? `Corral ${a.corral}` : '—'}</TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{kg(a.pesoInicialKg)}</TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{kg(a.pesoActualKg)}</TD>
+              <TD className="whitespace-nowrap text-right">
+                <MermaValor kgValor={a.mermaKg} porcentaje={a.mermaPct} />
+              </TD>
+              <TD className="min-w-56 text-sm">
+                {modoRepesaje ? (
+                  a.repesadoEnRonda ? (
+                    <Badge tone="success">Repesado</Badge>
+                  ) : esSiguiente ? (
+                    <Badge tone="info">Siguiente</Badge>
+                  ) : (
+                    <Badge>Pendiente</Badge>
+                  )
+                ) : a.historial.length ? (
+                  <div className="space-y-0.5 text-muted-foreground">
+                    {a.historial.map((h) => (
+                      <div key={h.ronda} className="tabular-nums">
+                        Ronda {h.ronda}: {kg(h.pesoAnteriorKg)} → {kg(h.pesoNuevoKg)} kg · merma{' '}
+                        <MermaValor kgValor={h.mermaKg} unidad />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground">Sin repesajes</span>
+                )}
+              </TD>
+            </TR>
+          );
+        })}
+      </TBody>
+    </Table>
+  );
+}
+
+function GuiasCerradasList({
+  guias,
+  loading,
+  activaId,
+  iniciando,
+  onRepesar,
+  onVerDetalle,
+}: {
+  guias: GuiaCerrada[];
+  loading: boolean;
+  activaId: string | null;
+  iniciando: boolean;
+  onRepesar: (g: GuiaCerrada) => void;
+  onVerDetalle: (g: GuiaCerrada) => void;
+}) {
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
+        <LoaderCircle className="size-4 animate-spin" /> Cargando guías cerradas…
+      </div>
+    );
+  }
+  if (!guias.length) {
+    return (
+      <div className="flex flex-col items-center gap-2 py-16 text-center text-muted-foreground">
+        <Inbox className="size-8" />
+        <p className="text-sm font-medium">No hay guías cerradas</p>
+        <p className="text-sm">Las guías aparecen aquí al cerrarlas en Peso en Pie.</p>
+      </div>
+    );
+  }
+  return (
+    <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
+      <Table>
+        <THead>
+          <TR>
+            <TH className="whitespace-nowrap">BP / Fecha</TH>
+            <TH className="whitespace-nowrap">Guía / Cliente</TH>
+            <TH className="whitespace-nowrap text-right">Animales</TH>
+            <TH className="whitespace-nowrap text-right">Inicial (kg)</TH>
+            <TH className="whitespace-nowrap text-right">Actual (kg)</TH>
+            <TH className="whitespace-nowrap text-right">Merma (kg)</TH>
+            <TH className="whitespace-nowrap">Estado</TH>
+            <TH className="whitespace-nowrap text-right">Acción</TH>
+          </TR>
+        </THead>
+        <TBody>
+          {guias.map((g) => (
+            <TR key={g.id} className={cn(g.id === activaId && 'bg-sky-50')}>
+              <TD className="whitespace-nowrap">
+                <div className="font-medium tabular-nums">
+                  {g.bpReference != null ? formatBP(g.bpReference) : '—'}
+                </div>
+                <div className="text-xs text-muted-foreground tabular-nums">
+                  {g.date} · {formatReferencia(g.bcReference)}
+                </div>
+              </TD>
+              <TD className="max-w-64">
+                <div className="truncate font-medium" title={g.guia ?? undefined}>{g.guia ?? '—'}</div>
+                <div className="truncate text-xs text-muted-foreground" title={g.cliente ?? undefined}>
+                  {g.cliente ?? '—'}{g.placa ? ` · ${g.placa}` : ''}
+                </div>
+              </TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{g.animales}</TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{kg(g.pesoInicialKg)}</TD>
+              <TD className="whitespace-nowrap text-right tabular-nums">{kg(g.pesoActualKg)}</TD>
+              <TD className="whitespace-nowrap text-right">
+                <MermaValor kgValor={g.mermaKg} porcentaje={g.mermaPct} />
+              </TD>
+              <TD className="whitespace-nowrap">
+                {g.repesajeAbierto ? (
+                  <Badge tone="info">
+                    En repesaje {g.repesadosRonda}/{g.animales}
+                  </Badge>
+                ) : g.repesajeRonda > 0 ? (
+                  <Badge tone="warning">
+                    Repesada {g.repesajeRonda === 1 ? '1 vez' : `${g.repesajeRonda} veces`}
+                  </Badge>
+                ) : (
+                  <Badge>Cerrada</Badge>
+                )}
+              </TD>
+              <TD className="whitespace-nowrap text-right">
+                <div className="flex justify-end gap-1">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="size-8"
+                    title="Ver detalle y mermas"
+                    onClick={() => onVerDetalle(g)}
+                  >
+                    <Eye className="size-4" />
+                  </Button>
+                  {/* El span muestra el motivo aunque el botón esté deshabilitado. */}
+                  <span
+                    title={
+                      g.repesajeAbierto
+                        ? 'Continuar repesaje'
+                        : g.motivoBloqueo
+                          ? `No se puede repesar: ${g.motivoBloqueo}`
+                          : 'Repesaje'
+                    }
+                  >
+                    <Button
+                      variant={g.repesajeAbierto ? 'default' : 'outline'}
+                      size="icon"
+                      className="size-8"
+                      aria-label={g.repesajeAbierto ? 'Continuar repesaje' : 'Repesaje'}
+                      disabled={iniciando || (!g.repesajeAbierto && !g.puedeRepesar)}
+                      onClick={() => onRepesar(g)}
+                    >
+                      <RotateCcw className="size-4" />
+                    </Button>
+                  </span>
+                </div>
+              </TD>
+            </TR>
+          ))}
+        </TBody>
+      </Table>
     </div>
   );
 }

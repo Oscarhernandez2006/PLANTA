@@ -1,0 +1,62 @@
+# Genera el instalador de Windows de la app de escritorio y lo publica como
+# Release en GitHub. Las estaciones instaladas lo detectan al abrir (o cada
+# hora) y se actualizan solas (electron-updater, ver apps/desktop/main.js).
+#
+# Se ejecuta en cada push a main que toque la app de escritorio o el frontend,
+# o a mano desde la pestaña Actions ("Run workflow").
+name: Publicar app de escritorio
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'apps/web/**'
+      - 'packages/shared/**'
+      - 'pnpm-lock.yaml'
+      - '.github/workflows/desktop-release.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  publicar:
+    runs-on: windows-latest
+    env:
+      # API a la que se conectan las estaciones. Se puede cambiar sin tocar el
+      # código creando la variable DESKTOP_API_URL en Settings → Secrets and
+      # variables → Actions → Variables.
+      VITE_API_URL: ${{ vars.DESKTOP_API_URL || 'http://192.168.1.249/api' }}
+      # Versión = 1.0.<número de ejecución>: siempre crece, así cada publicación
+      # es "más nueva" que la anterior para el actualizador.
+      APP_VERSION: 1.0.${{ github.run_number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar pnpm
+        run: npm install -g pnpm@9.15.9
+
+      - name: Instalar dependencias (solo escritorio y frontend)
+        run: pnpm install --frozen-lockfile --filter "@frigorifico/desktop..." --filter "@frigorifico/web..."
+
+      - name: Fijar versión ${{ env.APP_VERSION }}
+        shell: bash
+        run: |
+          node -e "const f='apps/desktop/package.json';const fs=require('fs');const p=JSON.parse(fs.readFileSync(f,'utf8'));p.version=process.env.APP_VERSION;fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
+
+      - name: Compilar frontend para escritorio
+        run: pnpm --filter @frigorifico/web build:desktop
+
+      - name: Generar instalador y publicar Release
+        run: pnpm --filter @frigorifico/desktop dist:publish
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

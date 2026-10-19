@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, ChevronDown } from 'lucide-react';
+import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, ChevronDown, SlidersHorizontal } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
@@ -19,6 +19,7 @@ import { RotuladoAcondicionamientoIcon } from '@/components/icons/RotuladoAcondi
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { useAuth } from '@/features/auth/auth-context';
 import { useDevice } from '@/features/device/device-context';
+import { AvisoActualizacion, useActualizacion } from '@/components/update/ActualizacionApp';
 
 type NavItem = {
   to: string;
@@ -83,6 +84,13 @@ const navGroups: { title: string; items: NavItem[] }[] = [
       { to: '/recibo-posta', label: 'Orden recibo en posta', icon: PostaReciboIcon },
     ],
   },
+  {
+    title: 'Configuración',
+    items: [
+      { to: '/configuracion/estaciones', label: 'Estaciones', icon: MonitorSmartphone },
+      { to: '/configuracion/parametros-estacion', label: 'Parámetros estación', icon: SlidersHorizontal },
+    ],
+  },
 ];
 
 // Etiqueta de área a partir del rol (identificador) del usuario.
@@ -116,7 +124,8 @@ export function AppShell() {
   const { deviceName, hostname } = useDevice();
   const location = useLocation();
   const area = user ? (areaLabels[user.role] ?? user.role) : '';
-  const equipo = deviceName ?? hostname ?? 'Equipo sin nombre';
+  const estacion = deviceName ?? hostname ?? 'Estación sin nombre';
+  const { estado: actualizacion, version: versionApp } = useActualizacion();
 
   // Recogido por defecto (pensado para pantallas táctiles POS).
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -302,9 +311,13 @@ export function AppShell() {
               <div className="flex items-center gap-2 rounded-md bg-sidebar-accent/40 px-2.5 py-1.5">
                 <MonitorSmartphone className="size-3.5 shrink-0 text-sidebar-muted" />
                 <span className="truncate text-xs text-sidebar-muted">
-                  {equipo}
+                  {estacion}
                 </span>
+                {versionApp && (
+                  <span className="ml-auto shrink-0 text-[10px] text-sidebar-muted/80">v{versionApp}</span>
+                )}
               </div>
+              <AvisoActualizacion estado={actualizacion} />
             </>
           )}
         </div>

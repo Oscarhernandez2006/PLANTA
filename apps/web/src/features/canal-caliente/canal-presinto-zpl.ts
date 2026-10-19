@@ -276,19 +276,17 @@ function bloqueZPL(
  * los 265mm del rollo.
  */
 export function generarZPL(d: PresintoTicketData): string {
-  const PW = px(ANCHO_MM);
   const LL = py(LARGO_MM);
   const mitadAncho = ANCHO_MM / 2;
 
+  // Solo se envía el CONTENIDO del presinto: ningún comando de configuración
+  // de la impresora (tipo de rollo/sensor ^MN, ancho ^PW, largo ^LL, origen
+  // ^LH…). La Zebra imprime con la configuración que se le pone a mano en
+  // planta; mandarla desde aquí la desconfiguraba y la dejaba en error.
+  // ^CI28 solo indica la codificación (UTF-8) de los textos de este formato.
   const partes = [
     '^XA',
-    '^CI28', // UTF-8, para tildes/ñ.
-    '^MNN', // Fuerza rollo CONTINUO (sin sensor de gap/marca negra): si la
-    // impresora tenía calibrado un largo de etiqueta corto de un rollo
-    // anterior, cortaba antes de imprimir todo el contenido.
-    `^PW${PW}`,
-    `^LL${LL}`,
-    '^LH0,0',
+    '^CI28',
     bloqueZPL(d, 0, mitadAncho),
     bloqueZPL(d, mitadAncho, mitadAncho),
     // Línea de corte entre las 2 copias (a través del cabezal, en el medio).
@@ -346,7 +344,7 @@ export async function imprimirPresintoDirecto(
     // Sin configuración guardada: toma la Zebra instalada o la predeterminada de Windows.
     const impresoras = await listPrinters();
     const elegida =
-      impresoras.find((p) => /zebra|zdesigner/i.test(p.name)) ??
+      impresoras.find((p) => /zebra|zdesigner|zpl|\bz[td]\d/i.test(p.name)) ??
       impresoras.find((p) => p.isDefault);
     if (elegida) {
       printerName = elegida.name;

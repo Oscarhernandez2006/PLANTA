@@ -18,6 +18,7 @@ import { TBody, TD, TH, THead, TR, Table } from '@/components/ui/table';
 import { cn, plantToday as today } from '@/lib/utils';
 import { codigoBarras } from '../canal-caliente/canal-presinto-print';
 import { useAuth } from '../auth/auth-context';
+import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { descargarDespachoExcel, descargarDespachoPdf } from './despacho-canales-export';
 import { formatOB, type OrdenBeneficioStatus } from '../registrar/orden-beneficio-api';
 import { PrepararOrdenDialog } from '../registrar/PrepararOrden';
@@ -26,9 +27,37 @@ import {
   useDetalleProduccion,
   useInformeCanalCaliente,
   useInformeProduccion,
+  useInformeSacrificio,
+  useDetalleSacrificio,
+  useInformeProceso,
+  useDetalleProceso,
+  type InformeProcesoRow,
   type InformeCanalCalienteRow,
   type InformeProduccionRow,
+  type InformeSacrificioRow,
 } from './api';
+import {
+  COLUMNAS_SACRIFICIO,
+  LEYENDA_SACRIFICIO,
+  descargarSacrificioExcel,
+  descargarSacrificioPdf,
+  filasSacrificio,
+  num,
+} from './sacrificio-export';
+import {
+  COLUMNAS_ANIMALES,
+  COLUMNAS_SUBPRODUCTOS,
+  LEYENDA_PROCESO,
+  bloquesResumen,
+  descargarProcesoExcel,
+  descargarProcesoPdf,
+  filasAnimales,
+  filasSubproductos,
+  num as numProceso,
+  personal,
+  textoCelda,
+  totalesResumen,
+} from './proceso-export';
 import {
   ESTADO_OP_LABEL,
   consecutivoProduccion,
@@ -43,6 +72,8 @@ const INFORMES = [
   { key: 'canal-fria', label: '01.7 CANAL/FRIA' },
   { key: 'productos', label: '01.7 PRODUCTOS' },
   { key: 'produccion', label: 'INFORME PRODUCCIÓN' },
+  { key: 'sacrificio', label: 'INFORME DE SACRIFICIO' },
+  { key: 'proceso-general', label: 'INFORME PROCESO GENERAL' },
 ] as const;
 
 type InformeKey = (typeof INFORMES)[number]['key'];
@@ -86,7 +117,9 @@ export function InformesPage() {
 
       {seleccionado === 'canal-caliente' && <InformeCanalCaliente />}
       {seleccionado === 'produccion' && <InformeProduccion />}
-      {actual && seleccionado !== 'canal-caliente' && seleccionado !== 'produccion' && (
+      {seleccionado === 'sacrificio' && <InformeSacrificio />}
+      {seleccionado === 'proceso-general' && <InformeProceso />}
+      {actual && !['canal-caliente', 'produccion', 'sacrificio', 'proceso-general'].includes(seleccionado ?? '') && (
         <Card className="flex min-h-[240px] flex-col items-center justify-center gap-2 p-8 text-center">
           <p className="font-semibold">{actual.label}</p>
           <p className="text-sm text-muted-foreground">
@@ -94,6 +127,23 @@ export function InformesPage() {
           </p>
         </Card>
       )}
+    </div>
+  );
+}
+
+/** Encabezado de los informes: logo y datos de la empresa (igual que en PDF y Excel). */
+function EncabezadoInforme() {
+  return (
+    <div className="flex items-center gap-4 rounded-md border border-border px-4 py-2.5">
+      <img src={logoSantaCruz} alt="Agropecuaria Santa Cruz" className="h-14 w-auto shrink-0" />
+      <div className="flex-1 text-center leading-tight">
+        <p className="text-base font-bold tracking-wide">AGROPECUARIA SANTA CRUZ LTDA</p>
+        <p className="mt-0.5 text-xs font-semibold text-muted-foreground">
+          NIT. 830.505.537-2 · KM 3 VÍA ORIENTAL TEL. 3766701 · MALAMBO - ATLÁNTICO
+        </p>
+      </div>
+      {/* Contrapeso del logo para que el texto quede centrado. */}
+      <div className="hidden w-24 shrink-0 sm:block" />
     </div>
   );
 }
@@ -244,6 +294,7 @@ function DetalleProduccionDialog({
       scrollInterno
     >
       <div className="space-y-5">
+        <EncabezadoInforme />
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
@@ -582,6 +633,7 @@ function DetalleCanalCalienteDialog({
       className="max-w-5xl"
     >
       <div className="space-y-4">
+        <EncabezadoInforme />
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
@@ -670,6 +722,554 @@ function DetalleCanalCalienteDialog({
             </tr>
           </tbody>
         </table>
+      </div>
+    </Dialog>
+  );
+}
+
+// ===================== Informe de sacrificio =====================
+
+function InformeSacrificio() {
+  const [fecha, setFecha] = useState(today());
+  const [hasta, setHasta] = useState(fecha);
+  const informe = useInformeSacrificio(hasta);
+  const rows = informe.data ?? [];
+  const [detalle, setDetalle] = useState<InformeSacrificioRow | null>(null);
+
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <ListOrdered className="size-5" />
+            Lista de órdenes de beneficio
+          </CardTitle>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (fecha) setHasta(fecha);
+            }}
+          >
+            <Input
+              type="date"
+              className="h-9 w-44"
+              value={fecha}
+              max={today()}
+              onChange={(e) => setFecha(e.target.value)}
+              aria-label="Fecha de sacrificio hasta"
+            />
+            <Button type="submit" variant="outline" className="h-9" title="Filtrar">
+              <Filter className="size-4" />
+              Filtrar
+            </Button>
+          </form>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Órdenes con animales sacrificados en los últimos 60 días hasta la fecha elegida.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="max-h-[560px] overflow-auto rounded-md border border-border">
+          <Table>
+            <THead>
+              <TR>
+                <TH>OS No.</TH>
+                <TH>Cliente</TH>
+                <TH>Guía</TH>
+                <TH className="text-center">Animales</TH>
+                <TH>Fec. de sacrificio</TH>
+                <TH className="text-center">Estado</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {informe.isLoading ? (
+                <TR>
+                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                    Cargando…
+                  </TD>
+                </TR>
+              ) : rows.length === 0 ? (
+                <TR>
+                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                    No hay órdenes con animales sacrificados en este periodo.
+                  </TD>
+                </TR>
+              ) : (
+                rows.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="tabular-nums">
+                      <button
+                        type="button"
+                        onClick={() => setDetalle(r)}
+                        className="font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        {formatOB(r.reference)}
+                      </button>
+                    </TD>
+                    <TD>{r.cliente}</TD>
+                    <TD className="tabular-nums">{r.guias.join(', ') || '—'}</TD>
+                    <TD className="text-center tabular-nums">
+                      {r.sacrificados} / {r.animalCount}
+                    </TD>
+                    <TD className="tabular-nums">{r.date}</TD>
+                    <TD className="text-center">{ESTADO_LABEL[r.status]}</TD>
+                  </TR>
+                ))
+              )}
+            </TBody>
+          </Table>
+        </div>
+      </CardContent>
+      {detalle && <DetalleSacrificioDialog orden={detalle} onClose={() => setDetalle(null)} />}
+    </Card>
+  );
+}
+
+function DetalleSacrificioDialog({
+  orden,
+  onClose,
+}: {
+  orden: InformeSacrificioRow;
+  onClose: () => void;
+}) {
+  const detalle = useDetalleSacrificio(orden.id);
+  const { user } = useAuth();
+  const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
+  const d = detalle.data;
+  const filas = d ? filasSacrificio(d) : [];
+  const cab = 'border border-border bg-muted px-2 py-2 text-xs font-semibold uppercase';
+  const cel = 'border border-border px-2 py-1.5';
+
+  async function exportar(tipo: 'pdf' | 'excel') {
+    if (!d) return;
+    setExportando(tipo);
+    try {
+      if (tipo === 'pdf') await descargarSacrificioPdf(d, user?.fullName ?? '');
+      else await descargarSacrificioExcel(d, user?.fullName ?? '');
+    } finally {
+      setExportando(null);
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Informe de sacrificio OS No.: ${formatOB(orden.reference)}`}
+      description={`${orden.cliente} · ${orden.date}${d?.finca ? ` · ${d.finca}` : ''}`}
+      className="max-w-6xl"
+      scrollInterno
+    >
+      <div className="space-y-4">
+        <EncabezadoInforme />
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => detalle.refetch()}
+            disabled={detalle.isFetching}
+            title="Actualizar"
+          >
+            <RefreshCw className={cn('size-4', detalle.isFetching && 'animate-spin')} />
+            Actualizar
+          </Button>
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => exportar('excel')}
+            disabled={!filas.length || exportando !== null}
+            title="Exportar a Excel"
+          >
+            <FileSpreadsheet className="size-4 text-emerald-700" />
+            {exportando === 'excel' ? 'Generando…' : 'Excel'}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => exportar('pdf')}
+            disabled={!filas.length || exportando !== null}
+            title="Exportar a PDF"
+          >
+            <FileDown className="size-4 text-red-700" />
+            {exportando === 'pdf' ? 'Generando…' : 'PDF'}
+          </Button>
+        </div>
+
+        {detalle.isLoading || !d ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
+        ) : (
+          <>
+            <div className="overflow-auto rounded-md border border-border">
+              <table className="w-full border-collapse text-sm">
+                <thead className="sticky top-0">
+                  <tr>
+                    {COLUMNAS_SACRIFICIO.map((c, i) => (
+                      <th key={c} className={cn(cab, i >= 7 && c !== 'TURNO' ? 'text-right' : 'text-left')}>
+                        {c}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {filas.map((f) => (
+                    <tr key={f.animal} className="even:bg-muted/30">
+                      <td className={cel}>{f.no}</td>
+                      <td className={cel}>{f.fecha}</td>
+                      <td className={cel}>{f.cliente}</td>
+                      <td className={cel}>{f.finca}</td>
+                      <td className={cel}>{f.lote}</td>
+                      <td className={cel}>{f.tipo}</td>
+                      <td className={cn(cel, 'font-semibold')}>{f.animal}</td>
+                      <td className={cn(cel, 'text-right')}>{num(f.pep)}</td>
+                      <td className={cel}>{f.turno}</td>
+                      <td className={cn(cel, 'text-right')}>{num(f.pec)}</td>
+                      <td className={cn(cel, 'text-right')}>{num(f.piel)}</td>
+                      <td className={cn(cel, 'text-right font-semibold')}>{num(f.rnd)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  {['Animales', 'PEP(kg)', 'PEC(kg)', 'PIEL(kg)', 'RND(%)'].map((c) => (
+                    <th key={c} className={cn(cab, 'text-center')}>
+                      {c}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="text-center text-base font-bold tabular-nums">
+                  <td className={cel}>{d.totales.animales}</td>
+                  <td className={cel}>{num(d.totales.pepKg)}</td>
+                  <td className={cel}>{num(d.totales.pecKg)}</td>
+                  <td className={cel}>{num(d.totales.pielKg)}</td>
+                  <td className={cel}>{num(d.totales.rendimiento)}</td>
+                </tr>
+              </tbody>
+            </table>
+            <p className="text-xs font-semibold text-muted-foreground">{LEYENDA_SACRIFICIO}</p>
+          </>
+        )}
+      </div>
+    </Dialog>
+  );
+}
+
+// ===================== Informe de proceso general =====================
+
+function InformeProceso() {
+  const [fecha, setFecha] = useState(today());
+  const [hasta, setHasta] = useState(fecha);
+  const informe = useInformeProceso(hasta);
+  const rows = informe.data ?? [];
+  const [detalle, setDetalle] = useState<InformeProcesoRow | null>(null);
+
+  return (
+    <Card className="w-full">
+      <CardHeader>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle className="flex items-center gap-2">
+            <ListOrdered className="size-5" />
+            Órdenes de beneficio · proceso general
+          </CardTitle>
+          <form
+            className="flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (fecha) setHasta(fecha);
+            }}
+          >
+            <Input
+              type="date"
+              className="h-9 w-44"
+              value={fecha}
+              max={today()}
+              onChange={(e) => setFecha(e.target.value)}
+              aria-label="Fecha hasta"
+            />
+            <Button type="submit" variant="outline" className="h-9" title="Filtrar">
+              <Filter className="size-4" />
+              Filtrar
+            </Button>
+          </form>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Trazabilidad completa por orden (guía, peso en camión, peso en pie, sacrificio, pieles, canal caliente y
+          subproductos) de los últimos 60 días hasta la fecha elegida.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="max-h-[560px] overflow-auto rounded-md border border-border">
+          <Table>
+            <THead>
+              <TR>
+                <TH>OS No.</TH>
+                <TH>Cliente</TH>
+                <TH>Guía</TH>
+                <TH className="text-center">Sacrificados</TH>
+                <TH>Fecha</TH>
+                <TH className="text-center">Estado</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {informe.isLoading ? (
+                <TR>
+                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                    Cargando…
+                  </TD>
+                </TR>
+              ) : rows.length === 0 ? (
+                <TR>
+                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                    No hay órdenes de beneficio en este periodo.
+                  </TD>
+                </TR>
+              ) : (
+                rows.map((r) => (
+                  <TR key={r.id}>
+                    <TD className="tabular-nums">
+                      <button
+                        type="button"
+                        onClick={() => setDetalle(r)}
+                        className="font-medium text-primary underline-offset-2 hover:underline"
+                      >
+                        {formatOB(r.reference)}
+                      </button>
+                    </TD>
+                    <TD>{r.cliente}</TD>
+                    <TD className="tabular-nums">{r.guias.join(', ') || '—'}</TD>
+                    <TD className="text-center tabular-nums">
+                      {r.sacrificados} / {r.animalCount}
+                    </TD>
+                    <TD className="tabular-nums">{r.date}</TD>
+                    <TD className="text-center">{ESTADO_LABEL[r.status]}</TD>
+                  </TR>
+                ))
+              )}
+            </TBody>
+          </Table>
+        </div>
+      </CardContent>
+      {detalle && <DetalleProcesoDialog orden={detalle} onClose={() => setDetalle(null)} />}
+    </Card>
+  );
+}
+
+function DetalleProcesoDialog({
+  orden,
+  onClose,
+}: {
+  orden: InformeProcesoRow;
+  onClose: () => void;
+}) {
+  const detalle = useDetalleProceso(orden.id);
+  const { user } = useAuth();
+  const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
+  const d = detalle.data;
+  const cab = 'border border-border bg-muted px-2 py-1.5 text-[11px] font-semibold uppercase';
+  const cel = 'border border-border px-2 py-1';
+
+  async function exportar(tipo: 'pdf' | 'excel') {
+    if (!d) return;
+    setExportando(tipo);
+    try {
+      if (tipo === 'pdf') await descargarProcesoPdf(d, user?.fullName ?? '');
+      else await descargarProcesoExcel(d, user?.fullName ?? '');
+    } finally {
+      setExportando(null);
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Informe de proceso general OS No.: ${formatOB(orden.reference)}`}
+      description={`${orden.cliente} · ${orden.date} · Guía ${orden.guias.join(', ') || '—'}`}
+      className="max-w-[min(96vw,1500px)]"
+      scrollInterno
+    >
+      <div className="space-y-5">
+        <EncabezadoInforme />
+        <div className="flex justify-end gap-2">
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => detalle.refetch()}
+            disabled={detalle.isFetching}
+            title="Actualizar"
+          >
+            <RefreshCw className={cn('size-4', detalle.isFetching && 'animate-spin')} />
+            Actualizar
+          </Button>
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => exportar('excel')}
+            disabled={!d || exportando !== null}
+            title="Exportar a Excel"
+          >
+            <FileSpreadsheet className="size-4 text-emerald-700" />
+            {exportando === 'excel' ? 'Generando…' : 'Excel'}
+          </Button>
+          <Button
+            variant="outline"
+            className="h-9"
+            onClick={() => exportar('pdf')}
+            disabled={!d || exportando !== null}
+            title="Exportar a PDF"
+          >
+            <FileDown className="size-4 text-red-700" />
+            {exportando === 'pdf' ? 'Generando…' : 'PDF'}
+          </Button>
+        </div>
+
+        {detalle.isLoading || !d ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
+        ) : (
+          <>
+            {/* Totales */}
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+              {totalesResumen(d).map(([k, v]) => (
+                <div key={k} className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                  <div className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{k}</div>
+                  <div className="text-lg font-semibold tabular-nums">{v}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* Orden, guía y peso en pie */}
+            <div className="grid gap-3 lg:grid-cols-3">
+              {bloquesResumen(d).map((b) => (
+                <table key={b.titulo} className="w-full self-start border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      <th colSpan={2} className={cn(cab, 'text-center')}>
+                        {b.titulo}
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {b.datos.map(([k, v]) => (
+                      <tr key={k}>
+                        <td className={cn(cel, 'w-44 bg-muted/40 font-medium')}>{k}</td>
+                        <td className={cn(cel, 'tabular-nums')}>{v}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ))}
+            </div>
+
+            {/* Personal */}
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr>
+                  {personal(d).map(([k]) => (
+                    <th key={k} className={cn(cab, 'text-center')}>
+                      Personal {k}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <tr className="text-center">
+                  {personal(d).map(([k, v]) => (
+                    <td key={k} className={cel}>
+                      {v}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+
+            {/* Proceso por animal */}
+            <div>
+              <h3 className="mb-1.5 text-sm font-semibold uppercase tracking-wide">Proceso por animal</h3>
+              <div className="overflow-auto rounded-md border border-border">
+                <table className="w-full border-collapse text-xs">
+                  <thead className="sticky top-0">
+                    <tr>
+                      {COLUMNAS_ANIMALES.map((c) => (
+                        <th key={c.key} className={cn(cab, 'whitespace-nowrap text-center')}>
+                          {c.titulo}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="tabular-nums">
+                    {d.animales.length === 0 ? (
+                      <tr>
+                        <td colSpan={COLUMNAS_ANIMALES.length} className={cn(cel, 'py-6 text-center text-muted-foreground')}>
+                          Aún no hay animales sacrificados en esta orden.
+                        </td>
+                      </tr>
+                    ) : (
+                      filasAnimales(d).map((f) => (
+                        <tr key={f.animal} className="even:bg-muted/30">
+                          {COLUMNAS_ANIMALES.map((c) => (
+                            <td
+                              key={c.key}
+                              className={cn(
+                                cel,
+                                c.tipo ? 'text-right' : 'whitespace-nowrap',
+                                c.key === 'observacion' && 'whitespace-normal',
+                                c.resaltar && 'font-semibold',
+                              )}
+                            >
+                              {textoCelda(f, c)}
+                            </td>
+                          ))}
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Subproductos */}
+            <div>
+              <h3 className="mb-1.5 text-sm font-semibold uppercase tracking-wide">Subproductos</h3>
+              {d.subproductos.length === 0 ? (
+                <p className="rounded-md border border-border px-3 py-4 text-center text-sm text-muted-foreground">
+                  No hay subproductos registrados en esta orden.
+                </p>
+              ) : (
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr>
+                      {COLUMNAS_SUBPRODUCTOS.map((c) => (
+                        <th key={c} className={cn(cab, 'text-center')}>
+                          {c}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="tabular-nums">
+                    {filasSubproductos(d).map((s) => (
+                      <tr key={s.codigo + s.producto} className="even:bg-muted/30">
+                        <td className={cn(cel, 'text-center')}>{s.codigo}</td>
+                        <td className={cel}>{s.producto}</td>
+                        <td className={cn(cel, 'text-center')}>{s.unidad}</td>
+                        <td className={cn(cel, 'text-center')}>{s.animales}</td>
+                        <td className={cn(cel, 'text-center')}>{s.unidades ?? '—'}</td>
+                        <td className={cn(cel, 'text-right')}>{numProceso(s.kg, 2)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            <p className="text-xs font-semibold text-muted-foreground">{LEYENDA_PROCESO}</p>
+          </>
+        )}
       </div>
     </Dialog>
   );

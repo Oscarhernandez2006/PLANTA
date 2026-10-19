@@ -192,12 +192,11 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
         return `^FO${e.x},${e.y}^BY${e.modulo},2,${e.alto}^BCN,${e.alto},N,N,N^FD${e.valor}^FS`;
     }
   });
+  // Solo contenido: sin comandos de configuración de la impresora (^PW, ^LL,
+  // ^LH…), que se ajusta a mano en la propia impresora.
   return [
     '^XA',
     '^CI28',
-    `^PW${TAMANO_ETIQUETA}`,
-    `^LL${TAMANO_ETIQUETA}`,
-    '^LH0,0',
     ...zpl,
     '^XZ',
   ].join('\n');

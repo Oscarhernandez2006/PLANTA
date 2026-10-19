@@ -269,6 +269,10 @@ model PesoCamion {
   status         PesoCamionStatus @default(abierta)
   // Estado de la guía en Peso en Pie: se abre con el camión y se cierra aparte.
   pieStatus      PesoCamionStatus @default(abierta) @map("pie_status")
+  // Repesaje de la guía ya cerrada en Peso en Pie: número de la última ronda
+  // iniciada y si hay una ronda en curso (los animales se repesan en orden).
+  repesajeRonda   Int     @default(0) @map("repesaje_ronda")
+  repesajeAbierto Boolean @default(false) @map("repesaje_abierto")
   createdById    String           @map("created_by") @db.Uuid
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1116,11 +1120,34 @@ model PesoEnPie {
   deletedAt      DateTime?           @map("deleted_at") @db.Timestamptz(6)
 
   insensibilizacion Insensibilizacion?
+  repesajes         PesoEnPieRepesaje[]
 
   @@unique([plantId, bpReference, reference])
   @@index([plantId, bpReference])
   @@index([plantId, status])
   @@map("peso_en_pie")
+}
+
+// Historial de repesajes de un animal de Peso en Pie (guía ya cerrada). El
+// peso vigente queda en PesoEnPie.pesoTotalKg (es el que cuenta para el
+// beneficio); aquí se guarda cada ronda con su peso anterior, el nuevo y la
+// merma (anterior - nuevo). El peso inicial es pesoAnteriorKg de la ronda 1.
+model PesoEnPieRepesaje {
+  id             String   @id @default(uuid()) @db.Uuid
+  plantId        String   @map("plant_id") @db.Uuid
+  pesoEnPieId    String   @map("peso_en_pie_id") @db.Uuid
+  ronda          Int
+  pesoAnteriorKg Decimal  @map("peso_anterior_kg") @db.Decimal(12, 2)
+  pesoNuevoKg    Decimal  @map("peso_nuevo_kg") @db.Decimal(12, 2)
+  mermaKg        Decimal  @map("merma_kg") @db.Decimal(12, 2)
+  operatorId     String   @map("operator_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  pesoEnPie PesoEnPie @relation(fields: [pesoEnPieId], references: [id])
+
+  @@unique([pesoEnPieId, ronda])
+  @@index([plantId, createdAt])
+  @@map("peso_en_pie_repesaje")
 }
 
 model Insensibilizacion {

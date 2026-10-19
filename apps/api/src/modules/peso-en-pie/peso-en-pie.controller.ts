@@ -14,6 +14,8 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SavePesoEnPieDto } from './dto/save-peso-en-pie.dto';
 import { QueryPesoEnPieDto } from './dto/query-peso-en-pie.dto';
+import { RepesarAnimalDto } from './dto/repesar-animal.dto';
+import { PromediarGuiaDto } from './dto/promediar-guia.dto';
 import { PesoEnPieService } from './peso-en-pie.service';
 
 @UseGuards(JwtAuthGuard)
@@ -39,6 +41,14 @@ export class PesoEnPieController {
     );
   }
 
+  @Post('promediado')
+  registrarPromediado(
+    @CurrentUser() user: AuthContext,
+    @Body() dto: PromediarGuiaDto,
+  ) {
+    return this.service.registrarPromediado(user, dto);
+  }
+
   @Post()
   create(@CurrentUser() user: AuthContext, @Body() dto: SavePesoEnPieDto) {
     return this.service.create(user, dto);
@@ -56,6 +66,44 @@ export class PesoEnPieController {
     @Query('guia') guia: string,
   ) {
     return this.service.closeGuide(user, date, guia);
+  }
+
+  @Get('guias-cerradas')
+  guiasCerradas(@CurrentUser() user: AuthContext) {
+    return this.service.guiasCerradas(user);
+  }
+
+  @Get('guias-cerradas/:id')
+  guiaCerradaDetalle(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.guiaCerradaDetalle(user, id);
+  }
+
+  @Post('guias-cerradas/:id/repesaje')
+  iniciarRepesaje(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.iniciarRepesaje(user, id);
+  }
+
+  @Post('guias-cerradas/:id/repesaje/finalizar')
+  finalizarRepesaje(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.finalizarRepesaje(user, id);
+  }
+
+  @Post('repesaje/:pesoEnPieId')
+  repesarAnimal(
+    @CurrentUser() user: AuthContext,
+    @Param('pesoEnPieId', ParseUUIDPipe) pesoEnPieId: string,
+    @Body() dto: RepesarAnimalDto,
+  ) {
+    return this.service.repesarAnimal(user, pesoEnPieId, dto.pesoKg);
   }
 
   @Get(':id')

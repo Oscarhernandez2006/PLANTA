@@ -26,6 +26,25 @@ export interface ScalePortInfo {
   serialNumber: string | null;
 }
 
+/** Resultado de detectar la báscula en un puerto. */
+export interface ScaleDetectPort extends ScalePortInfo {
+  /** El puerto se pudo abrir (existe y no está ocupado). */
+  abre: boolean;
+  /** Llegaron datos por el puerto (hay un equipo conectado enviando). */
+  datos: boolean;
+  /** Última línea recibida (trama) o null. */
+  trama: string | null;
+  /** Peso leído de la trama o null si no se pudo interpretar. */
+  valor: number | null;
+  baudRate: number | null;
+  error: string | null;
+}
+
+export interface ScaleDetectResult {
+  bascula: { port: string; baudRate: number; value: number; trama: string | null } | null;
+  puertos: ScaleDetectPort[];
+}
+
 export interface PrinterInfo {
   name: string;
   isDefault: boolean;
@@ -35,6 +54,17 @@ export interface PrintRawResult {
   ok: boolean;
   output?: string;
   error?: string;
+}
+
+/** Estado del actualizador automático de la app de escritorio. */
+export interface UpdateState {
+  status: 'idle' | 'checking' | 'up-to-date' | 'downloading' | 'downloaded' | 'error';
+  /** Versión nueva disponible/descargada. */
+  version: string | null;
+  percent: number;
+  error: string | null;
+  /** Versión instalada (solo en getUpdateState). */
+  appVersion?: string;
 }
 
 /** Puente expuesto por la app de escritorio (Electron) vía preload. */
@@ -47,8 +77,12 @@ interface FrigoDesktopBridge {
     baudRate?: number;
   }) => Promise<ScaleReadResult>;
   listScalePorts?: () => Promise<ScalePortInfo[]>;
+  detectScale?: (options?: { msPorVelocidad?: number }) => Promise<ScaleDetectResult>;
   listPrinters?: () => Promise<PrinterInfo[]>;
   printRaw?: (printerName: string, content: string) => Promise<PrintRawResult>;
+  getUpdateState?: () => Promise<UpdateState>;
+  installUpdate?: () => Promise<{ ok: boolean }>;
+  onUpdateStatus?: (callback: (state: UpdateState) => void) => () => void;
 }
 declare global {
   interface Window {
@@ -125,6 +159,19 @@ export async function listScalePorts(): Promise<ScalePortInfo[]> {
     }
   }
   return [];
+}
+
+/**
+ * Revisa todos los puertos COM a la vez y devuelve en cuál responde la
+ * báscula (con su trama). Null si la app de escritorio no lo soporta.
+ */
+export async function detectScale(): Promise<ScaleDetectResult | null> {
+  if (!window.frigoDesktop?.detectScale) return null;
+  try {
+    return await window.frigoDesktop.detectScale({ msPorVelocidad: 1500 });
+  } catch {
+    return null;
+  }
 }
 
 const SCALE_PORT_KEY = 'frigo.scale.port';

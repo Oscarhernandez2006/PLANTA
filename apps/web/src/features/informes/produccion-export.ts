@@ -193,7 +193,7 @@ export async function descargarProduccionPdf(d: DetalleProduccion, operario: str
 
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
-  doc.text('Elaboró: © FrigoAPP v1.0, 2026', margin, pageH - 8);
+  doc.text('Elaboró: © Grupo Santacruz, 2026', margin, pageH - 8);
   doc.text(`Operario: ${operario.toUpperCase()} | ${ahora()}`, pageW - margin, pageH - 8, {
     align: 'right',
   });
@@ -313,7 +313,7 @@ export async function descargarProduccionExcel(d: DetalleProduccion, operario: s
   celda(`H${row}`, Number(te.rendimiento.toFixed(2)), { label: true }).numFmt = '0.00';
 
   row += 2;
-  ws.getCell(`A${row}`).value = 'Elaboró: © FrigoAPP v1.0, 2026';
+  ws.getCell(`A${row}`).value = 'Elaboró: © Grupo Santacruz, 2026';
   ws.getCell(`A${row}`).font = { bold: true, size: 9 };
   ws.getCell(`A${row + 1}`).value = `Operario: ${operario.toUpperCase()} | ${ahora()}`;
   ws.getCell(`A${row + 1}`).font = { bold: true, size: 9 };

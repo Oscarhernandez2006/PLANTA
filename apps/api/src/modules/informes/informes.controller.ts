@@ -23,6 +23,32 @@ export class InformesController {
     return this.service.canalCalienteDetalle(user, ordenId);
   }
 
+  @Get('sacrificio')
+  sacrificio(@CurrentUser() user: AuthContext, @Query() query: QueryInformeDto) {
+    return this.service.sacrificio(user, query.hasta);
+  }
+
+  @Get('sacrificio/:ordenId')
+  sacrificioDetalle(
+    @CurrentUser() user: AuthContext,
+    @Param('ordenId', ParseUUIDPipe) ordenId: string,
+  ) {
+    return this.service.sacrificioDetalle(user, ordenId);
+  }
+
+  @Get('proceso-general')
+  procesoGeneral(@CurrentUser() user: AuthContext, @Query() query: QueryInformeDto) {
+    return this.service.procesoGeneral(user, query.hasta);
+  }
+
+  @Get('proceso-general/:ordenId')
+  procesoGeneralDetalle(
+    @CurrentUser() user: AuthContext,
+    @Param('ordenId', ParseUUIDPipe) ordenId: string,
+  ) {
+    return this.service.procesoGeneralDetalle(user, ordenId);
+  }
+
   @Get('produccion')
   produccion(@CurrentUser() user: AuthContext, @Query() query: QueryInformeDto) {
     return this.service.produccion(user, query.hasta);

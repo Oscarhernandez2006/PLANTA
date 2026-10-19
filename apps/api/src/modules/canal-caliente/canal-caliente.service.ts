@@ -32,6 +32,9 @@ function isTodayView(dateStr?: string) {
   return !dateStr || dateStr === plantToday();
 }
 
+/** Minutos que una orden cumplida sigue visible en la bandeja de hoy. */
+const MINUTOS_VISIBLE_CUMPLIDA = 5;
+
 /** Piezas esperadas por animal según el tipo de canal de la orden. */
 function piezasEsperadas(tipo: CanalTipo | null): CanalPiezaTipo[] {
   if (tipo === CanalTipo.canal_completa) return [CanalPiezaTipo.canal];
@@ -104,26 +107,44 @@ export class CanalCalienteService {
     );
     const bases = await this.consecutivoBases(ctx.plantId, fechas);
     const nits = await this.nitsPorCliente(ordenes.map((o) => o.cliente));
-    return ordenes.map((o) => {
+    const limite = Date.now() - MINUTOS_VISIBLE_CUMPLIDA * 60_000;
+    const filas = ordenes.map((o) => {
       let esperadas = 0;
       let pesadas = 0;
+      let ultimaPesada = 0;
       for (const e of o.eventos) {
         esperadas += piezasEsperadas(e.canalTipo).length || 1;
         pesadas += e.canalPiezas.length;
+        for (const p of e.canalPiezas) ultimaPesada = Math.max(ultimaPesada, p.weighedAt.getTime());
       }
+      // Cumplida: todos los animales sacrificados, con tipo de canal y todas sus piezas pesadas.
+      const cumplida =
+        o.status === OrdenBeneficioStatus.procesado &&
+        o.eventos.length >= o.animalCount &&
+        o.eventos.every((e) => {
+          const req = piezasEsperadas(e.canalTipo);
+          return req.length > 0 && req.every((pz) => e.canalPiezas.some((p) => p.pieza === pz));
+        });
       return {
-        ordenBeneficioId: o.id,
-        reference: o.reference,
-        cliente: o.cliente,
-        clienteNit: nits.get(o.cliente) ?? null,
-        guias: o.guias,
-        date: o.date.toISOString().slice(0, 10),
-        consecutivoBase: bases.get(o.id) ?? 0,
-        animalCount: o.animalCount,
-        piezasEsperadas: esperadas,
-        piezasPesadas: pesadas,
+        // En la bandeja de hoy, la orden cumplida se oculta 5 minutos después
+        // de pesar su última canal (los datos siguen en la base de datos y se
+        // ven al consultar su fecha).
+        ocultar: todayView && cumplida && ultimaPesada < limite,
+        fila: {
+          ordenBeneficioId: o.id,
+          reference: o.reference,
+          cliente: o.cliente,
+          clienteNit: nits.get(o.cliente) ?? null,
+          guias: o.guias,
+          date: o.date.toISOString().slice(0, 10),
+          consecutivoBase: bases.get(o.id) ?? 0,
+          animalCount: o.animalCount,
+          piezasEsperadas: esperadas,
+          piezasPesadas: pesadas,
+        },
       };
     });
+    return filas.filter((f) => !f.ocultar).map((f) => f.fila);
   }
 
   /** Detalle de una orden con sus animales y el estado de sus piezas. */

@@ -10,7 +10,8 @@
     "prepack": "node copy-web.js",
     "pack": "electron-builder --dir",
     "predist": "node copy-web.js",
-    "dist": "electron-builder"
+    "dist": "electron-builder",
+    "dist:publish": "node copy-web.js && electron-builder --win --publish always"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -22,6 +23,7 @@
     "directories": {
       "output": "release"
     },
+    "npmRebuild": false,
     "files": [
       "main.js",
       "preload.js",
@@ -34,16 +36,37 @@
       "print-raw.ps1"
     ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
     },
     "nsis": {
-      "oneClick": false,
-      "perMachine": true,
-      "allowToChangeInstallationDirectory": true
-    }
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Frigorifico Planta",
+      "runAfterFinish": true,
+      "deleteAppDataOnUninstall": false
+    },
+    "artifactName": "Frigorifico-Planta-Setup-${version}.${ext}",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Oscarhernandez2006",
+        "repo": "PLANTA",
+        "releaseType": "release"
+      }
+    ]
   },
   "dependencies": {
     "@serialport/parser-readline": "^13.0.0",
+    "electron-updater": "^6.3.9",
     "serialport": "^13.0.0"
   }
 }
