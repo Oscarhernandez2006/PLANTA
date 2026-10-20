@@ -222,7 +222,9 @@ export function ParametrosEstacionPage() {
     } else {
       setResBas({
         ok: false,
-        texto: 'No se recibió una trama estable de la báscula. Revisa el cable, el puerto COM y los baudios.',
+        texto: r.trama
+          ? `No se pudo tomar el peso. Última trama recibida: "${r.trama}"`
+          : 'No se recibió una trama estable de la báscula. Revisa el cable, el puerto COM y los baudios.',
       });
     }
   }

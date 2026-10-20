@@ -213,6 +213,10 @@ export function PesoEnCamionPage() {
         else setSalida(value);
         return;
       }
+      if (result.trama) {
+        setSaveError(`No se pudo tomar el peso. Última trama recibida: "${result.trama}"`);
+        return;
+      }
       throw new Error(result.error ?? 'scale_not_found');
     } catch (e) {
       setSaveError(

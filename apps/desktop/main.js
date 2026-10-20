@@ -27,10 +27,10 @@ function extractWeightValue(raw) {
 }
 
 // Trama de la báscula: "ST,GS,+   1.90kg" (ST = estable) o "US,..." (inestable).
-// Solo se acepta el primer peso estable (ST); los US se ignoran.
+// Otras básculas (p. ej. camionera) envían solo el peso, sin ST/US: `marcada` = false.
 function parseScaleLine(line) {
   if (!line || typeof line !== 'string') return null;
-  const s = line.trim();
+  const s = line.replace(/[\x00-\x1F\x7F]/g, ' ').trim();
   if (!s) return null;
 
   const stable = /^ST\b/i.test(s);
@@ -38,8 +38,13 @@ function parseScaleLine(line) {
   const value = extractWeightValue(s);
   if (value === null) return null;
 
-  return { stable: stable && !unstable, value };
+  return { stable: stable && !unstable, value, marcada: stable || unstable };
 }
+
+// Separa tramas por fin de línea o por STX/ETX (básculas que no envían salto de línea).
+const SEPARADOR_TRAMA = /[\r\n\x02\x03]+/;
+// Tramas sin ST/US: se toma el peso cuando llega igual estas veces seguidas.
+const REPETICIONES_ESTABLE = 3;
 
 async function listSerialPorts() {
   try {
@@ -69,6 +74,7 @@ async function readScaleSerial({ port, timeoutMs = 4000, baudRate } = {}) {
   const baudRates = baudRate
     ? [baudRate]
     : [9600, 19200, 2400, 38400, 57600, 115200];
+  let ultimaTramaRecibida = null;
 
   for (const candidate of candidatePorts) {
     for (const baudRate of baudRates) {
@@ -83,45 +89,61 @@ async function readScaleSerial({ port, timeoutMs = 4000, baudRate } = {}) {
         });
 
         const result = await new Promise((resolve) => {
-          const close = () => {
-            serial.removeAllListeners();
-            serial.close((err) => resolve({ ok: false, value: null, error: err ? String(err) : 'closed' }));
-          };
+          let terminado = false;
+          let ultimoSinMarca = null;
+          let repeticiones = 0;
+          let ultimaTrama = null;
 
-          const timeout = setTimeout(() => close(), timeoutMs);
-
-          serial.on('error', (error) => {
+          const terminar = (r) => {
+            if (terminado) return;
+            terminado = true;
             clearTimeout(timeout);
-            serial.close(() => resolve({ ok: false, value: null, error: String(error) }));
-          });
+            serial.removeAllListeners('data');
+            serial.close(() => resolve(r));
+          };
+          const tomar = (v) =>
+            terminar({ ok: true, value: Number(v.toFixed(2)), port: candidate, baudRate, trama: ultimaTrama });
+
+          // Al vencer el tiempo: si la báscula envía solo el peso (sin ST/US), usa el último leído.
+          const timeout = setTimeout(() => {
+            if (ultimoSinMarca !== null) tomar(ultimoSinMarca);
+            else terminar({ ok: false, value: null, error: 'no_stable', trama: ultimaTrama });
+          }, timeoutMs);
+
+          serial.on('error', (error) => terminar({ ok: false, value: null, error: String(error) }));
 
           serial.on('open', () => {
             let buffer = '';
             serial.on('data', (chunk) => {
-              buffer += chunk.toString();
-              const lines = buffer.split(/\r?\n|\r/);
-              // Conserva la última línea si aún está incompleta.
-              buffer = lines.pop() ?? '';
+              buffer += chunk.toString('latin1');
+              const tramas = buffer.split(SEPARADOR_TRAMA);
+              // Conserva la última trama si aún está incompleta.
+              buffer = tramas.pop() ?? '';
+              if (buffer.length > 200) buffer = buffer.slice(-200);
 
-              for (const line of lines) {
-                const parsed = parseScaleLine(line);
-                if (!parsed || !parsed.stable) continue;
+              for (const trama of tramas) {
+                const parsed = parseScaleLine(trama);
+                if (!parsed) continue;
+                ultimaTrama = trama.replace(/[\x00-\x1F\x7F]/g, ' ').trim().slice(0, 80);
 
-                // Primer peso estable (ST): se toma y se cierra.
-                clearTimeout(timeout);
-                const value = Number(parsed.value.toFixed(2));
-                serial.close(() =>
-                  resolve({ ok: true, value, port: candidate, baudRate }),
-                );
-                return;
+                if (parsed.marcada) {
+                  // Primer peso estable (ST): se toma y se cierra.
+                  if (parsed.stable) return tomar(parsed.value);
+                  continue;
+                }
+
+                repeticiones = parsed.value === ultimoSinMarca ? repeticiones + 1 : 1;
+                ultimoSinMarca = parsed.value;
+                if (repeticiones >= REPETICIONES_ESTABLE) return tomar(parsed.value);
               }
             });
           });
 
           serial.open((err) => {
-            if (err) {
+            if (err && !terminado) {
+              terminado = true;
               clearTimeout(timeout);
-              serial.close(() => resolve({ ok: false, value: null, error: String(err) }));
+              resolve({ ok: false, value: null, error: String(err) });
             }
           });
         });
@@ -129,13 +151,14 @@ async function readScaleSerial({ port, timeoutMs = 4000, baudRate } = {}) {
         if (result && result.ok) {
           return result;
         }
+        if (result?.trama) ultimaTramaRecibida = result.trama;
       } catch {
         // Intenta con el siguiente puerto / baudrate.
       }
     }
   }
 
-  return { ok: false, value: null, error: 'scale_not_found' };
+  return { ok: false, value: null, error: 'scale_not_found', trama: ultimaTramaRecibida };
 }
 
 /**
@@ -166,11 +189,12 @@ function sondearPuerto(path, baudRate, ms) {
     serial.on('error', (e) => fin({ abre: false, error: String(e) }));
     serial.on('data', (chunk) => {
       datos = true;
-      buffer += chunk.toString();
-      const lineas = buffer.split(/\r?\n|\r/);
+      buffer += chunk.toString('latin1');
+      const lineas = buffer.split(SEPARADOR_TRAMA);
       buffer = lineas.pop() ?? '';
+      if (buffer.length > 200) buffer = buffer.slice(-200);
       for (const linea of lineas) {
-        const limpia = linea.trim();
+        const limpia = linea.replace(/[\x00-\x1F\x7F]/g, ' ').trim();
         if (!limpia) continue;
         ultimaTrama = limpia.slice(0, 80);
         const parsed = parseScaleLine(limpia);
@@ -302,6 +326,7 @@ ipcMain.handle('scale:read-stable', async (_, options = {}) => {
     port: result.port ?? null,
     baudRate: result.baudRate ?? null,
     error: result.error ?? null,
+    trama: result.trama ?? null,
   };
 });
 

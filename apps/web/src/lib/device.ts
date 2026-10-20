@@ -17,6 +17,8 @@ export interface ScaleReadResult {
   port: string | null;
   baudRate: number | null;
   error: string | null;
+  /** Última trama recibida (diagnóstico cuando no se pudo tomar el peso). */
+  trama?: string | null;
 }
 
 export interface ScalePortInfo {
