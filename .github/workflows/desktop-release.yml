@@ -53,6 +53,9 @@ jobs:
         run: |
           node -e "const f='apps/desktop/package.json';const fs=require('fs');const p=JSON.parse(fs.readFileSync(f,'utf8'));p.version=process.env.APP_VERSION;fs.writeFileSync(f,JSON.stringify(p,null,2)+'\n')"
 
+      - name: Compilar paquete compartido (@frigorifico/shared)
+        run: pnpm --filter @frigorifico/shared build
+
       - name: Compilar frontend para escritorio
         run: pnpm --filter @frigorifico/web build:desktop
 
