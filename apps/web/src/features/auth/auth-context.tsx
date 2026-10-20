@@ -75,7 +75,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
     localStorage.setItem(TOKEN_KEY, data.accessToken);
     setAuthToken(data.accessToken);
-    setUser(data.user);
+    // Los permisos (accesoTotal/modulos) se leen siempre frescos de la base de datos.
+    try {
+      const me = await api.get<AuthUser>('/auth/me');
+      setUser({ ...data.user, ...me.data });
+    } catch {
+      setUser(data.user);
+    }
     // Sólo en login explícito; no al restaurar sesión con /auth/me.
     setShowWelcome(true);
   }, []);
