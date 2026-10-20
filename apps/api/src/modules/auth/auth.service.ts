@@ -58,6 +58,8 @@ export class AuthService {
         fullName: user.fullName,
         documentId: user.documentId,
         role: user.role,
+        accesoTotal: user.accesoTotal,
+        modulos: user.modulos,
         plant: user.plant,
       },
     };
