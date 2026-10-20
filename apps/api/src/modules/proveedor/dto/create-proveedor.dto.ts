@@ -1,8 +1,13 @@
-import { IsString, MaxLength, MinLength } from 'class-validator';
+import { IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class CreateProveedorDto {
   @IsString()
   @MinLength(2)
   @MaxLength(120)
   concepto!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  nit?: string;
 }

@@ -6,12 +6,7 @@ import { Input, Label } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { KeyboardField } from '@/components/keyboard/KeyboardField';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
-import {
-  useClientes,
-  useClienteNextCode,
-  useCreateCliente,
-  formatProcedenciaCode,
-} from './api';
+import { useClientes, useCreateCliente } from './api';
 
 export function ClienteModal({
   open,
@@ -25,30 +20,26 @@ export function ClienteModal({
   onConfirm: (cliente: string) => void;
 }) {
   const keyboard = useKeyboard();
-  const [codigo, setCodigo] = useState<number | null>(null);
+  const [nit, setNit] = useState('');
   const [cliente, setCliente] = useState(value);
   const [detalles, setDetalles] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // El campo Cliente funciona como buscador de la lista.
   const registros = useClientes(cliente.trim());
-  const nextCode = useClienteNextCode(open);
   const create = useCreateCliente();
-
-  // Código a mostrar: el del registro seleccionado o el próximo autogenerado.
-  const displayCode = codigo ?? nextCode.data?.next ?? null;
 
   useEffect(() => {
     if (open) {
       setCliente(value);
-      setCodigo(null);
+      setNit('');
       setDetalles('');
       setError(null);
     }
   }, [open, value]);
 
   function limpiar() {
-    setCodigo(null);
+    setNit('');
     setCliente('');
     setDetalles('');
     setError(null);
@@ -56,13 +47,17 @@ export function ClienteModal({
 
   async function confirmar() {
     const concepto = cliente.trim();
+    if (!nit.trim()) {
+      setError('Escribí el NIT del cliente.');
+      return;
+    }
     if (!concepto) {
       setError('Escribí el cliente.');
       return;
     }
     setError(null);
     try {
-      const saved = await create.mutateAsync({ concepto });
+      const saved = await create.mutateAsync({ concepto, nit: nit.trim() });
       onConfirm(saved.concepto);
     } catch {
       setError('No se pudo guardar el cliente.');
@@ -82,14 +77,17 @@ export function ClienteModal({
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[200px_1fr]">
           <div className="space-y-1.5">
-            <Label htmlFor="codigo-cli">Código</Label>
-            <Input
-              id="codigo-cli"
-              className="h-9 tabular-nums"
-              readOnly
-              value={displayCode != null ? formatProcedenciaCode(displayCode) : ''}
-              placeholder="Automático"
-            />
+            <Label htmlFor="nit-cli">NIT</Label>
+            <KeyboardField>
+              <Input
+                id="nit-cli"
+                className="h-9 pr-11 tabular-nums"
+                placeholder="NIT"
+                value={nit}
+                onChange={(e) => setNit(e.target.value.replace(/[^0-9.-]/g, ''))}
+                onDoubleClick={keyboard.open}
+              />
+            </KeyboardField>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="cli-modal">Cliente</Label>
@@ -99,10 +97,7 @@ export function ClienteModal({
                 className="h-9 pr-11"
                 placeholder="Escribí el cliente…"
                 value={cliente}
-                onChange={(e) => {
-                  setCliente(e.target.value);
-                  setCodigo(null);
-                }}
+                onChange={(e) => setCliente(e.target.value)}
                 onDoubleClick={keyboard.open}
               />
             </KeyboardField>
@@ -133,7 +128,7 @@ export function ClienteModal({
             <Table>
               <THead className="sticky top-0 bg-muted/40">
                 <TR>
-                  <TH className="w-32">Código</TH>
+                  <TH className="w-40">NIT</TH>
                   <TH>Concepto</TH>
                 </TR>
               </THead>
@@ -153,13 +148,11 @@ export function ClienteModal({
                       key={r.id}
                       onClick={() => {
                         setCliente(r.concepto);
-                        setCodigo(r.code);
+                        setNit(r.nit ?? '');
                       }}
                       className="cursor-pointer"
                     >
-                      <TD className="font-medium tabular-nums">
-                        {formatProcedenciaCode(r.code)}
-                      </TD>
+                      <TD className="font-medium tabular-nums">{r.nit ?? '—'}</TD>
                       <TD>{r.concepto}</TD>
                     </TR>
                   ))

@@ -71,6 +71,8 @@ export class AuthService {
         fullName: true,
         documentId: true,
         role: true,
+        accesoTotal: true,
+        modulos: true,
         plant: { select: { id: true, code: true, legalName: true } },
       },
     });

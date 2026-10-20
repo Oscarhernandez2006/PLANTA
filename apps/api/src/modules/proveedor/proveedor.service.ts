@@ -5,6 +5,7 @@ import { CreateProveedorDto } from './dto/create-proveedor.dto';
 const proveedorSelect = {
   id: true,
   code: true,
+  nit: true,
   concepto: true,
 } as const;
 
@@ -23,7 +24,12 @@ export class ProveedorService {
       where: {
         active: true,
         ...(search
-          ? { concepto: { contains: search, mode: 'insensitive' } }
+          ? {
+              OR: [
+                { concepto: { contains: search, mode: 'insensitive' } },
+                { nit: { contains: search, mode: 'insensitive' } },
+              ],
+            }
           : {}),
       },
       select: proveedorSelect,
@@ -32,18 +38,28 @@ export class ProveedorService {
     });
   }
 
-  /** Alta de proveedor con código autogenerado. Idempotente por concepto. */
+  /** Alta de proveedor (se guarda con su NIT). Idempotente por concepto: si ya existe, actualiza el NIT enviado. */
   async create(dto: CreateProveedorDto) {
     const concepto = dto.concepto.trim().toUpperCase();
+    const nit = dto.nit?.trim() || null;
 
     const existing = await this.prisma.proveedor.findUnique({
       where: { concepto },
       select: proveedorSelect,
     });
-    if (existing) return existing;
+    if (existing) {
+      if (nit && nit !== existing.nit) {
+        return this.prisma.proveedor.update({
+          where: { concepto },
+          data: { nit },
+          select: proveedorSelect,
+        });
+      }
+      return existing;
+    }
 
     return this.prisma.proveedor.create({
-      data: { concepto },
+      data: { concepto, nit },
       select: proveedorSelect,
     });
   }

@@ -13,6 +13,9 @@ export interface AuthUser {
   fullName: string;
   documentId: string | null;
   role: string;
+  /** Permisos por módulo (Configuración → Permisos). */
+  accesoTotal?: boolean;
+  modulos?: string[];
   plant?: { id: string; code: string; legalName: string };
 }
 
@@ -26,6 +29,8 @@ interface AuthContextValue {
   login: (documentId: string, pin: string) => Promise<void>;
   logout: () => void;
   dismissWelcome: () => void;
+  /** Vuelve a leer el usuario (p. ej. tras cambiar sus propios permisos). */
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -85,6 +90,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const dismissWelcome = useCallback(() => setShowWelcome(false), []);
 
+  const refreshUser = useCallback(async () => {
+    const { data } = await api.get<AuthUser>('/auth/me');
+    setUser(data);
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
@@ -94,8 +104,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       login,
       logout,
       dismissWelcome,
+      refreshUser,
     }),
-    [user, loading, showWelcome, checkCedula, login, logout, dismissWelcome],
+    [user, loading, showWelcome, checkCedula, login, logout, dismissWelcome, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

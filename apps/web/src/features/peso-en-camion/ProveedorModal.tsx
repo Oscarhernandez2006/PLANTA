@@ -6,12 +6,7 @@ import { Input, Label } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { KeyboardField } from '@/components/keyboard/KeyboardField';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
-import {
-  useProveedores,
-  useProveedorNextCode,
-  useCreateProveedor,
-  formatProcedenciaCode,
-} from './api';
+import { useProveedores, useCreateProveedor } from './api';
 
 export function ProveedorModal({
   open,
@@ -25,30 +20,27 @@ export function ProveedorModal({
   onConfirm: (proveedor: string) => void;
 }) {
   const keyboard = useKeyboard();
-  const [codigo, setCodigo] = useState<number | null>(null);
+  const [nit, setNit] = useState('');
   const [proveedor, setProveedor] = useState(value);
   const [detalles, setDetalles] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   // El campo Proveedor funciona como buscador de la lista.
   const registros = useProveedores(proveedor.trim());
-  const nextCode = useProveedorNextCode(open);
   const create = useCreateProveedor();
 
-  // Código a mostrar: el del registro seleccionado o el próximo autogenerado.
-  const displayCode = codigo ?? nextCode.data?.next ?? null;
 
   useEffect(() => {
     if (open) {
       setProveedor(value);
-      setCodigo(null);
+      setNit('');
       setDetalles('');
       setError(null);
     }
   }, [open, value]);
 
   function limpiar() {
-    setCodigo(null);
+    setNit('');
     setProveedor('');
     setDetalles('');
     setError(null);
@@ -60,9 +52,13 @@ export function ProveedorModal({
       setError('Escribí el proveedor.');
       return;
     }
+    if (!nit.trim()) {
+      setError('Escribí el NIT del proveedor.');
+      return;
+    }
     setError(null);
     try {
-      const saved = await create.mutateAsync({ concepto });
+      const saved = await create.mutateAsync({ concepto, nit: nit.trim() });
       onConfirm(saved.concepto);
     } catch {
       setError('No se pudo guardar el proveedor.');
@@ -82,14 +78,17 @@ export function ProveedorModal({
       <div className="space-y-4">
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-[200px_1fr]">
           <div className="space-y-1.5">
-            <Label htmlFor="codigo">Código</Label>
-            <Input
-              id="codigo"
-              className="h-9 tabular-nums"
-              readOnly
-              value={displayCode != null ? formatProcedenciaCode(displayCode) : ''}
-              placeholder="Automático"
-            />
+            <Label htmlFor="nit-prov">NIT</Label>
+            <KeyboardField>
+              <Input
+                id="nit-prov"
+                className="h-9 pr-11 tabular-nums"
+                placeholder="NIT"
+                value={nit}
+                onChange={(e) => setNit(e.target.value.replace(/[^0-9.-]/g, ''))}
+                onDoubleClick={keyboard.open}
+              />
+            </KeyboardField>
           </div>
           <div className="space-y-1.5">
             <Label htmlFor="prov-modal">Proveedor</Label>
@@ -99,10 +98,7 @@ export function ProveedorModal({
                 className="h-9 pr-11"
                 placeholder="Escribí el proveedor…"
                 value={proveedor}
-                onChange={(e) => {
-                  setProveedor(e.target.value);
-                  setCodigo(null);
-                }}
+                onChange={(e) => setProveedor(e.target.value)}
                 onDoubleClick={keyboard.open}
               />
             </KeyboardField>
@@ -133,7 +129,7 @@ export function ProveedorModal({
             <Table>
               <THead className="sticky top-0 bg-muted/40">
                 <TR>
-                  <TH className="w-32">Código</TH>
+                  <TH className="w-40">NIT</TH>
                   <TH>Concepto</TH>
                 </TR>
               </THead>
@@ -153,13 +149,11 @@ export function ProveedorModal({
                       key={r.id}
                       onClick={() => {
                         setProveedor(r.concepto);
-                        setCodigo(r.code);
+                        setNit(r.nit ?? '');
                       }}
                       className="cursor-pointer"
                     >
-                      <TD className="font-medium tabular-nums">
-                        {formatProcedenciaCode(r.code)}
-                      </TD>
+                      <TD className="font-medium tabular-nums">{r.nit ?? '—'}</TD>
                       <TD>{r.concepto}</TD>
                     </TR>
                   ))

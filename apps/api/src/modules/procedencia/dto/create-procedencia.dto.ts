@@ -10,4 +10,9 @@ export class CreateProcedenciaDto {
   @IsString()
   @MaxLength(60)
   rspp?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(30)
+  nit?: string;
 }

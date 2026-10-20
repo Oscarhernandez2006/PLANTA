@@ -1,108 +1,14 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { LogOut, MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, ChevronDown, SlidersHorizontal } from 'lucide-react';
+import { Navigate, NavLink, Outlet, useLocation } from 'react-router-dom';
+import { LogOut, MonitorSmartphone, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
-import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
-import { PostaReciboIcon } from '@/components/icons/PostaReciboIcon';
-import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
-import { PesoEnCamionIcon } from '@/components/icons/PesoEnCamionIcon';
-import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
-import { ReciboCanalesIcon } from '@/components/icons/ReciboCanalesIcon';
-import { SacrificioIcon } from '@/components/icons/SacrificioIcon';
-import { PielesIcon } from '@/components/icons/PielesIcon';
-import { SubproductosIcon } from '@/components/icons/SubproductosIcon';
-import { OrdenBeneficioIcon } from '@/components/icons/OrdenBeneficioIcon';
-import { OrdenDespachoFrioIcon } from '@/components/icons/OrdenDespachoFrioIcon';
-import { RotuladoDesposteIcon } from '@/components/icons/RotuladoDesposteIcon';
-import { RotuladoAcondicionamientoIcon } from '@/components/icons/RotuladoAcondicionamientoIcon';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { useAuth } from '@/features/auth/auth-context';
 import { useDevice } from '@/features/device/device-context';
 import { AvisoActualizacion, useActualizacion } from '@/components/update/ActualizacionApp';
-
-type NavItem = {
-  to: string;
-  label: string;
-  icon: React.ComponentType<{ className?: string }>;
-};
-
-const navGroups: { title: string; items: NavItem[] }[] = [
-  {
-    title: 'Recibo de Materia Prima',
-    items: [
-      { to: '/peso-en-camion', label: 'Peso En Camión', icon: PesoEnCamionIcon },
-      { to: '/peso-en-pie', label: 'Peso En Pie', icon: PesoEnPieIcon },
-      { to: '/recibo-de-canales', label: 'Recibo de Canales', icon: ReciboCanalesIcon },
-      { to: '/recibo-en-posta', label: 'Recibo en Posta', icon: PostaReciboIcon },
-    ],
-  },
-  {
-    title: 'Beneficio',
-    items: [
-      { to: '/sacrificio', label: 'Sacrificio', icon: SacrificioIcon },
-      { to: '/pieles', label: 'Pieles', icon: PielesIcon },
-      { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
-      { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
-    ],
-  },
-  {
-    // Sin título: ítems temporalmente sueltos mientras se definen sus
-    // grupos definitivos.
-    title: '',
-    items: [
-      { to: '/inventarios', label: 'Inventarios', icon: Warehouse },
-      { to: '/rotulado-desposte', label: 'Rotulado Desposte', icon: RotuladoDesposteIcon },
-      { to: '/rotulado-acondicionamiento', label: 'Rotulado Acondicionamiento', icon: RotuladoAcondicionamientoIcon },
-    ],
-  },
-  {
-    title: 'Logística',
-    items: [
-      { to: '/canal-fria', label: 'Canal Fría', icon: CanalFriaIcon },
-      { to: '/traslado', label: 'Traslado', icon: Truck },
-      { to: '/despacho-caliente', label: 'Despacho Caliente', icon: ThermometerSun },
-      { to: '/despacho-frio', label: 'Despacho Frío', icon: ThermometerSnowflake },
-      { to: '/despacho-posta', label: 'Despacho Posta', icon: Beef },
-    ],
-  },
-  {
-    title: 'Administrativo',
-    items: [
-      { to: '/orden-beneficio', label: 'Orden de Beneficio', icon: OrdenBeneficioIcon },
-      { to: '/orden-despacho', label: 'Orden de Despacho a Proceso', icon: OrdenDespachoFrioIcon },
-      { to: '/despacho-canales', label: 'Órdenes Despacho Canales', icon: Container },
-      { to: '/orden-traslado', label: 'Orden de Traslado', icon: ArrowLeftRight },
-      { to: '/orden-produccion', label: 'Órdenes de Producción', icon: Factory },
-      { to: '/orden-acondicionamiento', label: 'Órdenes de Acondicionamiento', icon: PackageCheck },
-      { to: '/productos', label: 'Productos', icon: Package },
-      { to: '/clientes', label: 'Clientes', icon: Users },
-      { to: '/conservacion', label: 'Conservación', icon: Snowflake },
-      { to: '/piezas-desposte', label: 'Piezas Desposte', icon: Puzzle },
-      { to: '/informes', label: 'Informes', icon: FileBarChart },
-      { to: '/recibo-canal', label: 'Orden recibo de canales', icon: CanalReciboIcon },
-      { to: '/recibo-posta', label: 'Orden recibo en posta', icon: PostaReciboIcon },
-    ],
-  },
-  {
-    title: 'Configuración',
-    items: [
-      { to: '/configuracion/estaciones', label: 'Estaciones', icon: MonitorSmartphone },
-      { to: '/configuracion/parametros-estacion', label: 'Parámetros estación', icon: SlidersHorizontal },
-    ],
-  },
-];
-
-// Etiqueta de área a partir del rol (identificador) del usuario.
-const areaLabels: Record<string, string> = {
-  admin: 'Administración',
-  supervisor_desposte: 'Supervisor desposte',
-  operario_desposte: 'Desposte',
-  operario: 'Operario',
-  despacho: 'Despacho',
-  calidad: 'Calidad',
-  desarrollador: 'Desarrollador',
-};
+import { navGroups as todosLosGrupos, type NavItem } from './nav-config';
+import { tieneModulo, moduloDeRuta } from '@/lib/permisos';
+import { ROL_LABEL } from '@/lib/roles';
 
 const COLLAPSE_KEY = 'frigo_sidebar_collapsed';
 const OPEN_GROUPS_KEY = 'frigo_sidebar_open_groups';
@@ -123,9 +29,16 @@ export function AppShell() {
   const { user, logout } = useAuth();
   const { deviceName, hostname } = useDevice();
   const location = useLocation();
-  const area = user ? (areaLabels[user.role] ?? user.role) : '';
+  const area = user ? (ROL_LABEL[user.role] ?? user.role) : '';
   const estacion = deviceName ?? hostname ?? 'Estación sin nombre';
   const { estado: actualizacion, version: versionApp } = useActualizacion();
+
+  // Solo los módulos que el usuario tiene permitidos (los grupos vacíos no se muestran).
+  const navGroups = todosLosGrupos
+    .map((g) => ({ ...g, items: g.items.filter((i) => tieneModulo(user, i.to)) }))
+    .filter((g) => g.items.length > 0);
+  const moduloActual = moduloDeRuta(location.pathname);
+  const sinAcceso = !tieneModulo(user, moduloActual);
 
   // Recogido por defecto (pensado para pantallas táctiles POS).
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -136,41 +49,27 @@ export function AppShell() {
     localStorage.setItem(COLLAPSE_KEY, collapsed ? '1' : '0');
   }, [collapsed]);
 
-  // Grupos del menú desplegables (acordeón): por defecto solo se abre el
-  // grupo que contiene la página activa; el resto queda plegado.
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(() => {
-    const saved = localStorage.getItem(OPEN_GROUPS_KEY);
-    if (saved) {
-      try {
-        return JSON.parse(saved) as Record<string, boolean>;
-      } catch {
-        // ignora JSON inválido y recalcula el estado por defecto
-      }
-    }
-    const initial: Record<string, boolean> = {};
-    navGroups.forEach((group) => {
-      initial[group.title] = groupHasActiveRoute(group, location.pathname);
-    });
-    return initial;
-  });
+  // Menú en acordeón: solo un grupo abierto a la vez. Al entrar queda abierto
+  // únicamente el grupo del módulo actual; abrir otro cierra el anterior.
+  const [openGroup, setOpenGroup] = useState<string | null>(
+    () => navGroups.find((g) => groupHasActiveRoute(g, location.pathname))?.title ?? null,
+  );
   useEffect(() => {
-    localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(openGroups));
-  }, [openGroups]);
+    // Limpia el estado de la versión anterior, que dejaba varios grupos abiertos.
+    localStorage.removeItem(OPEN_GROUPS_KEY);
+  }, []);
 
-  // Si la navegación activa está dentro de un grupo plegado, lo abre
-  // automáticamente para que el usuario vea la opción seleccionada.
+  // Al navegar a un módulo se abre su grupo y se cierran los demás.
   useEffect(() => {
     const activeGroup = navGroups.find((group) =>
       groupHasActiveRoute(group, location.pathname),
     );
-    if (activeGroup && !openGroups[activeGroup.title]) {
-      setOpenGroups((prev) => ({ ...prev, [activeGroup.title]: true }));
-    }
+    if (activeGroup) setOpenGroup(activeGroup.title);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.pathname]);
 
   const toggleGroup = (title: string) => {
-    setOpenGroups((prev) => ({ ...prev, [title]: !prev[title] }));
+    setOpenGroup((actual) => (actual === title ? null : title));
   };
 
   return (
@@ -210,7 +109,7 @@ export function AppShell() {
             // Grupos sin título (ítems "sueltos" aún sin categoría) no son
             // desplegables: siempre se muestran, sin botón de acordeón.
             const isOpen =
-              collapsed || !group.title || (openGroups[group.title] ?? false);
+              collapsed || !group.title || openGroup === group.title;
             return (
               <div
                 key={group.title || 'sin-grupo'}
@@ -326,7 +225,8 @@ export function AppShell() {
       <div className="flex flex-1 flex-col overflow-hidden">
         <main className="flex-1 overflow-y-auto px-4 py-6 sm:px-8 sm:py-8">
           <div className="mx-auto flex h-full w-full max-w-7xl flex-col">
-            <Outlet />
+            {/* Entrar por URL a un módulo sin permiso lleva al inicio. */}
+            {sinAcceso ? <Navigate to="/" replace /> : <Outlet />}
           </div>
           {/* Espacio reservado cuando el teclado en pantalla está abierto. */}
           <div aria-hidden style={{ height: 'var(--osk-height, 0px)' }} />

@@ -7,7 +7,9 @@ import { api } from '@/lib/api';
 
 export interface Procedencia {
   id: string;
-  code: number;  rspp: string | null;
+  code: number;
+  nit: string | null;
+  rspp: string | null;
   concepto: string;
 }
 
@@ -26,7 +28,7 @@ export function useProcedencias(search: string) {
 export function useCreateProcedencia() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { concepto: string; rspp?: string }) =>
+    mutationFn: async (input: { concepto: string; rspp?: string; nit?: string }) =>
       (await api.post<Procedencia>('/procedencias', input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['procedencias'] }),
   });
@@ -36,6 +38,7 @@ export interface Proveedor {
   id: string;
   code: number;
   concepto: string;
+  nit: string | null;
 }
 
 export function useProveedores(search: string) {
@@ -62,7 +65,7 @@ export function useProveedorNextCode(enabled: boolean) {
 export function useCreateProveedor() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { concepto: string }) =>
+    mutationFn: async (input: { concepto: string; nit?: string }) =>
       (await api.post<Proveedor>('/proveedores', input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['proveedores'] }),
   });
@@ -72,6 +75,7 @@ export interface Cliente {
   id: string;
   code: number;
   concepto: string;
+  nit: string | null;
 }
 
 export function useClientes(search: string) {
@@ -98,7 +102,7 @@ export function useClienteNextCode(enabled: boolean) {
 export function useCreateCliente() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { concepto: string }) =>
+    mutationFn: async (input: { concepto: string; nit?: string }) =>
       (await api.post<Cliente>('/clientes', input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['clientes'] }),
   });

@@ -71,7 +71,12 @@ export class ClienteService {
                   { nit: { contains: q, mode: 'insensitive' } },
                 ],
               }
-            : { concepto: { contains: q, mode: 'insensitive' } }
+            : {
+                OR: [
+                  { concepto: { contains: q, mode: 'insensitive' } },
+                  { nit: { contains: q, mode: 'insensitive' } },
+                ],
+              }
           : {}),
       },
       select: todos ? clienteCompletoSelect : clienteSelect,
@@ -91,6 +96,15 @@ export class ClienteService {
     if (existing) {
       if (dto.estricto) {
         throw new ConflictException(`Ya existe el cliente ${concepto}.`);
+      }
+      // Desde Peso en Camión: si se escribió el NIT, queda guardado en el cliente.
+      const nit = dto.nit?.trim();
+      if (nit && nit !== existing.nit) {
+        return this.prisma.cliente.update({
+          where: { concepto },
+          data: { nit },
+          select: clienteCompletoSelect,
+        });
       }
       return existing;
     }

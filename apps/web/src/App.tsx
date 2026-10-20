@@ -14,6 +14,8 @@ import { WelcomeScreen } from './features/auth/WelcomeScreen';
 import { DeviceGate } from './features/device/DeviceGate';
 import { DevicesPage } from './features/device/DevicesPage';
 import { ParametrosEstacionPage } from './features/configuracion/ParametrosEstacionPage';
+import { PermisosPage } from './features/configuracion/PermisosPage';
+import { UsuariosPage } from './features/configuracion/UsuariosPage';
 import { CanalFriaPage } from './features/canal-fria/CanalFriaPage';
 import { CanalReciboPage } from './features/canal-recibo/CanalReciboPage';
 import { PostaReciboPage } from './features/recibo-posta/PostaReciboPage';
@@ -93,6 +95,8 @@ const router = createRouter([
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
       { path: 'configuracion/estaciones', element: <DevicesPage /> },
       { path: 'configuracion/parametros-estacion', element: <ParametrosEstacionPage /> },
+      { path: 'configuracion/permisos', element: <PermisosPage /> },
+      { path: 'configuracion/usuarios', element: <UsuariosPage /> },
       { path: '*', element: <Navigate to="/" replace /> },
     ],
   },

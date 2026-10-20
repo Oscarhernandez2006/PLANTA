@@ -7,6 +7,8 @@ import { ClientModule } from './modules/client/client.module';
 import { ClienteModule } from './modules/cliente/cliente.module';
 import { ConductorModule } from './modules/conductor/conductor.module';
 import { DeviceModule } from './modules/device/device.module';
+import { PermisosModule } from './modules/permisos/permisos.module';
+import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { DispatchOrderModule } from './modules/dispatch-order/dispatch-order.module';
 import { TransferOrderModule } from './modules/transfer-order/transfer-order.module';
 import { ConditioningOrderModule } from './modules/conditioning-order/conditioning-order.module';
@@ -39,6 +41,8 @@ import { InformesModule } from './modules/informes/informes.module';
     PrismaModule,
     AuthModule,
     DeviceModule,
+    PermisosModule,
+    UsuariosModule,
     ClientModule,
     ClienteModule,
     ConductorModule,

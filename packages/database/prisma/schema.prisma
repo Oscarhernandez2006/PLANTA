@@ -75,10 +75,7 @@ enum TraceEventType {
 enum UserRole {
   desarrollador
   admin
-  supervisor_desposte
-  operario_desposte
-  despacho
-  calidad
+  supervisor
   operario
 }
 
@@ -121,6 +118,8 @@ model Client {
 model Procedencia {
   id        String   @id @default(uuid()) @db.Uuid
   code      Int      @unique @default(autoincrement())
+  // NIT de la procedencia (se digita en Peso en Camión en lugar del código).
+  nit       String?
   rspp      String?
   concepto  String   @unique
   active    Boolean  @default(true)
@@ -133,6 +132,8 @@ model Procedencia {
 model Proveedor {
   id        String   @id @default(uuid()) @db.Uuid
   code      Int      @unique @default(autoincrement())
+  // NIT del proveedor (se digita en Peso en Camión en lugar del código).
+  nit       String?
   concepto  String   @unique
   active    Boolean  @default(true)
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -839,6 +840,11 @@ model AppUser {
   documentId   String?   @unique @map("document_id")
   role         UserRole
   active       Boolean   @default(true)
+  // Permisos por módulo (Configuración → Permisos), independientes del rol.
+  // accesoTotal = todos los módulos (también los que se agreguen después);
+  // si no, solo las rutas del menú listadas en `modulos`.
+  accesoTotal  Boolean   @default(false) @map("acceso_total")
+  modulos      String[]  @default([])
   lastLogin    DateTime? @map("last_login") @db.Timestamptz(6)
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)

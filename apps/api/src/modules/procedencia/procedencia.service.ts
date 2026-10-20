@@ -5,6 +5,7 @@ import { CreateProcedenciaDto } from './dto/create-procedencia.dto';
 const procedenciaSelect = {
   id: true,
   code: true,
+  nit: true,
   rspp: true,
   concepto: true,
 } as const;
@@ -18,7 +19,12 @@ export class ProcedenciaService {
       where: {
         active: true,
         ...(search
-          ? { concepto: { contains: search, mode: 'insensitive' } }
+          ? {
+              OR: [
+                { concepto: { contains: search, mode: 'insensitive' } },
+                { nit: { contains: search, mode: 'insensitive' } },
+              ],
+            }
           : {}),
       },
       select: procedenciaSelect,
@@ -27,10 +33,11 @@ export class ProcedenciaService {
     });
   }
 
-  /** Alta de procedencia con código autogenerado. Idempotente por concepto. */
+  /** Alta de procedencia (se guarda con su NIT). Idempotente por concepto: si ya existe, actualiza NIT/RSPP enviados. */
   async create(dto: CreateProcedenciaDto) {
     const concepto = dto.concepto.trim().toUpperCase();
     const rspp = dto.rspp?.trim().toUpperCase() || null;
+    const nit = dto.nit?.trim() || null;
 
     const existing = await this.prisma.procedencia.findUnique({
       where: { concepto },
@@ -38,10 +45,14 @@ export class ProcedenciaService {
     });
 
     if (existing) {
-      if (rspp && rspp !== existing.rspp) {
+      const data = {
+        ...(rspp && rspp !== existing.rspp ? { rspp } : {}),
+        ...(nit && nit !== existing.nit ? { nit } : {}),
+      };
+      if (Object.keys(data).length) {
         return this.prisma.procedencia.update({
           where: { concepto },
-          data: { rspp },
+          data,
           select: procedenciaSelect,
         });
       }
@@ -49,7 +60,7 @@ export class ProcedenciaService {
     }
 
     return this.prisma.procedencia.create({
-      data: { concepto, rspp },
+      data: { concepto, rspp, nit },
       select: procedenciaSelect,
     });
   }
