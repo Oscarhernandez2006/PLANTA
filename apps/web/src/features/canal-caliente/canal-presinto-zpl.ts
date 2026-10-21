@@ -146,7 +146,9 @@ function bloqueZPL(
   const codigo = codigoBarras(d);
   const barcodeHmm = (anchoBloqueMM - 4) * 0.65;
   const barcodeH = px(barcodeHmm);
-  const barcodeAnchoOffset = anchoOffsetMM + (anchoBloqueMM - barcodeHmm) / 2;
+  // Subido 2.5mm: el número que se imprime debajo de las barras quedaba pegado al borde de abajo.
+  const subirBarcodeMM = 2.5;
+  const barcodeAnchoOffset = anchoOffsetMM + (anchoBloqueMM - barcodeHmm) / 2 + subirBarcodeMM;
   const barcodeLargo = 23 * sx; // corrido a la derecha (antes 12) a pedido del usuario
   // Largo real del código (Code128, subset B): 11 módulos por carácter +
   // 11 (start) + 11 (checksum) + 13 (stop), a 3 dots de módulo. Se necesita
