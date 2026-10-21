@@ -83,10 +83,17 @@ function truncar(texto: string, max: number) {
  * apilan a lo largo del rollo, se apilan a través del cabezal, todos en el
  * mismo punto "largo" de su columna — igual que en el PDF.
  */
+/** Variante del presinto: canal (por defecto) o vísceras (otro título y sin recuadros). */
+interface OpcionesBloque {
+  titulo?: string;
+  sinRecuadros?: boolean;
+}
+
 function bloqueZPL(
   d: PresintoTicketData,
   anchoOffsetMM: number,
   anchoBloqueMM: number,
+  opciones: OpcionesBloque = {},
 ): string {
   const cmds: string[] = [];
   // Estira las posiciones "a lo largo del rollo" (antes x del diseño de
@@ -228,31 +235,34 @@ function bloqueZPL(
   const bloqueAlto = numeroHmm + gapMM + etiquetaHmm;
   const numeroAncho = (boxAncho - bloqueAlto) / 2 - subirRecuadros;
   const etiquetaAncho = numeroAncho + numeroHmm + gapMM;
-  cmds.push(
-    `^FO${px(boxAnchoOffset)},${py(boxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
-  );
-  // Orden invertido a pedido del usuario: número grande ARRIBA, etiqueta
-  // chica ABAJO, todo centrado dentro del recuadro.
-  texto(centrarEnBox(boxLargo, d.pesoKg.toFixed(0), pt(21)), numeroAncho, pt(21), d.pesoKg.toFixed(0));
-  texto(centrarEnBox(boxLargo, 'PESO (kg)', pt(8)), etiquetaAncho, pt(8), 'PESO (kg)');
-
-  // Recuadro TURNO.
   const turnoBoxLargo = boxLargo + boxLargoAncho + 3;
-  cmds.push(
-    `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
-  );
-  texto(
-    centrarEnBox(turnoBoxLargo, String(d.turno), pt(21)),
-    numeroAncho,
-    pt(21),
-    String(d.turno),
-  );
-  texto(centrarEnBox(turnoBoxLargo, 'TURNO', pt(8)), etiquetaAncho, pt(8), 'TURNO');
+  // El presinto de vísceras no lleva los recuadros de PESO ni TURNO.
+  if (!opciones.sinRecuadros) {
+    cmds.push(
+      `^FO${px(boxAnchoOffset)},${py(boxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
+    );
+    // Orden invertido a pedido del usuario: número grande ARRIBA, etiqueta
+    // chica ABAJO, todo centrado dentro del recuadro.
+    texto(centrarEnBox(boxLargo, d.pesoKg.toFixed(0), pt(21)), numeroAncho, pt(21), d.pesoKg.toFixed(0));
+    texto(centrarEnBox(boxLargo, 'PESO (kg)', pt(8)), etiquetaAncho, pt(8), 'PESO (kg)');
+
+    // Recuadro TURNO.
+    cmds.push(
+      `^FO${px(boxAnchoOffset)},${py(turnoBoxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
+    );
+    texto(
+      centrarEnBox(turnoBoxLargo, String(d.turno), pt(21)),
+      numeroAncho,
+      pt(21),
+      String(d.turno),
+    );
+    texto(centrarEnBox(turnoBoxLargo, 'TURNO', pt(8)), etiquetaAncho, pt(8), 'TURNO');
+  }
 
   // Título del tipo de canal, a la derecha de todo. Letra más grande (antes
   // 21pt): hay ~4cm libres al final de la tira y las 2 líneas caben en los 25mm.
   const tituloLargo = turnoBoxLargo + boxLargoAncho + 4;
-  const titulo = tituloCanalTipo(d);
+  const titulo = opciones.titulo ?? tituloCanalTipo(d);
   const palabras = titulo.split(' ');
   const tituloH = pt(28);
   const tituloW = Math.round(tituloH * 0.55);
@@ -280,7 +290,9 @@ function bloqueZPL(
  * de la tira de 25mm (una junto a la otra), corriendo ambas a lo largo de
  * los 265mm del rollo.
  */
-export function generarZPL(d: PresintoTicketData): string {
+export type TipoPresinto = 'canal' | 'visceras';
+
+export function generarZPL(d: PresintoTicketData, tipo: TipoPresinto = 'canal'): string {
   const LL = py(LARGO_MM);
   const mitadAncho = ANCHO_MM / 2;
 
@@ -292,8 +304,13 @@ export function generarZPL(d: PresintoTicketData): string {
   const partes = [
     '^XA',
     '^CI28',
-    bloqueZPL(d, 0, mitadAncho),
-    bloqueZPL(d, mitadAncho, mitadAncho),
+    // Canal: 2 copias iguales. Vísceras: arriba ROJAS y abajo BLANCAS, sin recuadros.
+    ...(tipo === 'visceras'
+      ? [
+          bloqueZPL(d, 0, mitadAncho, { titulo: 'VISCERAS ROJAS', sinRecuadros: true }),
+          bloqueZPL(d, mitadAncho, mitadAncho, { titulo: 'VISCERAS BLANCAS', sinRecuadros: true }),
+        ]
+      : [bloqueZPL(d, 0, mitadAncho), bloqueZPL(d, mitadAncho, mitadAncho)]),
     // Línea de corte entre las 2 copias (a través del cabezal, en el medio).
     `^FO${px(mitadAncho)},0^GB0,${LL},2^FS`,
     '^XZ',
@@ -330,8 +347,9 @@ export interface ImprimirPresintoResultado {
  */
 export async function imprimirPresintoDirecto(
   d: PresintoTicketData,
+  tipo: TipoPresinto = 'canal',
 ): Promise<ImprimirPresintoResultado> {
-  const zpl = generarZPL(d);
+  const zpl = generarZPL(d, tipo);
 
   if (!isDesktop()) {
     descargarPresintoZPL(d);

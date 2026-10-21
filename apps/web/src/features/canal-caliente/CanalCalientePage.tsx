@@ -43,7 +43,7 @@ import {
 import canalTodoImg from './canal-todo.png';
 import canalCizqImg from './canal-cizq.png';
 import canalCderImg from './canal-cder.png';
-import { imprimirPresintoDirecto } from './canal-presinto-zpl';
+import { imprimirPresintoDirecto, type TipoPresinto } from './canal-presinto-zpl';
 import { codigoBarras, type PresintoTicketData } from './canal-presinto-print';
 
 const CANAL_IMG: Record<CanalPiezaTipo, string> = {
@@ -1116,10 +1116,21 @@ function ReporteTab({ date }: { date: string }) {
       (ordenPieza[a.pieza] ?? 9) - (ordenPieza[b.pieza] ?? 9),
   );
 
-  /** Reimprime en RAW (sin diálogo) el precinto seleccionado o, si no hay, todos, uno por uno. */
-  async function reimprimirCanales() {
+  /**
+   * Reimprime en RAW (sin diálogo) el precinto seleccionado o, si no hay, todos,
+   * uno por uno. Vísceras va por animal: en media canal (CIZQ/CDER) sale uno solo.
+   */
+  async function reimprimir(tipo: TipoPresinto) {
     const lista = seleccion ? rows.filter((r) => r.piezaId === seleccion) : rows;
-    const imprimibles = lista.filter((r) => r.canalTipo);
+    const vistos = new Set<string>();
+    const imprimibles = lista.filter((r) => {
+      if (!r.canalTipo) return false;
+      if (tipo === 'canal') return true;
+      const animal = `${r.date}|${r.reference}|${r.sequence}`;
+      if (vistos.has(animal)) return false;
+      vistos.add(animal);
+      return true;
+    });
     if (!imprimibles.length) return;
     setResultado(null);
     let enviados = 0;
@@ -1139,7 +1150,7 @@ function ReporteTab({ date }: { date: string }) {
         canalTipo: p.canalTipo!,
         conCola: p.conCola,
         pieza: p.pieza,
-      });
+      }, tipo);
       if (!r.ok) {
         setReimprimiendo(null);
         setResultado({
@@ -1238,7 +1249,7 @@ function ReporteTab({ date }: { date: string }) {
         <button
           type="button"
           disabled={!hayDatos || !!reimprimiendo}
-          onClick={() => void reimprimirCanales()}
+          onClick={() => void reimprimir('canal')}
           title={
             seleccion
               ? 'Reimprimir el precinto seleccionado'
@@ -1250,9 +1261,13 @@ function ReporteTab({ date }: { date: string }) {
         </button>
         <button
           type="button"
-          disabled={!hayDatos}
-          onClick={() => window.print()}
-          title="Reimprimir brazalete de vísceras del último animal"
+          disabled={!hayDatos || !!reimprimiendo}
+          onClick={() => void reimprimir('visceras')}
+          title={
+            seleccion
+              ? 'Reimprimir el precinto de vísceras del animal seleccionado'
+              : 'Reimprimir los precintos de vísceras de todos los animales de la lista'
+          }
           className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
         >
           Vísceras
