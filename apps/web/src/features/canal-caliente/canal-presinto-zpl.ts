@@ -205,7 +205,10 @@ function bloqueZPL(
   const boxAncho = 18; // alto físico del recuadro, fijo 18mm a pedido del usuario
   const boxLargoAncho = 18; // ancho físico del recuadro, fijo 18mm (cuadrado 18x18)
   const boxGrosor = px(1.1); // borde más grueso (antes 0.6mm)
-  const boxAnchoOffset = anchoOffsetMM + 2;
+  // Recuadros subidos 1.5mm (salían muy abajo en el presinto); el número y la
+  // etiqueta suben lo mismo para seguir centrados dentro del recuadro.
+  const subirRecuadros = 1.5;
+  const boxAnchoOffset = anchoOffsetMM + 2 - subirRecuadros;
   // Centra un texto dentro del ancho del recuadro (a lo largo del rollo),
   // según la cantidad de caracteres y el tamaño de letra usado. Factor 0.3
   // (no 0.6): el glifo real de estos números/etiquetas ocupa bastante
@@ -223,7 +226,7 @@ function bloqueZPL(
   const etiquetaHmm = (pt(8) / DPMM) * 0.75;
   const gapMM = 2.75; // más separación entre el número y la etiqueta (antes 1.5)
   const bloqueAlto = numeroHmm + gapMM + etiquetaHmm;
-  const numeroAncho = (boxAncho - bloqueAlto) / 2;
+  const numeroAncho = (boxAncho - bloqueAlto) / 2 - subirRecuadros;
   const etiquetaAncho = numeroAncho + numeroHmm + gapMM;
   cmds.push(
     `^FO${px(boxAnchoOffset)},${py(boxLargo)}^GB${px(boxAncho)},${py(boxLargoAncho)},${boxGrosor}^FS`,
@@ -246,11 +249,13 @@ function bloqueZPL(
   );
   texto(centrarEnBox(turnoBoxLargo, 'TURNO', pt(8)), etiquetaAncho, pt(8), 'TURNO');
 
-  // Título del tipo de canal, a la derecha de todo.
-  const tituloLargo = turnoBoxLargo + boxLargoAncho + 5;
+  // Título del tipo de canal, a la derecha de todo. Letra más grande (antes
+  // 21pt): hay ~4cm libres al final de la tira y las 2 líneas caben en los 25mm.
+  const tituloLargo = turnoBoxLargo + boxLargoAncho + 4;
   const titulo = tituloCanalTipo(d);
   const palabras = titulo.split(' ');
-  const tituloH = pt(21);
+  const tituloH = pt(28);
+  const tituloW = Math.round(tituloH * 0.55);
   if (palabras.length > 1) {
     const mitad = Math.ceil(palabras.length / 2);
     // MISMA posición a lo largo del rollo (tituloLargo) para las 2 líneas;
@@ -261,10 +266,10 @@ function bloqueZPL(
     // MEDIA CANAL abajo), a pedido del usuario.
     const arriba = palabras.slice(mitad);
     const abajo = palabras.slice(0, mitad);
-    texto(tituloLargo, 2, tituloH, arriba.join(' '));
-    texto(tituloLargo, anchoBloqueMM / 2 + 2, tituloH, abajo.join(' '));
+    texto(tituloLargo, 1.5, tituloH, arriba.join(' '), tituloW);
+    texto(tituloLargo, anchoBloqueMM / 2 + 1, tituloH, abajo.join(' '), tituloW);
   } else {
-    texto(tituloLargo, anchoBloqueMM / 2 - 4, tituloH, titulo);
+    texto(tituloLargo, anchoBloqueMM / 2 - 5, tituloH, titulo, tituloW);
   }
 
   return cmds.join('\n');
