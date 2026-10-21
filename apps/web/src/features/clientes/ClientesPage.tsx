@@ -716,6 +716,7 @@ function ClienteFormDialog({
         value={valores[id]}
         onChange={set(id)}
         maxLength={id === 'direccion' ? 160 : 120}
+        data-keep-case={id === 'correo' || undefined}
       />
     </div>
   );

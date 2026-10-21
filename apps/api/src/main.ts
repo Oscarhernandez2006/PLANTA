@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { DecimalComaPipe } from './common/decimal-coma.pipe';
+import { MayusculasPipe } from './common/mayusculas.pipe';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
@@ -13,6 +14,7 @@ async function bootstrap() {
 
   // Validación estricta en todos los endpoints (capa 1 de 3: DTO).
   // Antes de validar, los decimales con coma ("12,5") pasan a punto ("12.5").
+  // Después de validar, el texto libre pasa a MAYÚSCULA.
   app.useGlobalPipes(
     new DecimalComaPipe(),
     new ValidationPipe({
@@ -21,6 +23,7 @@ async function bootstrap() {
       transform: true,
       transformOptions: { enableImplicitConversion: true },
     }),
+    new MayusculasPipe(),
   );
 
   // CORS_ORIGIN: lista separada por comas de orígenes permitidos. Si no se
