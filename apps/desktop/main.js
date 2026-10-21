@@ -290,12 +290,20 @@ function deviceInfo() {
 
 ipcMain.handle('device:get-info', () => deviceInfo());
 
+// Scripts .ps1 que ejecuta PowerShell: en la app instalada van en
+// app.asar.unpacked (asarUnpack), porque PowerShell no puede leer dentro de app.asar.
+function rutaScript(nombre) {
+  return path
+    .join(__dirname, nombre)
+    .replace(`app.asar${path.sep}`, `app.asar.unpacked${path.sep}`);
+}
+
 // Abre el TECLADO TÁCTIL de Windows (TabTip) vía script PowerShell (COM Toggle).
 ipcMain.handle('keyboard:open', () => {
   if (process.platform !== 'win32') return { ok: false, reason: 'not_windows' };
   return new Promise((resolve) => {
     try {
-      const script = path.join(__dirname, 'open-touch-keyboard.ps1');
+      const script = rutaScript('open-touch-keyboard.ps1');
       const child = spawn(
         'powershell.exe',
         [
@@ -379,7 +387,7 @@ ipcMain.handle('printer:print-raw', async (_, { printerName, content } = {}) => 
               '-ExecutionPolicy',
               'Bypass',
               '-File',
-              path.join(__dirname, 'print-raw.ps1'),
+              rutaScript('print-raw.ps1'),
               '-PrinterName',
               printerName,
               '-FilePath',

@@ -324,10 +324,9 @@ export interface ImprimirPresintoResultado {
 }
 
 /**
- * Imprime el presinto DIRECTO en la impresora configurada (app de
- * escritorio, sin diálogos ni pasos manuales). Si no hay app de escritorio,
- * no hay impresora configurada, o falla el envío, cae de respaldo a
- * descargar el .zpl para arrastrarlo manualmente.
+ * Imprime el presinto DIRECTO (RAW) en la impresora configurada desde la app
+ * de escritorio, sin diálogos. Si falla, NO descarga nada: devuelve el error
+ * para mostrarlo. Solo en navegador (sin app de escritorio) se descarga el .zpl.
  */
 export async function imprimirPresintoDirecto(
   d: PresintoTicketData,
@@ -340,7 +339,7 @@ export async function imprimirPresintoDirecto(
       ok: false,
       directo: false,
       error:
-        'No se detectó la app de escritorio (esto se ve como navegador web).',
+        'No se detectó la app de escritorio (esto se ve como navegador web). Se descargó el .zpl.',
     };
   }
 
@@ -357,21 +356,19 @@ export async function imprimirPresintoDirecto(
     }
   }
   if (!printerName) {
-    descargarPresintoZPL(d);
     return {
       ok: false,
       directo: false,
-      error: 'No se encontró ninguna impresora instalada en este equipo.',
+      error: 'No hay impresora configurada. Selecciónala en Configuración → Parámetros estación.',
     };
   }
 
   const resultado = await printRaw(printerName, zpl);
   if (resultado.ok) return { ok: true, directo: true };
 
-  descargarPresintoZPL(d);
   return {
     ok: false,
     directo: false,
-    error: resultado.error || 'No se pudo imprimir directo.',
+    error: `No se pudo imprimir en "${printerName}": ${resultado.error || 'error desconocido'}`,
   };
 }

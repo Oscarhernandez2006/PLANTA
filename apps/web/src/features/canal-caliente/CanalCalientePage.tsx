@@ -866,7 +866,7 @@ function AnimalesTab({
         setUltimoPresinto(d);
         setPrintOk('Presinto enviado a la impresora.');
       } else {
-        const msg = `Se descargó el .zpl (no se imprimió directo): ${r.error ?? ''}`;
+        const msg = r.error ?? 'No se pudo imprimir el presinto.';
         setPrintError(msg);
         // Al salir de esta pestaña el mensaje en pantalla se perdería.
         if (alTerminarAnimal) onAlerta(msg);
