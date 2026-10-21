@@ -34,13 +34,8 @@ const DPMM = DPI / 25.4;
 // costa de una tira más larga (es rollo continuo, no hay problema en cortar
 // una tira más larga).
 const ESCALA = 2.2;
-// `LARGO_MM` es el largo FÍSICO real que la impresora corta (no un simple
-// límite de contenido) — 26cm es el requisito real del usuario. Antes se
-// había subido a 420mm para que el título no se cortara, pero eso hacía
-// que la impresora cortara la tira real a 42cm, mucho más de lo pedido.
-// La solución correcta es comprimir los márgenes (más abajo) para que TODO
-// entre dentro de estos 260mm reales, no agrandar el largo de corte.
-const LARGO_MM = 260;
+// El contenido debe entrar en ~260mm de largo (lo que corta la impresora,
+// configurada a mano en planta; aquí no se envía ^LL).
 // A través del cabezal (antes "alto" en el PDF): 5cm TOTAL, repartidos en
 // las 2 copias apiladas (2.5cm cada una, confirmado con el usuario contra
 // la impresión real). El cabezal de la ZD230 imprime hasta ~10cm, así que
@@ -299,7 +294,6 @@ function bloqueZPL(
 export type TipoPresinto = 'canal' | 'visceras';
 
 export function generarZPL(d: PresintoTicketData, tipo: TipoPresinto = 'canal'): string {
-  const LL = py(LARGO_MM);
   const mitadAncho = ANCHO_MM / 2;
 
   // Solo se envía el CONTENIDO del presinto: ningún comando de configuración
@@ -317,8 +311,6 @@ export function generarZPL(d: PresintoTicketData, tipo: TipoPresinto = 'canal'):
           bloqueZPL(d, mitadAncho, mitadAncho, { titulo: 'VISCERAS BLANCAS', sinRecuadros: true }),
         ]
       : [bloqueZPL(d, 0, mitadAncho), bloqueZPL(d, mitadAncho, mitadAncho)]),
-    // Línea de corte entre las 2 copias (a través del cabezal, en el medio).
-    `^FO${px(mitadAncho)},0^GB0,${LL},2^FS`,
     '^XZ',
   ];
   return partes.join('\n');
