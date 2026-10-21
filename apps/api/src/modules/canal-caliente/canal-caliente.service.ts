@@ -516,7 +516,7 @@ export class CanalCalienteService {
         evento: {
           include: {
             ordenBeneficio: {
-              select: { id: true, reference: true, cliente: true, date: true },
+              select: { id: true, reference: true, cliente: true, date: true, guias: true },
             },
           },
         },
@@ -551,6 +551,10 @@ export class CanalCalienteService {
       canalAnimalTipo: p.evento.canalAnimalTipo,
       destino: p.destino,
       observaciones: p.observaciones,
+      // Para reimprimir el presinto desde el reporte.
+      date: p.evento.ordenBeneficio.date.toISOString().slice(0, 10),
+      guias: p.evento.ordenBeneficio.guias,
+      expendio: p.evento.expendio,
     }));
   }
 

@@ -147,6 +147,9 @@ export interface CanalPiezaRow {
   canalAnimalTipo: CanalAnimalTipo | null;
   destino: string | null;
   observaciones: string | null;
+  date: string;
+  guias: string[];
+  expendio: string | null;
 }
 
 export interface CanalReporte {

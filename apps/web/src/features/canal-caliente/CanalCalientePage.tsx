@@ -1104,6 +1104,10 @@ function TipoButton({
 
 function ReporteTab({ date }: { date: string }) {
   const piezas = useCanalPiezas(date);
+  // Precinto seleccionado (azul) para reimprimir solo ese; sin selección se reimprimen todos.
+  const [seleccion, setSeleccion] = useState<string | null>(null);
+  const [reimprimiendo, setReimprimiendo] = useState<string | null>(null);
+  const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   // El reporte va en orden consecutivo (A01, A02…); en media canal, CIZQ antes que CDER.
   const ordenPieza: Record<string, number> = { canal: 0, cizq: 1, cder: 2 };
   const rows = [...(piezas.data ?? [])].sort(
@@ -1111,6 +1115,51 @@ function ReporteTab({ date }: { date: string }) {
       a.consecutivo - b.consecutivo ||
       (ordenPieza[a.pieza] ?? 9) - (ordenPieza[b.pieza] ?? 9),
   );
+
+  /** Reimprime en RAW (sin diálogo) el precinto seleccionado o, si no hay, todos, uno por uno. */
+  async function reimprimirCanales() {
+    const lista = seleccion ? rows.filter((r) => r.piezaId === seleccion) : rows;
+    const imprimibles = lista.filter((r) => r.canalTipo);
+    if (!imprimibles.length) return;
+    setResultado(null);
+    let enviados = 0;
+    for (const [i, p] of imprimibles.entries()) {
+      setReimprimiendo(`Imprimiendo ${i + 1} de ${imprimibles.length}…`);
+      const [y, m, d] = (p.date ?? date).split('-');
+      const r = await imprimirPresintoDirecto({
+        fechaSacrificio: `${d}/${m}/${y}`,
+        lote: p.reference,
+        guia: p.guias?.join(', ') || '—',
+        expendio: p.expendio ?? '',
+        cliente: p.cliente,
+        tipoAnimal: p.canalAnimalTipo ? CANAL_ANIMAL_TIPO_LABEL[p.canalAnimalTipo] : '—',
+        ref: p.consecutivo,
+        turno: p.turno ?? p.consecutivo,
+        pesoKg: p.pesoKg,
+        canalTipo: p.canalTipo!,
+        conCola: p.conCola,
+        pieza: p.pieza,
+      });
+      if (!r.ok) {
+        setReimprimiendo(null);
+        setResultado({
+          ok: false,
+          texto: `${enviados ? `Se enviaron ${enviados} de ${imprimibles.length}. ` : ''}${r.error ?? 'No se pudo imprimir.'}`,
+        });
+        return;
+      }
+      enviados++;
+    }
+    setReimprimiendo(null);
+    setResultado({
+      ok: true,
+      texto:
+        enviados === 1
+          ? 'Precinto enviado a la impresora.'
+          : `${enviados} precintos enviados a la impresora.`,
+    });
+  }
+
   if (piezas.isLoading) return <Loading />;
   const hayDatos = rows.length > 0;
   return (
@@ -1133,7 +1182,14 @@ function ReporteTab({ date }: { date: string }) {
               </thead>
               <tbody className="divide-y divide-border">
                 {rows.map((p) => (
-                  <tr key={p.piezaId} className="[&>td]:px-3 [&>td]:py-2">
+                  <tr
+                    key={p.piezaId}
+                    onClick={() => setSeleccion((s) => (s === p.piezaId ? null : p.piezaId))}
+                    className={cn(
+                      'cursor-pointer [&>td]:px-3 [&>td]:py-2',
+                      seleccion === p.piezaId ? 'bg-blue-600 text-white' : 'hover:bg-muted/50',
+                    )}
+                  >
                     <td className="font-semibold tabular-nums">
                       {codigoAnimal(p.sequence)}
                     </td>
@@ -1166,14 +1222,28 @@ function ReporteTab({ date }: { date: string }) {
       </div>
 
       <div className="mt-2 flex items-center justify-end gap-2 self-end">
+        {(reimprimiendo || resultado) && (
+          <span
+            className={cn(
+              'mr-2 text-sm font-medium',
+              reimprimiendo ? 'text-muted-foreground' : resultado?.ok ? 'text-emerald-600' : 'text-red-600',
+            )}
+          >
+            {reimprimiendo ?? resultado?.texto}
+          </span>
+        )}
         <span className="text-sm font-medium text-muted-foreground">
           Reimpresión de Brazalete:
         </span>
         <button
           type="button"
-          disabled={!hayDatos}
-          onClick={() => window.print()}
-          title="Reimprimir brazalete de canales del último animal"
+          disabled={!hayDatos || !!reimprimiendo}
+          onClick={() => void reimprimirCanales()}
+          title={
+            seleccion
+              ? 'Reimprimir el precinto seleccionado'
+              : 'Reimprimir todos los precintos de la lista'
+          }
           className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
         >
           Canales
