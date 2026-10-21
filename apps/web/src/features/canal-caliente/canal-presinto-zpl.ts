@@ -212,10 +212,9 @@ function bloqueZPL(
   const boxAncho = 18; // alto físico del recuadro, fijo 18mm a pedido del usuario
   const boxLargoAncho = 18; // ancho físico del recuadro, fijo 18mm (cuadrado 18x18)
   const boxGrosor = px(1.1); // borde más grueso (antes 0.6mm)
-  // Recuadros subidos 1.5mm (salían muy abajo en el presinto); el número y la
-  // etiqueta suben lo mismo para seguir centrados dentro del recuadro.
-  const subirRecuadros = 1.5;
-  const boxAnchoOffset = anchoOffsetMM + 2 - subirRecuadros;
+  // Recuadros CENTRADOS en el alto del presinto (25mm): mismo margen arriba y abajo.
+  const boxRelMM = (anchoBloqueMM - boxAncho) / 2;
+  const boxAnchoOffset = anchoOffsetMM + boxRelMM;
   // Centra un texto dentro del ancho del recuadro (a lo largo del rollo),
   // según la cantidad de caracteres y el tamaño de letra usado. Factor 0.3
   // (no 0.6): el glifo real de estos números/etiquetas ocupa bastante
@@ -230,11 +229,18 @@ function bloqueZPL(
   // que el alto pedido), si no el bloque se calculaba "más alto" de lo que
   // en realidad se imprime y quedaba descentrado hacia arriba.
   const numeroHmm = (pt(21) / DPMM) * 0.75;
-  const etiquetaHmm = (pt(8) / DPMM) * 0.75;
   const gapMM = 2.75; // más separación entre el número y la etiqueta (antes 1.5)
-  const bloqueAlto = numeroHmm + gapMM + etiquetaHmm;
-  const numeroAncho = (boxAncho - bloqueAlto) / 2 - subirRecuadros;
-  const etiquetaAncho = numeroAncho + numeroHmm + gapMM;
+  // Centra lo VISIBLE (número + etiqueta) dentro del recuadro. En la fuente 0
+  // el trazo de los números/mayúsculas ocupa ~del 20% al 90% del alto pedido
+  // (abajo queda el espacio de descendentes), así que se centra ese tramo.
+  const visible = (hMM: number) => ({ desde: hMM * 0.2, hasta: hMM * 0.9 });
+  const numHmmNominal = pt(21) / DPMM;
+  const etiHmmNominal = pt(8) / DPMM;
+  const etiquetaRel = numeroHmm + gapMM; // etiqueta respecto del número (igual que antes)
+  const desdeVisible = visible(numHmmNominal).desde;
+  const hastaVisible = etiquetaRel + visible(etiHmmNominal).hasta;
+  const numeroAncho = boxRelMM + boxAncho / 2 - (desdeVisible + hastaVisible) / 2;
+  const etiquetaAncho = numeroAncho + etiquetaRel;
   const turnoBoxLargo = boxLargo + boxLargoAncho + 3;
   // El presinto de vísceras no lleva los recuadros de PESO ni TURNO.
   if (!opciones.sinRecuadros) {
