@@ -157,6 +157,9 @@ export function CanalCalientePage() {
   const animalesImprimirRef = useRef<
     ((nueva?: PiezaNueva) => void) | null
   >(null);
+  // Puente para que elegir una cava en ANIMALES lea la báscula del pie
+  // (misma acción que su botón de báscula).
+  const leerBasculaRef = useRef<(() => void) | null>(null);
   // Animal que se acaba de pesar: al redirigir a ANIMALES tras pesarlo, debe
   // mostrarse ESE animal (para clasificarlo), no el siguiente pendiente de
   // pesar (que todavía no tiene ninguna pieza y por eso no deja elegir
@@ -355,6 +358,7 @@ export function CanalCalientePage() {
           onElegirAnimal={elegirAnimal}
           predeterminado={predeterminado}
           onPredeterminado={(cambio) => setPredeterminado((p) => ({ ...p, ...cambio }))}
+          onCavaElegida={() => leerBasculaRef.current?.()}
           scrollRef={scrollRef}
           onScroll={scrollList}
           imprimiendo={imprimiendo}
@@ -419,6 +423,9 @@ export function CanalCalientePage() {
         onEtiquetaAnimales={(nueva) => animalesImprimirRef.current?.(nueva)}
         onPesado={setUltimoPesadoId}
         onAlerta={mostrarAlerta}
+        registrarLeer={(fn) => {
+          leerBasculaRef.current = fn;
+        }}
       />
 
       {alerta && (
@@ -859,6 +866,7 @@ function AnimalesTab({
   onElegirAnimal,
   predeterminado,
   onPredeterminado,
+  onCavaElegida,
   scrollRef,
   onScroll,
   imprimiendo,
@@ -875,6 +883,8 @@ function AnimalesTab({
   onElegirAnimal: (eventoId: string) => void;
   predeterminado: ClasificacionPredeterminada;
   onPredeterminado: (cambio: Partial<ClasificacionPredeterminada>) => void;
+  /** Al tocar una cava se lee la báscula (como el botón de báscula del pie). */
+  onCavaElegida: () => void;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   onScroll: (dir: 1 | -1) => void;
   imprimiendo: boolean;
@@ -934,6 +944,7 @@ function AnimalesTab({
   const cambiarCava = (v: string) => {
     setCava(v);
     onPredeterminado({ cava: v });
+    onCavaElegida();
   };
   const cambiarDestino = (v: string) => {
     setDestino(v);
@@ -1458,6 +1469,7 @@ function FooterBascula({
   onEtiquetaAnimales,
   onPesado,
   onAlerta,
+  registrarLeer,
 }: {
   tab: Tab;
   setTab: (t: Tab) => void;
@@ -1467,8 +1479,16 @@ function FooterBascula({
   onEtiquetaAnimales: (nueva?: PiezaNueva) => void;
   onPesado: (eventoId: string) => void;
   onAlerta: (texto: string) => void;
+  registrarLeer: (fn: () => void) => void;
 }) {
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
+  // Expone la lectura de báscula (mismas condiciones que su botón) para que
+  // elegir una cava en ANIMALES la dispare.
+  useEffect(() => {
+    registrarLeer(() => {
+      if (!leyendo && objetivo) void leerBascula();
+    });
+  });
   const registrar = useRegistrarCanal();
 
   const valor = Number(peso.replace(',', '.'));

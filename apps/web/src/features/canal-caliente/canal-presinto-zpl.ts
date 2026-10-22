@@ -10,6 +10,7 @@ import {
   printRaw,
   setSavedPrinterName,
 } from '@/lib/device';
+import { formatOB } from '../registrar/orden-beneficio-api';
 
 /**
  * Generador de ZPL para el presinto de Canal Caliente, pensado para una
@@ -41,6 +42,15 @@ const ESCALA = 2.2;
 // la impresión real). El cabezal de la ZD230 imprime hasta ~10cm, así que
 // entra sin problema.
 const ANCHO_MM = 50;
+// Corrimiento a la derecha (a lo largo del rollo) de las columnas de datos;
+// los recuadros PESO/TURNO y el título se ubican a partir de ellas, así que
+// también se corren. Hay ~4cm libres al final de la tira.
+const DESPLAZAR_COLUMNAS_MM = 15;
+// Acerca SOLO las columnas de texto al recuadro de PESO: los recuadros
+// PESO/TURNO y el título se quedan donde están (se les resta este valor).
+const ACERCAR_COLUMNAS_MM = 7;
+// Separación entre el final del código de barras y la columna de información.
+const SEPARACION_BARRAS_MM = 6;
 
 /** Posición a través del cabezal (eje físico X, 0..ANCHO_MM). */
 function px(anchoMM: number) {
@@ -82,6 +92,10 @@ function truncar(texto: string, max: number) {
 interface OpcionesBloque {
   titulo?: string;
   sinRecuadros?: boolean;
+  /** Corre la información (y el código de barras pegado a ella) a la derecha, sin mover QR ni título. */
+  desplazarInfoMM?: number;
+  /** El código de barras va junto al QR (al inicio) en vez de pegado a la información. */
+  barrasJuntoAlQr?: boolean;
 }
 
 function bloqueZPL(
@@ -89,7 +103,7 @@ function bloqueZPL(
   anchoOffsetMM: number,
   anchoBloqueMM: number,
   opciones: OpcionesBloque = {},
-): string {
+): { qr: string; cuerpo: string } {
   const cmds: string[] = [];
   // Estira las posiciones "a lo largo del rollo" (antes x del diseño de
   // pantalla) para dar espacio a la letra más grande.
@@ -149,16 +163,31 @@ function bloqueZPL(
   // Subido 2.5mm: el número que se imprime debajo de las barras quedaba pegado al borde de abajo.
   const subirBarcodeMM = 2.5;
   const barcodeAnchoOffset = anchoOffsetMM + (anchoBloqueMM - barcodeHmm) / 2 + subirBarcodeMM;
-  const barcodeLargo = 23 * sx; // corrido a la derecha (antes 12) a pedido del usuario
+  // Posición BASE (la original del código de barras): de ella dependen el QR
+  // y las columnas de texto, que no se mueven. El código de barras real se
+  // dibuja más adelante, pegado a la columna de información.
+  const barcodeLargoBase = 23 * sx;
   // Largo real del código (Code128, subset B): 11 módulos por carácter +
   // 11 (start) + 11 (checksum) + 13 (stop), a 3 dots de módulo. Se necesita
   // para saber DÓNDE termina y no tapar el texto de al lado.
   const barcodeModulos = 11 * (codigo.length + 2) + 13;
   const barcodeLargoAncho = (barcodeModulos * 3) / DPMM;
-  cmds.push(
-    `^FO${px(barcodeAnchoOffset)},${py(barcodeLargo)}^BY3,3,${barcodeH}` +
-      `^BCR,${barcodeH},Y,N,N^FD${codigo}^FS`,
-  );
+  // Código QR con el MISMO contenido del código de barras (hay lectores que
+  // solo leen QR). Va en el espacio libre del inicio de la tira, antes del
+  // código de barras, centrado en el ancho de la copia. ^BQ no se puede
+  // rotar, pero un QR se lee en cualquier orientación. Modelo 2, corrección
+  // M y entrada automática (`MA,`); con códigos cortos como estos queda en
+  // versión 1 (21x21 módulos): a 6 dots por módulo son ~16mm de lado.
+  // OJO: se devuelve aparte y generarZPL lo envía ANTES de cualquier
+  // ^BY/^BC de la etiqueta: si va después de un código de barras, la Zebra
+  // lo corre ~100 dots (la altura de ^BY) y queda encima de las barras.
+  const qrMag = 6;
+  const qrLadoMM = (21 * qrMag) / DPMM;
+  const qrLargo = barcodeLargoBase - qrLadoMM - 6;
+  // A la misma altura del código de barras: su borde superior coincide con
+  // el de las barras (el número del código va por debajo).
+  const qrAnchoOffset = barcodeAnchoOffset + barcodeHmm - qrLadoMM;
+  const qr = `^FO${px(qrAnchoOffset)},${py(qrLargo)}^BQN,2,${qrMag}^FDMA,${codigo}^FS`;
 
   // Columna 1 (Cliente / Expendio / Guia / Lote / Fecha de Sacrificio,
   // orden ORIGINAL, pedido de vuelta por el usuario): pegada al código de
@@ -166,13 +195,30 @@ function bloqueZPL(
   // desde donde empieza, para no montarse encima). El valor va a una
   // columna fija (basada en la etiqueta más larga, "Fecha de Sacrificio:")
   // para que las 5 filas queden alineadas parejo.
-  const largoLabel1 = barcodeLargo + barcodeLargoAncho + 8;
+  const desplazarInfo = opciones.desplazarInfoMM ?? 0;
+  const largoLabel1 =
+    barcodeLargoBase +
+    barcodeLargoAncho +
+    8 +
+    DESPLAZAR_COLUMNAS_MM +
+    ACERCAR_COLUMNAS_MM +
+    desplazarInfo;
+  // Código de barras al lado de la información del presinto: termina
+  // SEPARACION_BARRAS_MM antes de la columna 1 (el QR se queda al inicio).
+  // En vísceras va junto al QR: posición base (6mm tras el QR) + un poco más de aire.
+  const barcodeLargo = opciones.barrasJuntoAlQr
+    ? barcodeLargoBase + 18
+    : largoLabel1 - barcodeLargoAncho - SEPARACION_BARRAS_MM;
+  cmds.push(
+    `^FO${px(barcodeAnchoOffset)},${py(barcodeLargo)}^BY3,3,${barcodeH}` +
+      `^BCR,${barcodeH},Y,N,N^FD${codigo}^FS`,
+  );
   const largoValor1 = largoLabel1 + anchoEtiqueta('Fecha de Sacrificio') - 22;
   const lineH = 4.0;
   let anchoFila = 3;
   campo(largoLabel1, largoValor1, anchoFila, 'Fecha de Sacrificio', d.fechaSacrificio);
   anchoFila += lineH;
-  campo(largoLabel1, largoValor1, anchoFila, 'Lote', String(d.lote));
+  campo(largoLabel1, largoValor1, anchoFila, 'Lote', formatOB(d.lote));
   anchoFila += lineH;
   campo(largoLabel1, largoValor1, anchoFila, 'Guia', d.guia);
   anchoFila += lineH;
@@ -205,7 +251,9 @@ function bloqueZPL(
   // Se reduce este margen (antes +41) para compensar que el código de
   // barras/columnas se corrieron a la derecha, y así seguir entrando
   // dentro de los 260mm reales.
-  const boxLargo = largoValor2 + 23; // pegado al valor de Tipo/Ref/Gancho
+  // Pegado al valor de Tipo/Ref/Gancho; sin el acercamiento de las columnas,
+  // para que los recuadros (y el título) no se muevan.
+  const boxLargo = largoValor2 + 23 - ACERCAR_COLUMNAS_MM - desplazarInfo;
   const boxAncho = 18; // alto físico del recuadro, fijo 18mm a pedido del usuario
   const boxLargoAncho = 18; // ancho físico del recuadro, fijo 18mm (cuadrado 18x18)
   const boxGrosor = px(1.1); // borde más grueso (antes 0.6mm)
@@ -285,7 +333,7 @@ function bloqueZPL(
     texto(tituloLargo, anchoBloqueMM / 2 - 5, tituloH, titulo, tituloW);
   }
 
-  return cmds.join('\n');
+  return { qr, cuerpo: cmds.join('\n') };
 }
 
 /**
@@ -303,16 +351,30 @@ export function generarZPL(d: PresintoTicketData, tipo: TipoPresinto = 'canal'):
   // ^LH…). La Zebra imprime con la configuración que se le pone a mano en
   // planta; mandarla desde aquí la desconfiguraba y la dejaba en error.
   // ^CI28 solo indica la codificación (UTF-8) de los textos de este formato.
+  // Canal: 2 copias iguales. Vísceras: arriba ROJAS y abajo BLANCAS, sin recuadros.
+  const copias =
+    tipo === 'visceras'
+      ? [
+          bloqueZPL(d, 0, mitadAncho, {
+            titulo: 'VISCERAS ROJAS',
+            sinRecuadros: true,
+            desplazarInfoMM: 10,
+            barrasJuntoAlQr: true,
+          }),
+          bloqueZPL(d, mitadAncho, mitadAncho, {
+            titulo: 'VISCERAS BLANCAS',
+            sinRecuadros: true,
+            desplazarInfoMM: 10,
+            barrasJuntoAlQr: true,
+          }),
+        ]
+      : [bloqueZPL(d, 0, mitadAncho), bloqueZPL(d, mitadAncho, mitadAncho)];
   const partes = [
     '^XA',
     '^CI28',
-    // Canal: 2 copias iguales. Vísceras: arriba ROJAS y abajo BLANCAS, sin recuadros.
-    ...(tipo === 'visceras'
-      ? [
-          bloqueZPL(d, 0, mitadAncho, { titulo: 'VISCERAS ROJAS', sinRecuadros: true }),
-          bloqueZPL(d, mitadAncho, mitadAncho, { titulo: 'VISCERAS BLANCAS', sinRecuadros: true }),
-        ]
-      : [bloqueZPL(d, 0, mitadAncho), bloqueZPL(d, mitadAncho, mitadAncho)]),
+    // Los QR de ambas copias van primero (ver nota en bloqueZPL).
+    ...copias.map((c) => c.qr),
+    ...copias.map((c) => c.cuerpo),
     '^XZ',
   ];
   return partes.join('\n');
