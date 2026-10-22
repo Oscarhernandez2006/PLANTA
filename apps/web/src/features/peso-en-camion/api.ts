@@ -159,6 +159,8 @@ export function formatReferencia(n: number) {
 export interface PesoCamionGuia {
   id: string;
   reference: number;
+  /** Referencia del ganado/finca digitada por el usuario (la que se muestra). */
+  referenciaLote: string | null;
   date: string;
   guia: string | null;
   procedencia: string | null;
@@ -180,6 +182,7 @@ export interface PesoCamionGuia {
 export interface SavePesoCamionInput {
   date?: string;
   guia?: string;
+  referenciaLote?: string;
   procedencia?: string;
   proveedor?: string;
   cliente?: string;

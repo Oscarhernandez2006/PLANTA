@@ -20,6 +20,11 @@ export class SavePesoCamionDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(60)
+  referenciaLote?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(160)
   procedencia?: string;
 

@@ -254,6 +254,9 @@ model PesoCamion {
   id             String           @id @default(uuid()) @db.Uuid
   plantId        String           @map("plant_id") @db.Uuid
   reference      Int
+  // Referencia del ganado/finca (lote) que digita el usuario para guiar el proceso.
+  // El consecutivo BC (reference) sigue existiendo por debajo, sin mostrarse.
+  referenciaLote String?          @map("referencia_lote")
   date           DateTime         @db.Date
   guia           String?
   procedencia    String?

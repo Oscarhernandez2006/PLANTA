@@ -34,7 +34,6 @@ import { ClienteModal } from './ClienteModal';
 import { ConductorModal } from './ConductorModal';
 import {
   usePesoCamionAbiertas,
-  usePesoCamionNextReference,
   useCreatePesoCamion,
   useUpdatePesoCamion,
   useClosePesoCamion,
@@ -71,6 +70,13 @@ function fmt(n: number) {
   return Number.isInteger(n) ? String(n) : n.toFixed(2);
 }
 
+// Nombre visible de una guía: su número de orden (consecutivo) y la referencia del ganado/finca.
+function nombreGuia(g: PesoCamionGuia) {
+  return g.referenciaLote
+    ? `${formatReferencia(g.reference)} (ref. ${g.referenciaLote})`
+    : formatReferencia(g.reference);
+}
+
 export function PesoEnCamionPage() {
   const keyboard = useKeyboard();
   const { user } = useAuth();
@@ -78,6 +84,7 @@ export function PesoEnCamionPage() {
 
   const [fecha, setFecha] = useState(today());
   const [guia, setGuia] = useState('');
+  const [referenciaLote, setReferenciaLote] = useState('');
   const [procedencia, setProcedencia] = useState('');
   const [procModalOpen, setProcModalOpen] = useState(false);
   const [proveedor, setProveedor] = useState('');
@@ -101,25 +108,14 @@ export function PesoEnCamionPage() {
 
   // Guía cargada en el formulario para editar (null = guía nueva).
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [loadedReference, setLoadedReference] = useState<number | null>(null);
   // Guía resaltada en la lista (para editar / imprimir / bloquear).
   const [selectedGuia, setSelectedGuia] = useState<PesoCamionGuia | null>(null);
 
   const abiertas = usePesoCamionAbiertas();
-  const nextRef = usePesoCamionNextReference(fecha, !editingId);
   const createGuia = useCreatePesoCamion();
   const updateGuia = useUpdatePesoCamion();
   const closeGuia = useClosePesoCamion();
   const deleteGuia = useDeletePesoCamion();
-
-  // Referencia (consecutivo global de producción): la de la guía cargada o la próxima.
-  const referencia = editingId
-    ? loadedReference != null
-      ? formatReferencia(loadedReference)
-      : '—'
-    : nextRef.data?.next != null
-      ? formatReferencia(nextRef.data.next)
-      : '—';
 
   // Totales derivados.
   const neto = num(entrada) - num(salida);
@@ -144,6 +140,7 @@ export function PesoEnCamionPage() {
   }, [
     fecha,
     guia,
+    referenciaLote,
     procedencia,
     proveedor,
     cliente,
@@ -161,6 +158,7 @@ export function PesoEnCamionPage() {
     return {
       date: fecha || undefined,
       guia: guia.trim() || undefined,
+      referenciaLote: referenciaLote.trim() || undefined,
       procedencia: procedencia.trim() || undefined,
       proveedor: proveedor.trim() || undefined,
       cliente: cliente.trim() || undefined,
@@ -179,9 +177,9 @@ export function PesoEnCamionPage() {
   function resetForm() {
     setEditingId(null);
     setSelectedGuia(null);
-    setLoadedReference(null);
     setFecha(today());
     setGuia('');
+    setReferenciaLote('');
     setProcedencia('');
     setProveedor('');
     setCliente('');
@@ -245,6 +243,7 @@ export function PesoEnCamionPage() {
     // Todos los campos son obligatorios salvo Observaciones/Detalles.
     const faltantes: string[] = [];
     if (!guia.trim()) faltantes.push('Guía de movilización');
+    if (!referenciaLote.trim()) faltantes.push('Referencia');
     if (!procedencia.trim()) faltantes.push('Procedencia');
     if (!proveedor.trim()) faltantes.push('Proveedor');
     if (!cliente.trim()) faltantes.push('Cliente');
@@ -259,20 +258,18 @@ export function PesoEnCamionPage() {
     }
 
     try {
-      let ref: number;
+      let guardada: PesoCamionGuia;
       if (editingId) {
-        const updated = await updateGuia.mutateAsync({
+        guardada = await updateGuia.mutateAsync({
           id: editingId,
           input: buildInput(),
         });
-        ref = updated.reference;
       } else {
-        const created = await createGuia.mutateAsync(buildInput());
-        ref = created.reference;
+        guardada = await createGuia.mutateAsync(buildInput());
       }
       // Limpia enseguida para poder capturar la siguiente guía.
       resetForm();
-      showNotice(`Guía ${formatReferencia(ref)} guardada. Listo para la siguiente.`);
+      showNotice(`Guía ${nombreGuia(guardada)} guardada. Listo para la siguiente.`);
     } catch (err) {
       const detail = (
         err as { response?: { data?: { message?: string | string[] } } }
@@ -286,9 +283,9 @@ export function PesoEnCamionPage() {
   function loadGuia(g: PesoCamionGuia) {
     setEditingId(g.id);
     setSelectedGuia(g);
-    setLoadedReference(g.reference);
     setFecha(g.date);
     setGuia(g.guia ?? '');
+    setReferenciaLote(g.referenciaLote ?? '');
     setProcedencia(g.procedencia ?? '');
     setProveedor(g.proveedor ?? '');
     setCliente(g.cliente ?? '');
@@ -335,16 +332,15 @@ export function PesoEnCamionPage() {
   // El candado cierra la guía: sale de “Guías abiertas”.
   async function cerrar() {
     if (!selectedGuia) return;
-    const ref = selectedGuia.reference;
     const id = selectedGuia.id;
-    const nombre = selectedGuia.guia ?? formatReferencia(ref);
+    const nombre = nombreGuia(selectedGuia);
     if (!window.confirm(`¿Estás seguro que quieres cerrar la guía ${nombre} en Peso en Camión?`)) return;
     setSaveError(null);
     try {
       await closeGuia.mutateAsync(id);
       if (editingId === id) resetForm();
       setSelectedGuia(null);
-      showNotice(`Guía ${formatReferencia(ref)} cerrada.`);
+      showNotice(`Guía ${nombre} cerrada.`);
     } catch (err) {
       const detail = (
         err as { response?: { data?: { message?: string | string[] } } }
@@ -358,12 +354,11 @@ export function PesoEnCamionPage() {
   // La papelera borra una guía abierta digitada por error.
   async function borrar() {
     if (!selectedGuia) return;
-    const ref = selectedGuia.reference;
     const id = selectedGuia.id;
-    const nombre = selectedGuia.guia ?? formatReferencia(ref);
+    const nombre = selectedGuia.guia ?? formatReferencia(selectedGuia.reference);
     if (
       !window.confirm(
-        `¿Seguro que querés borrar la guía ${nombre} (${formatReferencia(ref)})? Esta acción no se puede deshacer.`,
+        `¿Seguro que querés borrar la guía ${nombre} (${nombreGuia(selectedGuia)})? Esta acción no se puede deshacer.`,
       )
     )
       return;
@@ -391,7 +386,12 @@ export function PesoEnCamionPage() {
       procedencia,
       ciudad: '',
       cliente,
-      referencia,
+      referencia: [
+        selectedGuia ? formatReferencia(selectedGuia.reference) : '',
+        referenciaLote.trim(),
+      ]
+        .filter(Boolean)
+        .join(' · '),
       placa,
       conductor,
       entrada: kg(num(entrada)),
@@ -416,7 +416,9 @@ export function PesoEnCamionPage() {
       procedencia: g.procedencia ?? '',
       ciudad: '',
       cliente: g.cliente ?? '',
-      referencia: formatReferencia(g.reference),
+      referencia: [formatReferencia(g.reference), g.referenciaLote ?? '']
+        .filter(Boolean)
+        .join(' · '),
       placa: g.placa ?? '',
       conductor: g.conductor ?? '',
       entrada: kg(g.entrada ?? 0),
@@ -559,13 +561,13 @@ export function PesoEnCamionPage() {
       )}
       {editingId && (
         <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
-          Editando la guía de referencia {loadedReference != null ? formatReferencia(loadedReference) : '—'}. Guardá para
+          Editando la guía {selectedGuia ? nombreGuia(selectedGuia) : '—'}. Guardá para
           aplicar los cambios.
         </div>
       )}
       {!editingId && selectedGuia && (
         <div className="shrink-0 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
-          Guía {formatReferencia(selectedGuia.reference)} seleccionada. Usá el lápiz para
+          Guía {nombreGuia(selectedGuia)} seleccionada. Usá el lápiz para
           editarla, el botón imprimir, o la papelera para borrarla.
         </div>
       )}
@@ -678,8 +680,16 @@ export function PesoEnCamionPage() {
 
       {/* Totales */}
       <div className="grid shrink-0 auto-rows-fr grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        {/* Referencia: orden de llegada del día (automático) */}
-        <StatValue icon={Hash} label="Referencia" value={referencia} />
+        {/* Referencia del ganado/finca (lote): campo adicional que digita el usuario */}
+        <StatInput
+          icon={Hash}
+          label="Referencia"
+          value={referenciaLote}
+          onChange={(v) => setReferenciaLote(v.toUpperCase())}
+          onKeyboard={keyboard.open}
+          placeholder="—"
+          inputMode="text"
+        />
         <StatInput
           icon={Package}
           label="Cant."
@@ -725,7 +735,7 @@ export function PesoEnCamionPage() {
             <THead>
               <TR>
                 <TH className="w-28 whitespace-nowrap">N.º Registro</TH>
-                <TH className="w-24">Ref.</TH>
+                <TH className="w-32 whitespace-nowrap">Ref.</TH>
                 <TH>Placa</TH>
                 <TH>Guía</TH>
                 <TH>Procedencia</TH>
@@ -747,7 +757,7 @@ export function PesoEnCamionPage() {
                   </TD>
                 </TR>
               ) : (
-                guiasAbiertas.map((g, i) => (
+                guiasAbiertas.map((g) => (
                   <TR
                     key={g.id}
                     onClick={() => toggleSelect(g)}
@@ -757,8 +767,8 @@ export function PesoEnCamionPage() {
                         'bg-sky-100 hover:bg-sky-100',
                     )}
                   >
-                    <TD className="tabular-nums">{i + 1}</TD>
-                    <TD className="font-medium tabular-nums">{formatReferencia(g.reference)}</TD>
+                    <TD className="whitespace-nowrap font-medium tabular-nums">{formatReferencia(g.reference)}</TD>
+                    <TD className="whitespace-nowrap font-medium">{g.referenciaLote ?? '—'}</TD>
                     <TD>{g.placa ?? '—'}</TD>
                     <TD>{g.guia ?? '—'}</TD>
                     <TD>{g.procedencia ?? '—'}</TD>

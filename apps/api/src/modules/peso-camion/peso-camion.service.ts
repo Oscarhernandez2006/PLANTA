@@ -18,6 +18,7 @@ export class PesoCamionService {
     return {
       id: r.id,
       reference: r.reference,
+      referenciaLote: r.referenciaLote,
       date: r.date.toISOString().slice(0, 10),
       guia: r.guia,
       procedencia: r.procedencia,
@@ -65,6 +66,7 @@ export class PesoCamionService {
   private fields(dto: SavePesoCamionDto) {
     return {
       guia: dto.guia ?? null,
+      referenciaLote: dto.referenciaLote?.trim() || null,
       procedencia: dto.procedencia ?? null,
       proveedor: dto.proveedor ?? null,
       cliente: dto.cliente ?? null,
@@ -104,6 +106,9 @@ export class PesoCamionService {
   }
 
   async create(ctx: AuthContext, dto: SavePesoCamionDto) {
+    if (!dto.referenciaLote?.trim()) {
+      throw new BadRequestException('La referencia del ganado/finca es obligatoria.');
+    }
     await this.assertGuiaDisponible(ctx, dto.guia);
     const { date } = dateOnly(dto.date);
     return this.prisma.$transaction(async (tx) => {

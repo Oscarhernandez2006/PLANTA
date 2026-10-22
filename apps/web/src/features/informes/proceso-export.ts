@@ -6,8 +6,8 @@ import {
   CANAL_TIPO_LABEL,
   PIEZA_LABEL,
 } from '../canal-caliente/api';
-import { formatReferencia } from '../peso-en-camion/api';
 import { formatOB } from '../registrar/orden-beneficio-api';
+import { formatReferencia } from '../peso-en-camion/api';
 import type { DetalleProceso, ProcesoAnimal } from './api';
 
 const INK: [number, number, number] = [31, 41, 55];
@@ -60,6 +60,7 @@ export function bloquesResumen(d: DetalleProceso): { titulo: string; datos: Par[
       ? [
           ['Guía de movilización', g.guia ?? '—'],
           ['Consecutivo BC', formatReferencia(g.bcReference)],
+          ['Referencia', g.referenciaLote ?? '—'],
           ['Fecha', g.date],
           ['Finca (procedencia)', g.procedencia ?? '—'],
           ['Proveedor', g.proveedor ?? '—'],

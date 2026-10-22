@@ -183,6 +183,7 @@ export interface GuiaCerrada {
   /** Id de la guía en Peso en Camión. */
   id: string;
   bcReference: number;
+  referenciaLote: string | null;
   bpReference: number | null;
   date: string;
   guia: string | null;

@@ -748,6 +748,7 @@ export class InformesService {
         ? {
             guia: camion.guia,
             bcReference: camion.reference,
+            referenciaLote: camion.referenciaLote,
             date: camion.date.toISOString().slice(0, 10),
             procedencia: camion.procedencia,
             proveedor: camion.proveedor,

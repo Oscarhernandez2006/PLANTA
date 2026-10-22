@@ -343,7 +343,7 @@ export function PesoEnPiePage() {
     setCorral('');
     setTipoAnimal('');
     setTab('registro');
-    setNotice(`Guía ${guiaCamion.guia ?? guiaCamion.reference} cargada para asignar animales.`);
+    setNotice(`Guía ${guiaCamion.guia ?? formatReferencia(guiaCamion.reference)} cargada para asignar animales.`);
     window.setTimeout(() => setNotice(null), 3000);
   }
 
@@ -1425,7 +1425,7 @@ function GuiasCerradasList({
                   {g.bpReference != null ? formatBP(g.bpReference) : '—'}
                 </div>
                 <div className="text-xs text-muted-foreground tabular-nums">
-                  {g.date} · {formatReferencia(g.bcReference)}
+                  {g.date} · {formatReferencia(g.bcReference)}{g.referenciaLote ? ` · Ref. ${g.referenciaLote}` : ''}
                 </div>
               </TD>
               <TD className="max-w-64">
@@ -1801,15 +1801,17 @@ function GuiasCamionList({
           </TR>
         </THead>
         <TBody>
-          {guias.map((guia, i) => (
+          {guias.map((guia) => (
             <TR
               key={guia.id}
               className="cursor-pointer"
               onClick={() => onSelect(guia)}
             >
-              <TD className="tabular-nums">{i + 1}</TD>
-              <TD className="whitespace-nowrap tabular-nums">
+              <TD className="whitespace-nowrap font-medium tabular-nums">
                 {formatReferencia(guia.reference)}
+              </TD>
+              <TD className="whitespace-nowrap">
+                {guia.referenciaLote ?? '—'}
               </TD>
               <TD className="whitespace-nowrap">
                 {guia.guia ?? '—'}

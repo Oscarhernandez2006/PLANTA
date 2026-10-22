@@ -479,6 +479,7 @@ export class PesoEnPieService {
     return {
       id: c.id,
       bcReference: c.reference,
+      referenciaLote: c.referenciaLote,
       bpReference: animales[0]?.bpReference ?? null,
       date: c.date.toISOString().slice(0, 10),
       guia: c.guia,

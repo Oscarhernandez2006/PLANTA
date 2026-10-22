@@ -61,6 +61,7 @@ export function StatInput({
   onKeyboard,
   tone,
   placeholder = '0',
+  inputMode = 'decimal',
   action,
 }: {
   icon: IconType;
@@ -70,12 +71,13 @@ export function StatInput({
   onKeyboard?: () => void;
   tone?: string;
   placeholder?: string;
+  inputMode?: React.HTMLAttributes<HTMLInputElement>['inputMode'];
   action?: React.ReactNode;
 }) {
   return (
     <StatCard icon={icon} label={label} action={action}>
       <input
-        inputMode="decimal"
+        inputMode={inputMode}
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}

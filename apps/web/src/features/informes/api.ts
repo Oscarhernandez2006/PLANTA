@@ -246,6 +246,7 @@ export interface DetalleProceso {
   guia: {
     guia: string | null;
     bcReference: number;
+    referenciaLote: string | null;
     date: string;
     procedencia: string | null;
     proveedor: string | null;
