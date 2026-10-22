@@ -13,6 +13,9 @@ function dateOnly(value?: string) {
   return plantDateOnly(value);
 }
 
+/** Días hacia atrás que se pueden consultar con el filtro de fecha. */
+const DIAS_FILTRO = 30;
+
 @Injectable()
 export class PielesService {
   constructor(private readonly prisma: PrismaService) {}
@@ -165,24 +168,44 @@ export class PielesService {
    * en la orden. Los lotes con todas sus pieles pesadas siguen apareciendo
    * el día de hoy (como completados).
    */
+  /**
+   * Sin fecha: lotes con pieles pendientes (de cualquier día) y los completos
+   * de hoy. Con fecha (solo los últimos 30 días): todos los lotes de ese día
+   * que ya tengan animales caídos, pendientes o completos.
+   */
   async lotes(ctx: AuthContext, dateStr?: string) {
-    const date = dateStr ? dateOnly(dateStr) : undefined;
     const hoy = dateOnly();
+    let date: Date | undefined;
+    if (dateStr) {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+        throw new BadRequestException('Fecha inválida (AAAA-MM-DD).');
+      }
+      date = dateOnly(dateStr);
+      const desde = new Date(hoy.getTime() - DIAS_FILTRO * 86_400_000);
+      if (Number.isNaN(date.getTime()) || date > hoy || date < desde) {
+        throw new BadRequestException(
+          `Solo se pueden consultar los últimos ${DIAS_FILTRO} días.`,
+        );
+      }
+    }
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        ...(date ? { date } : {}),
-        OR: [
-          { eventos: { some: { pesoPielKg: null } } },
-          {
-            date: hoy,
-            AND: [
-              { eventos: { some: {} } },
-              { eventos: { every: { pesoPielKg: { not: null } } } },
-            ],
-          },
-        ],
+        ...(date
+          ? { date, eventos: { some: {} } }
+          : {
+              OR: [
+                { eventos: { some: { pesoPielKg: null } } },
+                {
+                  date: hoy,
+                  AND: [
+                    { eventos: { some: {} } },
+                    { eventos: { every: { pesoPielKg: { not: null } } } },
+                  ],
+                },
+              ],
+            }),
       },
       orderBy: [{ date: 'desc' }, { reference: 'asc' }],
       include: { eventos: { select: { pesoPielKg: true } } },

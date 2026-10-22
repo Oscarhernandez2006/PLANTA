@@ -77,6 +77,8 @@ export interface CanalLote {
   date: string;
   consecutivoBase: number;
   animalCount: number;
+  /** Animales con todas sus piezas pesadas. */
+  animalesPesados: number;
   piezasEsperadas: number;
   piezasPesadas: number;
 }

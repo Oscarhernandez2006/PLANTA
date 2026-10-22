@@ -17,7 +17,6 @@ export const COLUMNAS_SACRIFICIO = [
   'FINCA',
   'LOTE',
   'TIPO',
-  'ANIMAL',
   'PEP(kg)',
   'TURNO',
   'PEC(kg)',
@@ -39,7 +38,6 @@ export function filasSacrificio(d: DetalleSacrificio) {
     finca: d.finca ?? '—',
     lote: formatOB(d.reference),
     tipo: a.tipo ?? '—',
-    animal: `A${pad(a.sequence)}`,
     pep: a.pepKg,
     turno: pad(a.turno, 3),
     pec: a.pecKg,
@@ -137,10 +135,10 @@ export async function descargarSacrificioPdf(d: DetalleSacrificio, operario: str
     columnStyles: {
       2: { halign: 'left' },
       3: { halign: 'left' },
-      7: { halign: 'right' },
+      6: { halign: 'right' },
+      8: { halign: 'right' },
       9: { halign: 'right' },
       10: { halign: 'right' },
-      11: { halign: 'right' },
     },
     body: filasSacrificio(d).map((f) => [
       f.no,
@@ -149,7 +147,6 @@ export async function descargarSacrificioPdf(d: DetalleSacrificio, operario: str
       f.finca,
       f.lote,
       f.tipo,
-      f.animal,
       num(f.pep),
       f.turno,
       num(f.pec),
@@ -194,9 +191,9 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
   const ws = wb.addWorksheet('Informe de sacrificio', {
     pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1 },
   });
-  [6, 12, 30, 22, 12, 12, 9, 11, 8, 11, 10, 9].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [6, 12, 30, 22, 12, 12, 11, 8, 11, 10, 9].forEach((w, i) => (ws.getColumn(i + 1).width = w));
 
-  const cols = 'ABCDEFGHIJKL';
+  const cols = 'ABCDEFGHIJK';
   const borde = { style: 'thin' as const };
   const gris = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFF3F4F6' } };
 
@@ -231,21 +228,21 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
     const id = wb.addImage({ buffer: logo, extension: 'png' });
     ws.addImage(id, { tl: { col: 0.2, row: 0.3 }, ext: { width: 105, height: 62 } });
   }
-  celda('C1:L1', 'AGROPECUARIA SANTA CRUZ LTDA', { label: true });
-  celda('C2:L2', 'NIT. 830.505.537-2', { label: true });
-  celda('C3:L3', 'KM 3 VÍA ORIENTAL TEL. 3766701', { label: true });
-  celda('C4:L4', 'MALAMBO - ATLÁNTICO', { label: true });
+  celda('C1:K1', 'AGROPECUARIA SANTA CRUZ LTDA', { label: true });
+  celda('C2:K2', 'NIT. 830.505.537-2', { label: true });
+  celda('C3:K3', 'KM 3 VÍA ORIENTAL TEL. 3766701', { label: true });
+  celda('C4:K4', 'MALAMBO - ATLÁNTICO', { label: true });
   ['C1', 'C2', 'C3', 'C4'].forEach((k) => (ws.getCell(k).fill = { type: 'pattern', pattern: 'none' }));
-  celda('A5:L5', `INFORME DE SACRIFICIO OS No. ${formatOB(d.reference)}`, { size: 13 });
+  celda('A5:K5', `INFORME DE SACRIFICIO OS No. ${formatOB(d.reference)}`, { size: 13 });
 
   celda('A6:B6', 'FECHA DE SACRIFICIO', { label: true });
   celda('C6:D6', 'CLIENTE', { label: true });
   celda('E6:H6', 'GUÍA', { label: true });
-  celda('I6:L6', 'FINCA', { label: true });
+  celda('I6:K6', 'FINCA', { label: true });
   celda('A7:B7', d.date);
   celda('C7:D7', clienteTexto(d));
   celda('E7:H7', d.guias.join(', ') || '—');
-  celda('I7:L7', d.finca ?? '—');
+  celda('I7:K7', d.finca ?? '—');
 
   // Detalle por animal.
   COLUMNAS_SACRIFICIO.forEach((t, i) => celda(`${cols[i]}9`, t, { label: true }));
@@ -258,7 +255,6 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
       [f.finca, 'left'],
       [f.lote, 'center'],
       [f.tipo, 'center'],
-      [f.animal, 'center'],
       [f.pep, 'right', '#,##0.0'],
       [f.turno, 'center'],
       [f.pec, 'right', '#,##0.0'],
@@ -276,12 +272,12 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
   celda(`D${row}:E${row}`, 'PEP(kg)', { label: true });
   celda(`F${row}:G${row}`, 'PEC(kg)', { label: true });
   celda(`H${row}:I${row}`, 'PIEL(kg)', { label: true });
-  celda(`J${row}:L${row}`, 'RND(%)', { label: true });
+  celda(`J${row}:K${row}`, 'RND(%)', { label: true });
   celda(`A${row + 1}:C${row + 1}`, t.animales);
   celda(`D${row + 1}:E${row + 1}`, t.pepKg, { fmt: '#,##0.0' });
   celda(`F${row + 1}:G${row + 1}`, t.pecKg, { fmt: '#,##0.0' });
   celda(`H${row + 1}:I${row + 1}`, t.pielKg, { fmt: '#,##0.0' });
-  celda(`J${row + 1}:L${row + 1}`, t.rendimiento, { fmt: '0.0' });
+  celda(`J${row + 1}:K${row + 1}`, t.rendimiento, { fmt: '0.0' });
 
   row += 3;
   ws.getCell(`A${row}`).value = LEYENDA_SACRIFICIO;

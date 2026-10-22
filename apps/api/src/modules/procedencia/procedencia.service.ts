@@ -22,6 +22,7 @@ export class ProcedenciaService {
           ? {
               OR: [
                 { concepto: { contains: search, mode: 'insensitive' } },
+                { rspp: { contains: search, mode: 'insensitive' } },
                 { nit: { contains: search, mode: 'insensitive' } },
               ],
             }
@@ -33,7 +34,7 @@ export class ProcedenciaService {
     });
   }
 
-  /** Alta de procedencia (se guarda con su NIT). Idempotente por concepto: si ya existe, actualiza NIT/RSPP enviados. */
+  /** Alta de procedencia (se identifica por su RSPP). Idempotente por concepto: si ya existe, actualiza RSPP/NIT enviados. */
   async create(dto: CreateProcedenciaDto) {
     const concepto = dto.concepto.trim().toUpperCase();
     const rspp = dto.rspp?.trim().toUpperCase() || null;

@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import {
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -15,8 +16,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Numpad } from '@/components/ui/numpad';
+import { FechaFiltro } from '@/components/ui/fecha-filtro';
 import { SacrificioIcon } from '@/components/icons/SacrificioIcon';
-import { cn, plantToday as today } from '@/lib/utils';
+import { cn, formatFechaDia } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
 import {
   useSacrificioPendientes,
@@ -43,15 +45,18 @@ function hora(iso: string) {
   });
 }
 
-// Identificador local del animal dentro de su guía de Peso en Pie (A01, A02…).
-function codigoAnimal(indiceBase0: number) {
-  return `A${String(indiceBase0 + 1).padStart(2, '0')}`;
+// Turno del animal en el día: consecutivo que sigue entre órdenes (no se
+// reinicia por orden) y vuelve a 1 con el día de planta (5:00 a. m.).
+function turnoAnimal(consecutivoBase: number | undefined, sequence: number) {
+  return String((consecutivoBase ?? 0) + sequence);
 }
 
 export function SacrificioPage() {
   const [tab, setTab] = useState<Tab>('ordenes');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const pendientes = useSacrificioPendientes();
+  // Filtro de fecha: null = todas las órdenes activas (comportamiento normal).
+  const [fechaFiltro, setFechaFiltro] = useState<string | null>(null);
+  const pendientes = useSacrificioPendientes(fechaFiltro);
   const detail = useSacrificioDetail(selectedId);
   const stun = useStunNext();
   // Tarjeta que se está sacrificando (para mostrar su indicador de carga).
@@ -59,6 +64,11 @@ export function SacrificioPage() {
   // Devolver el último animal caído: pide el PIN de quien lo tumbó.
   const [undoOpen, setUndoOpen] = useState(false);
   const undo = useUndoLast();
+  // Animal marcado en el Registro (para devolverlo); sin selección, el ↶
+  // devuelve el último caído.
+  const [animalSelSeq, setAnimalSelSeq] = useState<number | null>(null);
+  // Tarjeta pendiente seleccionada (en verde): la que tumba el botón del pie.
+  const [cardSelSeq, setCardSelSeq] = useState<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Aviso temporal de éxito/error al sacrificar o deshacer.
@@ -73,6 +83,14 @@ export function SacrificioPage() {
 
   const lista = pendientes.data ?? [];
   const d = detail.data;
+  // Tarjeta seleccionada, solo si ese animal sigue pendiente.
+  const cardSel =
+    d && cardSelSeq != null && !d.eventos.some((e) => e.sequence === cardSelSeq)
+      ? cardSelSeq
+      : null;
+  // Animal a devolver con ↶: el marcado en el Registro, o el último caído.
+  const eventoSel = d?.eventos.find((e) => e.sequence === animalSelSeq) ?? null;
+  const eventoDevolver = eventoSel ?? (d ? ultimoCaido(d) : null);
   const ordenSel = d ?? lista.find((o) => o.id === selectedId);
   const cliente = ordenSel
     ? `${ordenSel.clienteNit ? `${ordenSel.clienteNit} - ` : ''}${ordenSel.cliente}`
@@ -81,25 +99,35 @@ export function SacrificioPage() {
 
   function seleccionarOrden(id: string) {
     setSelectedId(id);
+    setAnimalSelSeq(null);
+    setCardSelSeq(null);
     setTab('animales');
+  }
+
+  function cambiarFecha(valor: string | null) {
+    setFechaFiltro(valor);
+    setSelectedId(null);
+    setAnimalSelSeq(null);
+    setCardSelSeq(null);
+    setTab('ordenes');
   }
 
   function scrollList(dir: 1 | -1) {
     scrollRef.current?.scrollBy({ top: dir * 220, behavior: 'smooth' });
   }
 
-  // Sacrifica el animal de la tarjeta tocada (cualquier orden); sin número,
-  // el primero pendiente (botón del pie).
-  function stunNext(sequence?: number) {
+  // Sacrifica el animal de la tarjeta seleccionada (el operario escoge el orden).
+  function stunNext(sequence: number) {
     if (!selectedId) return;
-    setStunSeq(sequence ?? null);
+    setStunSeq(sequence);
     stun.mutate({ id: selectedId, sequence }, {
       onSuccess: (data) => {
         const ultimo = [...data.eventos].sort(
           (a, b) => new Date(b.stunnedAt).getTime() - new Date(a.stunnedAt).getTime(),
         )[0];
         const caido = data.eventos.find((e) => e.sequence === sequence) ?? ultimo;
-        flashNotice('success', `Animal ${caido ? codigoAnimal(caido.sequence - 1) : ''} sacrificado con éxito.`);
+        setCardSelSeq(null);
+        flashNotice('success', `Animal ${caido ? turnoAnimal(data.consecutivoBase, caido.sequence) : ''} sacrificado con éxito.`);
         if (data.cabezasPatas) {
           if (caido) {
             downloadCabezaPatasTicket({
@@ -134,9 +162,7 @@ export function SacrificioPage() {
           <SacrificioIcon className="size-10 text-foreground" />
         </div>
         <FieldBox label="Fecha:">
-          <div className="flex h-9 items-center text-lg font-semibold">
-            {today()}
-          </div>
+          <FechaFiltro value={fechaFiltro} onChange={cambiarFecha} />
         </FieldBox>
         <FieldBox label="Cliente:" className="flex-1">
           <div className="flex h-9 items-center truncate text-xl font-bold uppercase">
@@ -174,6 +200,7 @@ export function SacrificioPage() {
             ordenes={lista}
             selectedId={selectedId}
             onSelect={seleccionarOrden}
+            fechaFiltro={fechaFiltro}
           />
         )}
         {tab === 'animales' && (
@@ -183,7 +210,10 @@ export function SacrificioPage() {
             notice={notice}
             stunPending={stun.isPending}
             stunSeq={stunSeq}
-            onStun={stunNext}
+            cardSelSeq={cardSel}
+            onSelectCard={(seq) => setCardSelSeq((actual) => (actual === seq ? null : seq))}
+            selectedSeq={animalSelSeq}
+            onSelectSeq={(seq) => setAnimalSelSeq((actual) => (actual === seq ? null : seq))}
           />
         )}
       </div>
@@ -208,19 +238,21 @@ export function SacrificioPage() {
 
       <DevolverTurnoDialog
         open={undoOpen}
-        evento={d ? ultimoCaido(d) : null}
+        evento={eventoDevolver}
+        turno={eventoDevolver ? turnoAnimal(d?.consecutivoBase, eventoDevolver.sequence) : null}
         pending={undo.isPending}
         onClose={() => setUndoOpen(false)}
         onConfirm={(pin) =>
           new Promise<string | null>((resolve) => {
-            if (!selectedId) return resolve(null);
+            if (!selectedId || !eventoDevolver) return resolve(null);
+            const ev = eventoDevolver;
             undo.mutate(
-              { id: selectedId, pin },
+              { id: selectedId, pin, sequence: ev.sequence },
               {
                 onSuccess: () => {
-                  const ev = d ? ultimoCaido(d) : null;
                   setUndoOpen(false);
-                  flashNotice('success', `Animal ${ev ? codigoAnimal(ev.sequence - 1) : ''} devuelto.`);
+                  setAnimalSelSeq(null);
+                  flashNotice('success', `Animal ${turnoAnimal(d?.consecutivoBase, ev.sequence)} devuelto.`);
                   resolve(null);
                 },
                 onError: (error) => {
@@ -240,8 +272,10 @@ export function SacrificioPage() {
         stunPending={stun.isPending}
         undoPending={undo.isPending}
         refrescando={refrescando}
-        onStun={() => stunNext()}
+        onStun={() => cardSel != null && stunNext(cardSel)}
+        cardSeleccionada={cardSel}
         onUndo={() => selectedId && setUndoOpen(true)}
+        animalSeleccionado={eventoSel ? turnoAnimal(d?.consecutivoBase, eventoSel.sequence) : null}
         onRefresh={() => {
           pendientes.refetch();
           if (selectedId) detail.refetch();
@@ -265,9 +299,12 @@ function DevolverTurnoDialog({
   pending,
   onClose,
   onConfirm,
+  turno,
 }: {
   open: boolean;
   evento: SacrificioDetail['eventos'][number] | null;
+  /** Turno del día del animal a devolver. */
+  turno: string | null;
   pending: boolean;
   onClose: () => void;
   /** Devuelve el mensaje de error, o null si se devolvió el animal. */
@@ -296,7 +333,7 @@ function DevolverTurnoDialog({
     <Dialog
       open={open}
       onClose={() => !pending && cerrar()}
-      title={evento ? `Devolver animal ${codigoAnimal(evento.sequence - 1)}` : 'Devolver animal'}
+      title={evento && turno ? `Devolver animal ${turno}` : 'Devolver animal'}
       className="max-w-2xl"
     >
       {evento && (
@@ -369,11 +406,13 @@ function OrdenesTab({
   ordenes,
   selectedId,
   onSelect,
+  fechaFiltro,
 }: {
   loading: boolean;
   ordenes: SacrificioOrder[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  fechaFiltro: string | null;
 }) {
   if (loading) {
     return (
@@ -386,7 +425,9 @@ function OrdenesTab({
     return (
       <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
         <Inbox className="size-6" />
-        No hay órdenes activas. Crea una en Orden de Beneficio.
+        {fechaFiltro
+          ? `No hay órdenes del ${fechaFiltro}.`
+          : 'No hay órdenes activas. Crea una en Orden de Beneficio.'}
       </div>
     );
   }
@@ -408,11 +449,17 @@ function OrdenesTab({
                     : 'border-border bg-card hover:bg-muted/50',
               )}
             >
-              <span>
-                <span className="font-bold tabular-nums">{formatOB(o.reference)}</span>{' '}
-                <span className="text-muted-foreground">|</span>{' '}
-                {o.clienteNit ? `${o.clienteNit} - ` : ''}
-                {o.cliente}
+              <span className="min-w-0">
+                <span className="block">
+                  <span className="font-bold tabular-nums">{formatOB(o.reference)}</span>{' '}
+                  <span className="text-muted-foreground">|</span>{' '}
+                  {o.clienteNit ? `${o.clienteNit} - ` : ''}
+                  {o.cliente}
+                </span>
+                <span className="mt-0.5 flex items-center gap-1 text-sm font-normal text-muted-foreground">
+                  <CalendarDays className="size-4" />
+                  Sacrificio: {formatFechaDia(o.date)}
+                </span>
               </span>
               <span className="flex shrink-0 items-center gap-2 tabular-nums text-sm text-muted-foreground">
                 {o.insensibilizados}/{o.animalCount}
@@ -437,14 +484,20 @@ function AnimalesTab({
   notice,
   stunPending,
   stunSeq,
-  onStun,
+  cardSelSeq,
+  onSelectCard,
+  selectedSeq,
+  onSelectSeq,
 }: {
   detail: ReturnType<typeof useSacrificioDetail>['data'];
   loading: boolean;
   notice: { type: 'success' | 'error'; text: string } | null;
   stunPending: boolean;
   stunSeq: number | null;
-  onStun: (sequence: number) => void;
+  cardSelSeq: number | null;
+  onSelectCard: (sequence: number) => void;
+  selectedSeq: number | null;
+  onSelectSeq: (sequence: number) => void;
 }) {
   if (loading) {
     return (
@@ -505,27 +558,31 @@ function AnimalesTab({
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
         {Array.from({ length: total }).map((_, i) => {
           const sequence = i + 1;
-          // Los ya sacrificados desaparecen; solo quedan pendientes, y
-          // cualquiera de ellos se puede tumbar.
+          // Los ya sacrificados desaparecen; solo quedan pendientes. Un toque
+          // selecciona la tarjeta (verde) y el botón del pie la sacrifica.
           if (sacrificados.has(sequence)) return null;
           const enCurso = stunPending && stunSeq === sequence;
+          const seleccionada = cardSelSeq === sequence;
           return (
             <button
               key={i}
               disabled={stunPending}
-              onDoubleClick={() => onStun(sequence)}
-              title={`Doble clic para sacrificar ${codigoAnimal(i)}`}
+              onClick={() => onSelectCard(sequence)}
+              aria-pressed={seleccionada}
+              title={`Tocá para seleccionar el animal ${turnoAnimal(detail.consecutivoBase, sequence)}; luego usá el botón de sacrificar`}
               className={cn(
                 'relative flex aspect-square items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
-                'border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 hover:ring-2 hover:ring-emerald-300',
+                seleccionada
+                  ? 'border-emerald-600 bg-emerald-500 text-white ring-2 ring-emerald-300'
+                  : 'border-border bg-card text-foreground hover:bg-muted',
                 !stunPending && 'cursor-pointer',
                 stunPending && !enCurso && 'opacity-60',
               )}
             >
               {enCurso ? (
-                <LoaderCircle className="size-6 animate-spin text-emerald-700" />
+                <LoaderCircle className={cn('size-6 animate-spin', seleccionada ? 'text-white' : 'text-emerald-700')} />
               ) : (
-                codigoAnimal(i)
+                turnoAnimal(detail.consecutivoBase, sequence)
               )}
             </button>
           );
@@ -539,32 +596,35 @@ function AnimalesTab({
             <Clock className="size-4" /> Aún no hay animales marcados.
           </div>
         ) : (
-          <div className="max-h-72 overflow-auto rounded-md border border-border">
-            <Table>
-              <THead className="sticky top-0 z-10 bg-muted">
-                <TR className="border-b-2 border-border">
-                  <TH className="w-20 border-r border-border text-center">#</TH>
-                  <TH className="w-24 border-r border-border text-center">Animal</TH>
-                  <TH className="w-48 border-r border-border">Hora</TH>
-                  <TH>Operario</TH>
+          <Table>
+            <THead>
+              <TR>
+                <TH className="w-24 whitespace-nowrap">Turno</TH>
+                <TH className="w-40 whitespace-nowrap">Hora</TH>
+                <TH className="whitespace-nowrap">Operario</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {registro.map((e) => (
+                <TR
+                  key={e.sequence}
+                  onClick={() => onSelectSeq(e.sequence)}
+                  aria-selected={e.sequence === selectedSeq}
+                  title="Tocá para marcarlo; con ↶ se devuelve este animal"
+                  className={cn(
+                    'cursor-pointer',
+                    e.sequence === selectedSeq && 'bg-sky-100 hover:bg-sky-100',
+                  )}
+                >
+                  <TD className="py-2 font-semibold tabular-nums">
+                    {turnoAnimal(detail.consecutivoBase, e.sequence)}
+                  </TD>
+                  <TD className="py-2 tabular-nums">{hora(e.stunnedAt)}</TD>
+                  <TD className="py-2">{e.operatorName}</TD>
                 </TR>
-              </THead>
-              <TBody>
-                {registro.map((e) => (
-                  <TR key={e.sequence} className="border-b border-border even:bg-muted/30">
-                    <TD className="border-r border-border text-center font-semibold tabular-nums">
-                      {(detail.consecutivoBase ?? 0) + e.sequence}
-                    </TD>
-                    <TD className="border-r border-border text-center font-semibold tabular-nums">
-                      {codigoAnimal(e.sequence - 1)}
-                    </TD>
-                    <TD className="border-r border-border tabular-nums">{hora(e.stunnedAt)}</TD>
-                    <TD>{e.operatorName}</TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </div>
+              ))}
+            </TBody>
+          </Table>
         )}
       </div>
     </div>
@@ -579,6 +639,8 @@ function FooterSacrificio({
   onStun,
   onUndo,
   onRefresh,
+  animalSeleccionado,
+  cardSeleccionada,
 }: {
   detail: SacrificioDetail | undefined;
   stunPending: boolean;
@@ -587,19 +649,23 @@ function FooterSacrificio({
   onStun: () => void;
   onUndo: () => void;
   onRefresh: () => void;
+  /** Turno del animal marcado en el Registro, o null si no hay. */
+  animalSeleccionado: string | null;
+  /** Tarjeta pendiente seleccionada (la que tumba el botón), o null. */
+  cardSeleccionada: number | null;
 }) {
   const done = detail?.insensibilizados ?? 0;
   const total = detail?.animalCount ?? 0;
   const completo = !!detail && done >= total;
   const osNo = detail ? formatOB(detail.reference) : '—';
-  const tomados = new Set(detail?.eventos.map((e) => e.sequence) ?? []);
-  let primeroPendiente = 1;
-  while (tomados.has(primeroPendiente)) primeroPendiente++;
   const ultimo = detail ? ultimoCaido(detail) : null;
+  // Sin tarjeta seleccionada no se sabe qué animal tumbar: el botón queda inactivo.
   const animalNo = detail
     ? completo
-      ? ultimo ? codigoAnimal(ultimo.sequence - 1) : '—'
-      : codigoAnimal(primeroPendiente - 1)
+      ? ultimo ? turnoAnimal(detail.consecutivoBase, ultimo.sequence) : '—'
+      : cardSeleccionada != null
+        ? turnoAnimal(detail.consecutivoBase, cardSeleccionada)
+        : '—'
     : '—';
 
   return (
@@ -618,7 +684,11 @@ function FooterSacrificio({
       <button
         onClick={onUndo}
         disabled={!detail || done === 0 || undoPending || stunPending}
-        title="Devolver el último animal caído (pide el PIN de quien lo tumbó)"
+        title={
+          animalSeleccionado
+            ? `Devolver el animal ${animalSeleccionado} (pide el PIN de quien lo tumbó)`
+            : 'Devolver el último animal caído, o marcá uno en el Registro (pide el PIN de quien lo tumbó)'
+        }
         className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
       >
         {undoPending ? (
@@ -629,8 +699,14 @@ function FooterSacrificio({
       </button>
       <button
         onClick={onStun}
-        disabled={!detail || completo || stunPending || undoPending}
-        title="Marcar el primer animal pendiente como sacrificado"
+        disabled={!detail || completo || cardSeleccionada == null || stunPending || undoPending}
+        title={
+          completo
+            ? 'Todos los animales de la orden ya están sacrificados'
+            : cardSeleccionada != null
+              ? `Sacrificar el animal ${turnoAnimal(detail?.consecutivoBase, cardSeleccionada)}`
+              : 'Tocá primero la tarjeta del animal que vas a sacrificar'
+        }
         className="flex size-14 items-center justify-center rounded-sm border-2 border-emerald-500 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50"
       >
         {stunPending ? (

@@ -133,7 +133,6 @@ export function filasAnimales(d: DetalleProceso) {
     const pz = a.canal.piezas;
     return {
       no: pad(a.sequence),
-      animal: `A${pad(a.sequence)}`,
       turno: pad(a.turno, 3),
       pesoCamion,
       corral: a.pie?.corral ? `Corral ${a.pie.corral}` : '—',
@@ -168,8 +167,7 @@ export interface ColumnaAnimal {
 /** Columnas de "Proceso por animal", en el orden del proceso. */
 export const COLUMNAS_ANIMALES: ColumnaAnimal[] = [
   { titulo: 'No.', key: 'no' },
-  { titulo: 'ANIMAL', key: 'animal', resaltar: true },
-  { titulo: 'TURNO', key: 'turno' },
+  { titulo: 'TURNO', key: 'turno', resaltar: true },
   { titulo: 'PESO CAMIÓN(kg)', key: 'pesoCamion', tipo: 'kg' },
   { titulo: 'CORRAL', key: 'corral' },
   { titulo: 'SEXO', key: 'sexo' },
@@ -461,7 +459,7 @@ export async function descargarProcesoExcel(d: DetalleProceso, operario: string)
     pageSetup: { paperSize: 9, orientation: 'landscape', fitToPage: true, fitToWidth: 1 },
   });
   const anchos: Partial<Record<keyof FilaAnimal, number>> = {
-    no: 6, animal: 8, turno: 7, corral: 10, sexo: 10, sacrificio: 11, tipo: 10, canal: 16,
+    no: 6, turno: 7, corral: 10, sexo: 10, sacrificio: 11, tipo: 10, canal: 16,
     piezas: 24, cava: 12, destino: 16, observacion: 24, despacho: 18,
   };
   COLUMNAS_ANIMALES.forEach((c, i) => (an.getColumn(i + 1).width = anchos[c.key] ?? 12));

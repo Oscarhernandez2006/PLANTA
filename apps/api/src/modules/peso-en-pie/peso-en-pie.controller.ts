@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -121,5 +122,13 @@ export class PesoEnPieController {
     @Body() dto: SavePesoEnPieDto,
   ) {
     return this.service.update(user, id, dto);
+  }
+
+  @Delete(':id')
+  remove(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.remove(user, id);
   }
 }

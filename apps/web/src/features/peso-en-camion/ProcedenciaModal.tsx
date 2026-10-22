@@ -20,7 +20,6 @@ export function ProcedenciaModal({
   onConfirm: (procedencia: string) => void;
 }) {
   const keyboard = useKeyboard();
-  const [nit, setNit] = useState('');
   const [rspp, setRspp] = useState('');
   const [procedencia, setProcedencia] = useState(value);
   const [detalles, setDetalles] = useState('');
@@ -34,7 +33,6 @@ export function ProcedenciaModal({
   useEffect(() => {
     if (open) {
       setProcedencia(value);
-      setNit('');
       setRspp('');
       setDetalles('');
       setError(null);
@@ -42,7 +40,6 @@ export function ProcedenciaModal({
   }, [open, value]);
 
   function limpiar() {
-    setNit('');
     setRspp('');
     setProcedencia('');
     setDetalles('');
@@ -51,8 +48,8 @@ export function ProcedenciaModal({
 
   async function confirmar() {
     const concepto = procedencia.trim();
-    if (!nit.trim()) {
-      setError('Escribí el NIT de la procedencia.');
+    if (!rspp.trim()) {
+      setError('Escribí el RSPP de la procedencia.');
       return;
     }
     if (!concepto) {
@@ -63,8 +60,7 @@ export function ProcedenciaModal({
     try {
       const saved = await create.mutateAsync({
         concepto,
-        nit: nit.trim(),
-        rspp: rspp.trim() || undefined,
+        rspp: rspp.trim(),
       });
       onConfirm(saved.concepto);
     } catch {
@@ -83,20 +79,7 @@ export function ProcedenciaModal({
       className="max-w-3xl"
     >
       <div className="space-y-4">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[180px_180px_1fr]">
-          <div className="space-y-1.5">
-            <Label htmlFor="nit-proc">NIT</Label>
-            <KeyboardField>
-              <Input
-                id="nit-proc"
-                className="h-9 pr-11 tabular-nums"
-                placeholder="NIT"
-                value={nit}
-                onChange={(e) => setNit(e.target.value.replace(/[^0-9.-]/g, ''))}
-                onDoubleClick={keyboard.open}
-              />
-            </KeyboardField>
-          </div>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-[220px_1fr]">
           <div className="space-y-1.5">
             <Label htmlFor="rspp">RSPP</Label>
             <KeyboardField>
@@ -148,7 +131,7 @@ export function ProcedenciaModal({
             <Table>
               <THead className="sticky top-0 bg-muted/40">
                 <TR>
-                  <TH className="w-40">NIT</TH>
+                  <TH className="w-48">RSPP</TH>
                   <TH>Concepto</TH>
                 </TR>
               </THead>
@@ -168,12 +151,11 @@ export function ProcedenciaModal({
                       key={r.id}
                       onClick={() => {
                         setProcedencia(r.concepto);
-                        setNit(r.nit ?? '');
                         setRspp(r.rspp ?? '');
                       }}
                       className="cursor-pointer"
                     >
-                      <TD className="font-medium tabular-nums">{r.nit ?? '—'}</TD>
+                      <TD className="font-medium tabular-nums">{r.rspp ?? '—'}</TD>
                       <TD>{r.concepto}</TD>
                     </TR>
                   ))

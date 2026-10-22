@@ -32,8 +32,22 @@ function isTodayView(dateStr?: string) {
   return !dateStr || dateStr === plantToday();
 }
 
-/** Minutos que una orden cumplida sigue visible en la bandeja de hoy. */
-const MINUTOS_VISIBLE_CUMPLIDA = 5;
+/** Días hacia atrás que se pueden consultar con el filtro de fecha. */
+const DIAS_FILTRO = 30;
+
+/** Valida que la fecha consultada esté entre hoy y 30 días atrás. */
+function assertFechaFiltro(dateStr?: string) {
+  if (!dateStr) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new BadRequestException('Fecha inválida (AAAA-MM-DD).');
+  }
+  const hoy = dateOnly();
+  const dia = dateOnly(dateStr);
+  const desde = new Date(hoy.getTime() - DIAS_FILTRO * 86_400_000);
+  if (Number.isNaN(dia.getTime()) || dia > hoy || dia < desde) {
+    throw new BadRequestException(`Solo se pueden consultar los últimos ${DIAS_FILTRO} días.`);
+  }
+}
 
 /** Piezas esperadas por animal según el tipo de canal de la orden. */
 function piezasEsperadas(tipo: CanalTipo | null): CanalPiezaTipo[] {
@@ -88,6 +102,7 @@ export class CanalCalienteService {
 
   /** Órdenes con al menos un animal insensibilizado, listas para pesar en canal. */
   async lotes(ctx: AuthContext, dateStr?: string) {
+    assertFechaFiltro(dateStr);
     const todayView = isTodayView(dateStr);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
@@ -107,44 +122,35 @@ export class CanalCalienteService {
     );
     const bases = await this.consecutivoBases(ctx.plantId, fechas);
     const nits = await this.nitsPorCliente(ordenes.map((o) => o.cliente));
-    const limite = Date.now() - MINUTOS_VISIBLE_CUMPLIDA * 60_000;
-    const filas = ordenes.map((o) => {
+    // Las órdenes cumplidas siguen visibles en la bandeja (antes se ocultaban
+    // 5 minutos después de pesar su última canal); falta definir cómo cerrarlas.
+    return ordenes.map((o) => {
       let esperadas = 0;
       let pesadas = 0;
-      let ultimaPesada = 0;
+      // Animales con tipo de canal y todas sus piezas pesadas.
+      let animalesPesados = 0;
       for (const e of o.eventos) {
-        esperadas += piezasEsperadas(e.canalTipo).length || 1;
+        const req = piezasEsperadas(e.canalTipo);
+        esperadas += req.length || 1;
         pesadas += e.canalPiezas.length;
-        for (const p of e.canalPiezas) ultimaPesada = Math.max(ultimaPesada, p.weighedAt.getTime());
+        if (req.length && req.every((pz) => e.canalPiezas.some((p) => p.pieza === pz))) {
+          animalesPesados++;
+        }
       }
-      // Cumplida: todos los animales sacrificados, con tipo de canal y todas sus piezas pesadas.
-      const cumplida =
-        o.status === OrdenBeneficioStatus.procesado &&
-        o.eventos.length >= o.animalCount &&
-        o.eventos.every((e) => {
-          const req = piezasEsperadas(e.canalTipo);
-          return req.length > 0 && req.every((pz) => e.canalPiezas.some((p) => p.pieza === pz));
-        });
       return {
-        // En la bandeja de hoy, la orden cumplida se oculta 5 minutos después
-        // de pesar su última canal (los datos siguen en la base de datos y se
-        // ven al consultar su fecha).
-        ocultar: todayView && cumplida && ultimaPesada < limite,
-        fila: {
-          ordenBeneficioId: o.id,
-          reference: o.reference,
-          cliente: o.cliente,
-          clienteNit: nits.get(o.cliente) ?? null,
-          guias: o.guias,
-          date: o.date.toISOString().slice(0, 10),
-          consecutivoBase: bases.get(o.id) ?? 0,
-          animalCount: o.animalCount,
-          piezasEsperadas: esperadas,
-          piezasPesadas: pesadas,
-        },
+        ordenBeneficioId: o.id,
+        reference: o.reference,
+        cliente: o.cliente,
+        clienteNit: nits.get(o.cliente) ?? null,
+        guias: o.guias,
+        date: o.date.toISOString().slice(0, 10),
+        consecutivoBase: bases.get(o.id) ?? 0,
+        animalCount: o.animalCount,
+        animalesPesados,
+        piezasEsperadas: esperadas,
+        piezasPesadas: pesadas,
       };
     });
-    return filas.filter((f) => !f.ocultar).map((f) => f.fila);
   }
 
   /** Detalle de una orden con sus animales y el estado de sus piezas. */
@@ -394,17 +400,18 @@ export class CanalCalienteService {
     const incompleto = otros.find(
       (o) => o._count.canalPiezas < piezasEsperadas(o.canalTipo).length,
     );
-    if (incompleto) {
-      throw new BadRequestException(
-        `Primero termina la otra mitad del animal A${String(incompleto.sequence).padStart(2, '0')}.`,
-      );
-    }
     // El turno ya no lo elige el operario: es el consecutivo del día del
     // animal (mismo orden en que se tumbó), así que se calcula aquí.
     const bases = await this.consecutivoBases(ctx.plantId, [
       evt.ordenBeneficio.date,
     ]);
-    const turno = (bases.get(evt.ordenBeneficioId) ?? 0) + evt.sequence;
+    const base = bases.get(evt.ordenBeneficioId) ?? 0;
+    if (incompleto) {
+      throw new BadRequestException(
+        `Primero termina la otra mitad del animal ${base + incompleto.sequence}.`,
+      );
+    }
+    const turno = base + evt.sequence;
     const creada = await this.prisma.canalPieza.create({
       data: {
         eventoId: evt.id,

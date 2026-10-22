@@ -11,7 +11,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
-import { CreateOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
+import { CreateOrdenBeneficioDto, DividirOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
 import {
   RegistrarRetiroDto,
   SetSubproductoDestinoDto,
@@ -204,14 +204,46 @@ export class OrdenBeneficioService {
 
   /** Crea un lote de beneficio con una parte (o el total) de una guía. */
   async create(ctx: AuthContext, dto: CreateOrdenBeneficioDto) {
+    if (dto.animalCount != null && dto.animalCount < 1) {
+      throw new BadRequestException('La cantidad debe ser mayor a cero.');
+    }
+    const [orden] = await this.crearOrdenes(
+      ctx,
+      dto,
+      dto.animalCount != null ? [dto.animalCount] : null,
+      false,
+    );
+    return orden;
+  }
+
+  /**
+   * Divide los animales disponibles de una guía en varias órdenes
+   * consecutivas (OB n, n+1…). La suma debe ser exactamente el total
+   * disponible; se crean todas o ninguna.
+   */
+  async dividir(ctx: AuthContext, dto: DividirOrdenBeneficioDto) {
+    if (dto.cantidades.some((c) => c < 1)) {
+      throw new BadRequestException('Cada orden debe tener al menos un animal.');
+    }
+    return this.crearOrdenes(ctx, dto, dto.cantidades, true);
+  }
+
+  /**
+   * Crea una o varias órdenes de la misma guía en una sola transacción.
+   * `cantidades` null = una orden con todos los disponibles. Con `exacta`,
+   * la suma de cantidades debe igualar los animales disponibles de la guía.
+   */
+  private async crearOrdenes(
+    ctx: AuthContext,
+    dto: Omit<CreateOrdenBeneficioDto, 'animalCount'>,
+    cantidades: number[] | null,
+    exacta: boolean,
+  ) {
     const { str, date } = dateOnly(dto.date);
     const cliente = dto.cliente.trim();
     const guia = dto.guia.trim();
     if (!cliente) throw new BadRequestException('Cliente requerido.');
     if (!guia) throw new BadRequestException('Guía requerida.');
-    if (dto.animalCount != null && dto.animalCount < 1) {
-      throw new BadRequestException('La cantidad debe ser mayor a cero.');
-    }
 
     return this.prisma.$transaction(async (tx) => {
       // Serializa la creación de lotes por planta y día (referencia y cupos).
@@ -259,8 +291,14 @@ export class OrdenBeneficioService {
         );
       }
       // Si no se indica cantidad, se asignan todos los animales disponibles.
-      const animalCount = dto.animalCount ?? disponibles;
-      if (animalCount > disponibles) {
+      const lista = cantidades ?? [disponibles];
+      const total = lista.reduce((s, c) => s + c, 0);
+      if (exacta && total !== disponibles) {
+        throw new BadRequestException(
+          `Debes repartir exactamente los ${disponibles} animales disponibles de la guía ${guia} (repartiste ${total}).`,
+        );
+      }
+      if (total > disponibles) {
         throw new BadRequestException(
           `Solo quedan ${disponibles} animales disponibles en la guía ${guia}.`,
         );
@@ -270,26 +308,31 @@ export class OrdenBeneficioService {
         _max: { reference: true },
         where: { plantId: ctx.plantId, date, deletedAt: null },
       });
-      const reference = (agg._max.reference ?? 0) + 1;
+      const primera = (agg._max.reference ?? 0) + 1;
 
-      const rec = await tx.ordenBeneficio.create({
-        data: {
-          plantId: ctx.plantId,
-          reference,
-          date,
-          cliente,
-          guias: [guia],
-          animalCount,
-          observaciones: dto.observaciones?.trim() || null,
-          status: dto.status ?? OrdenBeneficioStatus.activo,
-          subproductoDestino: dto.subproductoDestino ?? SubproductoDestino.empresa,
-          cabezasPatas: dto.cabezasPatas ?? false,
-          createdById: ctx.userId,
-          pcReference: camion.reference,
-          bpReference: pieRef?.bpReference ?? null,
-        },
-      });
-      return this.toDto(rec);
+      const creadas: OrdenBeneficio[] = [];
+      for (const [i, animalCount] of lista.entries()) {
+        creadas.push(
+          await tx.ordenBeneficio.create({
+            data: {
+              plantId: ctx.plantId,
+              reference: primera + i,
+              date,
+              cliente,
+              guias: [guia],
+              animalCount,
+              observaciones: dto.observaciones?.trim() || null,
+              status: dto.status ?? OrdenBeneficioStatus.activo,
+              subproductoDestino: dto.subproductoDestino ?? SubproductoDestino.empresa,
+              cabezasPatas: dto.cabezasPatas ?? false,
+              createdById: ctx.userId,
+              pcReference: camion.reference,
+              bpReference: pieRef?.bpReference ?? null,
+            },
+          }),
+        );
+      }
+      return creadas.map((r) => this.toDto(r));
     });
   }
 

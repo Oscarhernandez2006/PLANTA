@@ -10,6 +10,9 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { plantToday } from '../../common/plant-date';
 import { itemsParaAnimal } from '../subproductos/subproducto-items';
 
+/** Días hacia atrás que se pueden consultar con el filtro de fecha. */
+const DIAS_FILTRO = 30;
+
 @Injectable()
 export class SacrificioService {
   constructor(private readonly prisma: PrismaService) {}
@@ -49,17 +52,38 @@ export class SacrificioService {
     return new Map(rows.map((r) => [r.concepto, r.nit]));
   }
 
-  /** Órdenes activas y las ya completadas del día (quedan visibles como completadas). */
-  async pendientes(ctx: AuthContext) {
-    const hoy = new Date(`${plantToday()}T00:00:00.000Z`);
+  /**
+   * Sin fecha: órdenes activas (de cualquier día) y las completadas de hoy.
+   * Con fecha (solo los últimos 30 días): activas y completadas de ese día.
+   */
+  async pendientes(ctx: AuthContext, dateStr?: string) {
+    const hoyStr = plantToday();
+    const hoy = new Date(`${hoyStr}T00:00:00.000Z`);
+    let dia: Date | null = null;
+    if (dateStr) {
+      dia = new Date(`${dateStr}T00:00:00.000Z`);
+      const desde = new Date(hoy.getTime() - DIAS_FILTRO * 86_400_000);
+      if (Number.isNaN(dia.getTime()) || dia > hoy || dia < desde) {
+        throw new BadRequestException(
+          `Solo se pueden consultar los últimos ${DIAS_FILTRO} días.`,
+        );
+      }
+    }
     const rows = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        OR: [
-          { status: OrdenBeneficioStatus.activo },
-          { status: OrdenBeneficioStatus.procesado, date: hoy },
-        ],
+        ...(dia
+          ? {
+              date: dia,
+              status: { in: [OrdenBeneficioStatus.activo, OrdenBeneficioStatus.procesado] },
+            }
+          : {
+              OR: [
+                { status: OrdenBeneficioStatus.activo },
+                { status: OrdenBeneficioStatus.procesado, date: hoy },
+              ],
+            }),
       },
       orderBy: [{ date: 'asc' }, { reference: 'asc' }],
       include: { _count: { select: { eventos: true } } },
@@ -128,11 +152,11 @@ export class SacrificioService {
 
   /**
    * Marca un animal de la orden como sacrificado. Se puede tumbar en cualquier
-   * orden: `sequence` es el número de la tarjeta tocada (A05 = 5) y queda como
-   * identidad del animal en Pieles, Subproductos, Canal Caliente, etc. Sin
-   * `sequence` se toma el primer animal pendiente.
+   * orden: `sequence` es el número del animal dentro de la orden (1, 2…) y queda como
+   * identidad del animal en Pieles, Subproductos, Canal Caliente, etc. El
+   * operario escoge siempre el animal (`sequence`).
    */
-  async stunNext(ctx: AuthContext, ordenBeneficioId: string, sequenceElegida?: number) {
+  async stunNext(ctx: AuthContext, ordenBeneficioId: string, sequenceElegida: number) {
     await this.prisma.$transaction(async (tx) => {
       const ob = await tx.ordenBeneficio.findFirst({
         where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
@@ -175,23 +199,18 @@ export class SacrificioService {
       }
 
       const tomados = new Set(existentes.map((e) => e.sequence));
-      let sequence: number;
-      if (sequenceElegida != null) {
-        if (sequenceElegida > ob.animalCount) {
-          throw new BadRequestException(
-            `La orden solo tiene ${ob.animalCount} animales.`,
-          );
-        }
-        if (tomados.has(sequenceElegida)) {
-          throw new BadRequestException(
-            `El animal A${String(sequenceElegida).padStart(2, '0')} ya fue sacrificado.`,
-          );
-        }
-        sequence = sequenceElegida;
-      } else {
-        sequence = 1;
-        while (tomados.has(sequence)) sequence++;
+      if (sequenceElegida > ob.animalCount) {
+        throw new BadRequestException(
+          `La orden solo tiene ${ob.animalCount} animales.`,
+        );
       }
+      if (tomados.has(sequenceElegida)) {
+        const base = (await this.consecutivoBases(ctx.plantId, [ob.date])).get(ob.id) ?? 0;
+        throw new BadRequestException(
+          `El animal ${base + sequenceElegida} ya fue sacrificado.`,
+        );
+      }
+      const sequence = sequenceElegida;
       const evento = await tx.ordenBeneficioEvento.create({
         data: { ordenBeneficioId, sequence, operatorId: ctx.userId },
       });
@@ -218,10 +237,12 @@ export class SacrificioService {
   }
 
   /**
-   * Deshace el último animal tumbado (por hora), para corregir un toque
-   * erróneo. Requiere el PIN de inicio de sesión de quien tumbó ese animal.
+   * Devuelve un animal tumbado (el indicado por `sequence`, o el último por
+   * hora) para corregir un toque erróneo: vuelve a quedar pendiente. Requiere
+   * el PIN de inicio de sesión de quien lo tumbó, y que el animal aún no
+   * tenga datos registrados después (canales, piel o subproductos).
    */
-  async undoLast(ctx: AuthContext, ordenBeneficioId: string, pin: string) {
+  async undo(ctx: AuthContext, ordenBeneficioId: string, pin: string, sequence?: number) {
     await this.prisma.$transaction(async (tx) => {
       const ob = await tx.ordenBeneficio.findFirst({
         where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
@@ -231,11 +252,40 @@ export class SacrificioService {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ins:${ordenBeneficioId}`}))`;
 
       const last = await tx.ordenBeneficioEvento.findFirst({
-        where: { ordenBeneficioId },
+        where: { ordenBeneficioId, ...(sequence != null ? { sequence } : {}) },
         orderBy: [{ stunnedAt: 'desc' }, { createdAt: 'desc' }],
+        include: {
+          _count: { select: { canalPiezas: true } },
+          subproductos: {
+            where: {
+              OR: [{ marcado: true }, { pesoKg: { not: null } }, { registradoAt: { not: null } }],
+            },
+            select: { id: true },
+            take: 1,
+          },
+        },
       });
+      // Turno del día del animal, para los mensajes.
+      const base = (await this.consecutivoBases(ctx.plantId, [ob.date])).get(ob.id) ?? 0;
       if (!last) {
-        throw new BadRequestException('No hay registros para deshacer.');
+        throw new BadRequestException(
+          sequence != null
+            ? `El animal ${base + sequence} no está sacrificado.`
+            : 'No hay registros para deshacer.',
+        );
+      }
+      const animal = String(base + last.sequence);
+
+      // Devolverlo borraría lo ya registrado de ese animal en otros módulos.
+      const registrado = [
+        last._count.canalPiezas > 0 && 'canales pesadas en Canal Caliente',
+        last.pesoPielKg != null && 'la piel pesada',
+        last.subproductos.length > 0 && 'subproductos registrados',
+      ].filter(Boolean);
+      if (registrado.length) {
+        throw new BadRequestException(
+          `El animal ${animal} ya tiene ${registrado.join(', ')}; no se puede devolver.`,
+        );
       }
 
       // Error 400 (no 401) para que un PIN mal digitado no cierre la sesión.
@@ -248,7 +298,6 @@ export class SacrificioService {
         !!operario.pinHash &&
         (await bcrypt.compare(pin, operario.pinHash));
       if (!pinOk) {
-        const animal = `A${String(last.sequence).padStart(2, '0')}`;
         throw new BadRequestException(
           `PIN incorrecto. Solo ${operario?.fullName ?? 'quien lo tumbó'}, que tumbó el animal ${animal}, puede devolverlo.`,
         );

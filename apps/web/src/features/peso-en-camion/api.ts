@@ -28,7 +28,7 @@ export function useProcedencias(search: string) {
 export function useCreateProcedencia() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { concepto: string; rspp?: string; nit?: string }) =>
+    mutationFn: async (input: { concepto: string; rspp: string; nit?: string }) =>
       (await api.post<Procedencia>('/procedencias', input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['procedencias'] }),
   });
@@ -264,6 +264,16 @@ export function useClosePesoCamion() {
   return useMutation({
     mutationFn: async (id: string) =>
       (await api.patch<PesoCamionGuia>(`/peso-camion/${id}/close`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['peso-camion'] }),
+  });
+}
+
+/** Borra una guía abierta (solo si no tiene animales pesados en Peso en Pie). */
+export function useDeletePesoCamion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.delete<{ id: string; reference: number }>(`/peso-camion/${id}`)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['peso-camion'] }),
   });
 }

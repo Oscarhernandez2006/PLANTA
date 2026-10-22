@@ -6,11 +6,12 @@ export class CreateProcedenciaDto {
   @MaxLength(120)
   concepto!: string;
 
-  @IsOptional()
   @IsString()
+  @MinLength(1)
   @MaxLength(60)
-  rspp?: string;
+  rspp!: string;
 
+  /** Ya no se pide en la interfaz; se mantiene opcional por compatibilidad. */
   @IsOptional()
   @IsString()
   @MaxLength(30)

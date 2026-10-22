@@ -13,7 +13,10 @@ import {
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { CreateOrdenBeneficioDto } from './dto/create-orden-beneficio.dto';
+import {
+  CreateOrdenBeneficioDto,
+  DividirOrdenBeneficioDto,
+} from './dto/create-orden-beneficio.dto';
 import {
   RegistrarRetiroDto,
   SetSubproductoDestinoDto,
@@ -51,6 +54,14 @@ export class OrdenBeneficioController {
     @Body() dto: CreateOrdenBeneficioDto,
   ) {
     return this.service.create(user, dto);
+  }
+
+  @Post('dividir')
+  dividir(
+    @CurrentUser() user: AuthContext,
+    @Body() dto: DividirOrdenBeneficioDto,
+  ) {
+    return this.service.dividir(user, dto);
   }
 
   @Get(':id')

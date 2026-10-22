@@ -101,6 +101,24 @@ export function useCreateOrdenBeneficio() {
   });
 }
 
+/** Divide la guía en varias órdenes consecutivas (todas o ninguna). */
+export function useDividirOrdenBeneficio() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: {
+      cliente: string;
+      guia: string;
+      cantidades: number[];
+      date?: string;
+      status?: OrdenBeneficioStatus;
+    }) => (await api.post<OrdenBeneficio[]>('/orden-beneficio/dividir', input)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
+      qc.invalidateQueries({ queryKey: ['sacrificio'] });
+    },
+  });
+}
+
 export function useDeleteOrdenBeneficio() {
   const qc = useQueryClient();
   return useMutation({

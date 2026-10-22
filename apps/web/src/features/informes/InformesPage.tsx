@@ -905,7 +905,7 @@ function DetalleSacrificioDialog({
                 <thead className="sticky top-0">
                   <tr>
                     {COLUMNAS_SACRIFICIO.map((c, i) => (
-                      <th key={c} className={cn(cab, i >= 7 && c !== 'TURNO' ? 'text-right' : 'text-left')}>
+                      <th key={c} className={cn(cab, i >= 6 && c !== 'TURNO' ? 'text-right' : 'text-left')}>
                         {c}
                       </th>
                     ))}
@@ -913,16 +913,15 @@ function DetalleSacrificioDialog({
                 </thead>
                 <tbody className="tabular-nums">
                   {filas.map((f) => (
-                    <tr key={f.animal} className="even:bg-muted/30">
+                    <tr key={f.turno} className="even:bg-muted/30">
                       <td className={cel}>{f.no}</td>
                       <td className={cel}>{f.fecha}</td>
                       <td className={cel}>{f.cliente}</td>
                       <td className={cel}>{f.finca}</td>
                       <td className={cel}>{f.lote}</td>
                       <td className={cel}>{f.tipo}</td>
-                      <td className={cn(cel, 'font-semibold')}>{f.animal}</td>
                       <td className={cn(cel, 'text-right')}>{num(f.pep)}</td>
-                      <td className={cel}>{f.turno}</td>
+                      <td className={cn(cel, 'font-semibold')}>{f.turno}</td>
                       <td className={cn(cel, 'text-right')}>{num(f.pec)}</td>
                       <td className={cn(cel, 'text-right')}>{num(f.piel)}</td>
                       <td className={cn(cel, 'text-right font-semibold')}>{num(f.rnd)}</td>
@@ -1211,7 +1210,7 @@ function DetalleProcesoDialog({
                       </tr>
                     ) : (
                       filasAnimales(d).map((f) => (
-                        <tr key={f.animal} className="even:bg-muted/30">
+                        <tr key={f.turno} className="even:bg-muted/30">
                           {COLUMNAS_ANIMALES.map((c) => (
                             <td
                               key={c.key}

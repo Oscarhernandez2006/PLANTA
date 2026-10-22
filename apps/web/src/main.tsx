@@ -3,9 +3,11 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { instalarMayusculas } from './lib/mayusculas';
+import { instalarArregloFocoDialogos } from './lib/device';
 import './index.css';
 
 instalarMayusculas();
+instalarArregloFocoDialogos();
 
 const queryClient = new QueryClient({
   defaultOptions: {

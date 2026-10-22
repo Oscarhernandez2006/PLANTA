@@ -49,10 +49,12 @@ export interface PielLoteDetail extends PielLote {
   animales: PielAnimal[];
 }
 
-export function usePielesLotes() {
+/** Sin fecha: lotes con pieles pendientes. Con fecha: los lotes de ese día (últimos 30 días). */
+export function usePielesLotes(date: string | null = null) {
   return useQuery({
-    queryKey: ['pieles', 'lotes'],
-    queryFn: async () => (await api.get<PielLote[]>('/pieles/lotes')).data,
+    queryKey: ['pieles', 'lotes', date ?? 'activos'],
+    queryFn: async () =>
+      (await api.get<PielLote[]>('/pieles/lotes', { params: date ? { date } : {} })).data,
     // Aparecen los lotes con animales caídos en cuanto se insensibilizan.
     refetchInterval: 4000,
   });

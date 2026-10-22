@@ -290,6 +290,17 @@ function deviceInfo() {
 
 ipcMain.handle('device:get-info', () => deviceInfo());
 
+// Bug conocido de Electron (electron#31917): tras un alert()/confirm() nativo
+// los campos dejan de recibir el teclado hasta que la ventana pierde y
+// recupera el foco. El frontend pide esto después de cada diálogo.
+ipcMain.on('window:refocus', (event) => {
+  const win = BrowserWindow.fromWebContents(event.sender);
+  if (!win || win.isDestroyed()) return;
+  win.blur();
+  win.focus();
+  event.sender.focus();
+});
+
 // Scripts .ps1 que ejecuta PowerShell: en la app instalada van en
 // app.asar.unpacked (asarUnpack), porque PowerShell no puede leer dentro de app.asar.
 function rutaScript(nombre) {

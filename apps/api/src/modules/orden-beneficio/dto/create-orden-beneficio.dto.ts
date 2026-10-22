@@ -1,4 +1,7 @@
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -50,4 +53,17 @@ export class CreateOrdenBeneficioDto {
   @IsOptional()
   @IsBoolean()
   cabezasPatas?: boolean;
+}
+
+/**
+ * Divide una guía en varias órdenes: una cantidad de animales por orden.
+ * `animalCount` no aplica aquí (se ignora).
+ */
+export class DividirOrdenBeneficioDto extends CreateOrdenBeneficioDto {
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(100)
+  @IsInt({ each: true })
+  @Min(1, { each: true })
+  cantidades!: number[];
 }

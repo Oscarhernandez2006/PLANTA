@@ -5,6 +5,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { CurrentUser } from '../../common/auth/current-user.decorator';
@@ -13,6 +14,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SacrificioService } from './sacrificio.service';
 import { StunDto } from './dto/stun.dto';
 import { UndoDto } from './dto/undo.dto';
+import { QuerySacrificioDto } from './dto/query-sacrificio.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('sacrificio')
@@ -20,8 +22,8 @@ export class SacrificioController {
   constructor(private readonly service: SacrificioService) {}
 
   @Get()
-  pendientes(@CurrentUser() user: AuthContext) {
-    return this.service.pendientes(user);
+  pendientes(@CurrentUser() user: AuthContext, @Query() query: QuerySacrificioDto) {
+    return this.service.pendientes(user, query.date);
   }
 
   @Get(':id')
@@ -47,6 +49,6 @@ export class SacrificioController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UndoDto,
   ) {
-    return this.service.undoLast(user, id, dto.pin);
+    return this.service.undo(user, id, dto.pin, dto.sequence);
   }
 }

@@ -7,12 +7,12 @@ export function cn(...inputs: ClassValue[]) {
 
 /**
  * Fecha de hoy (YYYY-MM-DD) según el día de negocio de la planta
- * (America/Bogota): la jornada corre de 4:00 a. m. a 4:00 a. m. del día
+ * (America/Bogota): la jornada corre de 5:00 a. m. a 5:00 a. m. del día
  * siguiente, no de medianoche a medianoche (los turnos/consecutivos se
- * reinician a las 4:00 a. m.).
+ * reinician a las 5:00 a. m.; igual que PLANT_DAY_CUTOFF_HOUR en la API).
  */
 export function plantToday(): string {
-  const shifted = new Date(Date.now() - 4 * 60 * 60 * 1000);
+  const shifted = new Date(Date.now() - 5 * 60 * 60 * 1000);
   return new Intl.DateTimeFormat('en-CA', {
     timeZone: 'America/Bogota',
   }).format(shifted);
@@ -52,4 +52,12 @@ export function formatDateTime(value: string | Date): string {
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(d);
+}
+
+/**
+ * Fecha de negocio (YYYY-MM-DD) como DD/MM/AAAA. No pasa por `Date` para no
+ * correrse un día por la zona horaria.
+ */
+export function formatFechaDia(fecha: string): string {
+  return fecha.slice(0, 10).split('-').reverse().join('/');
 }

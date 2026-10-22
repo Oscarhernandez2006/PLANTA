@@ -25,7 +25,6 @@ function filas(d: DetalleCanalCaliente) {
     no: i + 1,
     lote: formatOB(d.reference),
     fecha: d.date,
-    codigo: `A${String(p.sequence).padStart(2, '0')}`,
     turno: p.turno ?? p.sequence,
     genero: p.canalAnimalTipo ? GENERO[p.canalAnimalTipo] : '—',
     barcode: p.canalTipo
@@ -150,17 +149,16 @@ export async function descargarDespachoPdf(d: DetalleCanalCaliente, operario: st
     head: [
       [
         { content: 'No.', rowSpan: 2 },
-        { content: 'SACRIFICIO', colSpan: 5 },
+        { content: 'SACRIFICIO', colSpan: 4 },
         { content: 'PIEZA', colSpan: 2 },
         { content: 'CALIENTE(kg)', rowSpan: 2 },
       ],
-      ['LOTE', 'FECHA', 'CÓDIGO', 'TURNO', 'GÉNERO', 'BARCODE', 'TIPO'],
+      ['LOTE', 'FECHA', 'TURNO', 'GÉNERO', 'BARCODE', 'TIPO'],
     ],
     body: filas(d).map((f) => [
       f.no,
       f.lote,
       f.fecha,
-      f.codigo,
       f.turno,
       f.genero,
       f.barcode,
@@ -210,7 +208,7 @@ export async function descargarDespachoExcel(d: DetalleCanalCaliente, operario: 
   const ws = wb.addWorksheet('Despacho canales', {
     pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 },
   });
-  [6, 10, 12, 10, 8, 18, 14, 34, 14].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [6, 10, 12, 8, 18, 14, 34, 14].forEach((w, i) => (ws.getColumn(i + 1).width = w));
 
   const borde = { style: 'thin' as const };
   const gris = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFF3F4F6' } };
@@ -224,7 +222,7 @@ export async function descargarDespachoExcel(d: DetalleCanalCaliente, operario: 
     c.alignment = { horizontal: opts.left ? 'left' : 'center', vertical: 'middle', wrapText: true };
     c.font = { bold: !!opts.label || !!opts.size, size: opts.size ?? 10 };
     if (opts.label) c.fill = gris;
-    const cols = 'ABCDEFGHI';
+    const cols = 'ABCDEFGH';
     const r1 = Number(ini.slice(1));
     const r2 = Number((fin ?? ini).slice(1));
     for (let r = r1; r <= r2; r++) {
@@ -242,55 +240,55 @@ export async function descargarDespachoExcel(d: DetalleCanalCaliente, operario: 
     const id = wb.addImage({ buffer: logo, extension: 'png' });
     ws.addImage(id, { tl: { col: 0.2, row: 0.3 }, ext: { width: 105, height: 62 } });
   }
-  celda('C1:I1', 'AGROPECUARIA SANTA CRUZ LTDA', { label: true });
-  celda('C2:I2', 'NIT. 830.505.537-2', { label: true });
-  celda('C3:I3', 'KM 3 VÍA ORIENTAL TEL. 3766701', { label: true });
-  celda('C4:I4', 'MALAMBO - ATLÁNTICO', { label: true });
+  celda('C1:H1', 'AGROPECUARIA SANTA CRUZ LTDA', { label: true });
+  celda('C2:H2', 'NIT. 830.505.537-2', { label: true });
+  celda('C3:H3', 'KM 3 VÍA ORIENTAL TEL. 3766701', { label: true });
+  celda('C4:H4', 'MALAMBO - ATLÁNTICO', { label: true });
   ['C1', 'C2', 'C3', 'C4'].forEach((k) => (ws.getCell(k).fill = { type: 'pattern', pattern: 'none' }));
-  celda('A5:I5', `REPORTE DESPACHO DE CANALES A CLIENTE No. ${formatOB(d.reference)}`, { size: 13 });
+  celda('A5:H5', `REPORTE DESPACHO DE CANALES A CLIENTE No. ${formatOB(d.reference)}`, { size: 13 });
 
   celda('A6:C6', 'FECHA DE TRASLADO', { label: true });
-  celda('D6:I6', 'CLIENTE', { label: true });
+  celda('D6:H6', 'CLIENTE', { label: true });
   celda('A7:C7', hoy());
-  celda('D7:I7', clienteTexto(d));
+  celda('D7:H7', clienteTexto(d));
   celda('A8:C8', 'DESTINO', { label: true });
-  celda('D8:G8', 'DIRECCIÓN', { label: true });
-  celda('H8:I8', 'CIUDAD', { label: true });
+  celda('D8:F8', 'DIRECCIÓN', { label: true });
+  celda('G8:H8', 'CIUDAD', { label: true });
   celda('A9:C9', d.destino ?? '—');
-  celda('D9:G9', d.clienteDireccion ?? '—');
-  celda('H9:I9', d.clienteCiudad ?? '—');
+  celda('D9:F9', d.clienteDireccion ?? '—');
+  celda('G9:H9', d.clienteCiudad ?? '—');
 
   // Detalle de piezas.
   celda('A11:A12', 'No.', { label: true });
-  celda('B11:F11', 'SACRIFICIO', { label: true });
-  celda('G11:H11', 'PIEZA', { label: true });
-  celda('I11:I12', 'CALIENTE(kg)', { label: true });
-  ['LOTE', 'FECHA', 'CÓDIGO', 'TURNO', 'GÉNERO', 'BARCODE', 'TIPO'].forEach((t, i) =>
-    celda(`${'BCDEFGH'[i]}12`, t, { label: true }),
+  celda('B11:E11', 'SACRIFICIO', { label: true });
+  celda('F11:G11', 'PIEZA', { label: true });
+  celda('H11:H12', 'CALIENTE(kg)', { label: true });
+  ['LOTE', 'FECHA', 'TURNO', 'GÉNERO', 'BARCODE', 'TIPO'].forEach((t, i) =>
+    celda(`${'BCDEFG'[i]}12`, t, { label: true }),
   );
   let row = 13;
   for (const f of filas(d)) {
-    [f.no, f.lote, f.fecha, f.codigo, f.turno, f.genero, f.barcode, f.tipo, f.kg].forEach((v, i) =>
-      celda(`${'ABCDEFGHI'[i]}${row}`, v),
+    [f.no, f.lote, f.fecha, f.turno, f.genero, f.barcode, f.tipo, f.kg].forEach((v, i) =>
+      celda(`${'ABCDEFGH'[i]}${row}`, v),
     );
-    ws.getCell(`I${row}`).numFmt = '#,##0.00';
+    ws.getCell(`H${row}`).numFmt = '#,##0.00';
     row++;
   }
 
   // Totales.
   row++;
-  celda(`A${row}:I${row}`, 'TOTALES', { label: true });
+  celda(`A${row}:H${row}`, 'TOTALES', { label: true });
   celda(`A${row + 1}:C${row + 1}`, 'PIEZAS', { label: true });
-  celda(`D${row + 1}:F${row + 1}`, 'CALIENTE(kg)', { label: true });
-  celda(`G${row + 1}:I${row + 1}`, 'PROMEDIO(kg)', { label: true });
+  celda(`D${row + 1}:E${row + 1}`, 'CALIENTE(kg)', { label: true });
+  celda(`F${row + 1}:H${row + 1}`, 'PROMEDIO(kg)', { label: true });
   celda(`A${row + 2}:C${row + 2}`, d.piezas.length);
-  celda(`D${row + 2}:F${row + 2}`, Number(total.toFixed(1))).numFmt = '#,##0.0';
-  celda(`G${row + 2}:I${row + 2}`, Number(promedio.toFixed(1))).numFmt = '#,##0.0';
+  celda(`D${row + 2}:E${row + 2}`, Number(total.toFixed(1))).numFmt = '#,##0.0';
+  celda(`F${row + 2}:H${row + 2}`, Number(promedio.toFixed(1))).numFmt = '#,##0.0';
 
   // Observaciones.
   row += 4;
-  celda(`A${row}:I${row}`, 'OBSERVACIONES', { label: true });
-  celda(`A${row + 1}:I${row + 3}`, observaciones, { left: true });
+  celda(`A${row}:H${row}`, 'OBSERVACIONES', { label: true });
+  celda(`A${row + 1}:H${row + 3}`, observaciones, { left: true });
   ws.getCell(`A${row + 1}`).alignment = { horizontal: 'left', vertical: 'top', wrapText: true };
 
   // Pie.

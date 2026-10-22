@@ -18,6 +18,8 @@ import {
   Eye,
   TrendingDown,
   Divide,
+  Keyboard,
+  Trash2,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -27,6 +29,7 @@ import { Input, Label, Select } from '@/components/ui/input';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { PesoEnPieIcon } from '@/components/icons/PesoEnPieIcon';
+import { NumericKeypad } from '@/components/keyboard/NumericKeypad';
 import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 import { getSavedScaleBaud, getSavedScalePort, readScale } from '@/lib/device';
 import { useAuth } from '@/features/auth/auth-context';
@@ -37,6 +40,7 @@ import {
   useCreatePesoEnPie,
   useRegistrarPromediado,
   useUpdatePesoEnPie,
+  useDeletePesoEnPie,
   useBpPreview,
   formatBP,
   formatAnimal,
@@ -49,6 +53,7 @@ import {
   type AnimalRepesaje,
   type GuiaCerrada,
   type PesoEnPie,
+  type SavePesoEnPieInput,
 } from './api';
 import {
   usePesoCamionPieAbiertas,
@@ -99,6 +104,36 @@ function mensajeError(error: unknown, fallback: string) {
     .response?.data?.message;
   return Array.isArray(detail) ? detail.join(' ') : detail || fallback;
 }
+// El backend reemplaza todos los campos al actualizar: arma el registro
+// completo del animal con solo los cambios indicados.
+function inputDesdeReporte(
+  r: PesoEnPie,
+  cambios: Partial<SavePesoEnPieInput> = {},
+): SavePesoEnPieInput {
+  return {
+    date: r.date,
+    bcReference: r.bcReference ?? undefined,
+    guia: r.guia ?? undefined,
+    procedencia: r.procedencia ?? undefined,
+    proveedor: r.proveedor ?? undefined,
+    cliente: r.cliente ?? undefined,
+    placa: r.placa ?? undefined,
+    conductor: r.conductor ?? undefined,
+    corral: r.corral ?? undefined,
+    tipoAnimal: r.tipoAnimal ?? undefined,
+    lote: r.lote ?? undefined,
+    animalNo: r.animalNo ?? undefined,
+    animalCount: r.animalCount,
+    tipoPesaje: r.tipoPesaje,
+    pesoTotalKg: r.pesoTotalKg ?? undefined,
+    pesoPromedioKg: r.pesoPromedioKg ?? undefined,
+    cantidad: r.cantidad ?? undefined,
+    entrada: r.entrada ?? undefined,
+    salida: r.salida ?? undefined,
+    observaciones: r.observaciones ?? undefined,
+    ...cambios,
+  };
+}
 
 export function PesoEnPiePage() {
   const [fecha, setFecha] = useState(today());
@@ -141,6 +176,10 @@ export function PesoEnPiePage() {
   const crear = useCreatePesoEnPie();
   const promediar = useRegistrarPromediado();
   const actualizar = useUpdatePesoEnPie();
+  const borrarAnimalMut = useDeletePesoEnPie();
+  // Animal resaltado en "Registro de animales" (para editar / borrar).
+  const [animalSelId, setAnimalSelId] = useState<string | null>(null);
+  const [editandoAnimal, setEditandoAnimal] = useState<PesoEnPie | null>(null);
 
   // Repesaje de una guía cerrada: id de la guía (Peso en Camión) en repesaje.
   const guiasCerradas = useGuiasCerradas();
@@ -214,6 +253,11 @@ export function PesoEnPiePage() {
       .find((valor): valor is string => Boolean(valor)) ?? '';
   const corralGuia = ultimoDeGuia('corral');
   const tipoGuia = ultimoDeGuia('tipoAnimal');
+  // Se limpia sola si el animal deja de estar en la guía cargada.
+  const animalSel = enRepesaje
+    ? null
+    : (reportesGuia.find((r) => r.id === animalSelId) ?? null);
+  const animalSelEditable = animalSel?.status === 'pendiente';
 
   useEffect(() => {
     if (corralGuia && !corral) setCorral(corralGuia);
@@ -269,6 +313,7 @@ export function PesoEnPiePage() {
     setSaveError(null);
     setIsReadingScale(false);
     setRepesajeId(null);
+    setAnimalSelId(null);
   }
 
   // Tras guardar un animal se conservan corral y tipo para el siguiente
@@ -617,6 +662,42 @@ export function PesoEnPiePage() {
     });
   }
 
+  // Papelera: borra el animal seleccionado (registrado por error).
+  async function borrarAnimal() {
+    if (!animalSel) return;
+    const nombre = formatAnimal(animalSel.bpReference, animalSel.reference);
+    if (
+      !window.confirm(
+        `¿Seguro que querés borrar el animal ${nombre} (${kg(animalSel.pesoTotalKg)} kg)? Esta acción no se puede deshacer.`,
+      )
+    )
+      return;
+    setSaveError(null);
+    try {
+      await borrarAnimalMut.mutateAsync(animalSel.id);
+      setAnimalSelId(null);
+      avisar(`Animal ${nombre} borrado.`);
+    } catch (err) {
+      setSaveError(mensajeError(err, 'No se pudo borrar el animal.'));
+    }
+  }
+
+  async function guardarEdicionAnimal(
+    r: PesoEnPie,
+    cambios: { tipoAnimal: string; corral: string; pesoTotalKg: number; observaciones: string },
+  ) {
+    const count = r.animalCount > 0 ? r.animalCount : 1;
+    await actualizar.mutateAsync({
+      id: r.id,
+      input: inputDesdeReporte(r, {
+        ...cambios,
+        pesoPromedioKg: Number((cambios.pesoTotalKg / count).toFixed(2)),
+      }),
+    });
+    setEditandoAnimal(null);
+    avisar(`Animal ${formatAnimal(r.bpReference, r.reference)} actualizado.`);
+  }
+
   async function cerrarGuia() {
     if (!guiaCamionId) return;
     if (!window.confirm(`¿Cerrar la guía ${guia} en Peso en Pie? Sus animales pasan a beneficio.`)) return;
@@ -661,22 +742,22 @@ export function PesoEnPiePage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <Button
             variant="outline"
             size="icon"
-            className="size-8"
+            className="size-12 [&_svg]:size-7"
             title="Limpiar formulario"
             onClick={limpiar}
             disabled={crear.isPending}
           >
             <Eraser className="size-4" />
           </Button>
-          <span className="mx-1 h-7 w-px bg-border" />
+          <span className="mx-1 h-10 w-px bg-border" />
           <Button
             variant="outline"
             size="icon"
-            className="size-8"
+            className="size-12 [&_svg]:size-7"
             title="Pesaje promediado: neto de báscula camión ÷ animales, para todos los animales de la guía"
             onClick={pesarPromediado}
             disabled={
@@ -692,7 +773,39 @@ export function PesoEnPiePage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-8"
+            className="size-12 [&_svg]:size-7"
+            title={
+              animalSel && !animalSelEditable
+                ? 'La guía de este animal ya está cerrada en Peso en Pie'
+                : 'Editar animal seleccionado'
+            }
+            onClick={() => animalSel && setEditandoAnimal(animalSel)}
+            disabled={!animalSelEditable}
+          >
+            <Pencil className="size-4" />
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-12 [&_svg]:size-7 text-red-600 hover:bg-red-50 hover:text-red-700"
+            title={
+              animalSel && !animalSelEditable
+                ? 'La guía de este animal ya está cerrada en Peso en Pie'
+                : 'Borrar animal seleccionado'
+            }
+            onClick={borrarAnimal}
+            disabled={!animalSelEditable || borrarAnimalMut.isPending}
+          >
+            {borrarAnimalMut.isPending ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : (
+              <Trash2 className="size-4" />
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-12 [&_svg]:size-7"
             title="Imprimir registro"
             onClick={imprimir}
             disabled={animalesRegistrados < 1}
@@ -702,7 +815,7 @@ export function PesoEnPiePage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-8"
+            className="size-12 [&_svg]:size-7"
             title="Cerrar guía en Peso en Pie (el camión sigue con su propio estado)"
             onClick={cerrarGuia}
             disabled={!guiaCamionId || cerrarGuiaPie.isPending}
@@ -712,7 +825,7 @@ export function PesoEnPiePage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-8"
+            className="size-12 [&_svg]:size-7"
             title="Actualizar"
             onClick={() => {
               lista.refetch();
@@ -1067,33 +1180,13 @@ export function PesoEnPiePage() {
                     key={r.id}
                     index={i}
                     reporte={r}
+                    selected={r.id === animalSelId}
+                    onSelect={() =>
+                      setAnimalSelId((actual) => (actual === r.id ? null : r.id))
+                    }
                     onSave={(observaciones) =>
                       actualizar.mutate(
-                        {
-                          id: r.id,
-                          input: {
-                            date: r.date,
-                            bcReference: r.bcReference ?? undefined,
-                            guia: r.guia ?? undefined,
-                            procedencia: r.procedencia ?? undefined,
-                            proveedor: r.proveedor ?? undefined,
-                            cliente: r.cliente ?? undefined,
-                            placa: r.placa ?? undefined,
-                            conductor: r.conductor ?? undefined,
-                            corral: r.corral ?? undefined,
-                            tipoAnimal: r.tipoAnimal ?? undefined,
-                            lote: r.lote ?? undefined,
-                            animalNo: r.animalNo ?? undefined,
-                            animalCount: r.animalCount,
-                            tipoPesaje: r.tipoPesaje,
-                            pesoTotalKg: r.pesoTotalKg ?? undefined,
-                            pesoPromedioKg: r.pesoPromedioKg ?? undefined,
-                            cantidad: r.cantidad ?? undefined,
-                            entrada: r.entrada ?? undefined,
-                            salida: r.salida ?? undefined,
-                            observaciones,
-                          },
-                        },
+                        { id: r.id, input: inputDesdeReporte(r, { observaciones }) },
                         {
                           onSuccess: () => {
                             setNotice('Observación actualizada.');
@@ -1115,6 +1208,13 @@ export function PesoEnPiePage() {
           </div>
         ) : null}
       </Card>
+
+      <EditarAnimalDialog
+        reporte={editandoAnimal}
+        onClose={() => setEditandoAnimal(null)}
+        onSave={guardarEdicionAnimal}
+        saving={actualizar.isPending}
+      />
 
       <Dialog
         open={confirmarRepesaje != null}
@@ -1395,14 +1495,166 @@ function GuiasCerradasList({
   );
 }
 
+function EditarAnimalDialog({
+  reporte,
+  onClose,
+  onSave,
+  saving,
+}: {
+  reporte: PesoEnPie | null;
+  onClose: () => void;
+  onSave: (
+    r: PesoEnPie,
+    cambios: { tipoAnimal: string; corral: string; pesoTotalKg: number; observaciones: string },
+  ) => Promise<void>;
+  saving: boolean;
+}) {
+  const [tipo, setTipo] = useState('');
+  const [corral, setCorral] = useState('');
+  const [peso, setPeso] = useState('');
+  const [obs, setObs] = useState('');
+  const [tecladoPeso, setTecladoPeso] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!reporte) return;
+    setTipo(reporte.tipoAnimal ?? '');
+    setCorral(reporte.corral ?? '');
+    setPeso(reporte.pesoTotalKg == null ? '' : String(reporte.pesoTotalKg));
+    setObs(reporte.observaciones ?? '');
+    setTecladoPeso(false);
+    setError(null);
+  }, [reporte]);
+
+  if (!reporte) return null;
+
+  async function guardar() {
+    if (!reporte) return;
+    const pesoNum = num(peso.replace(',', '.'));
+    if (!tipo.trim()) return setError('Seleccioná el tipo de animal.');
+    if (!corral.trim()) return setError('Seleccioná el corral.');
+    if (pesoNum <= 0) return setError('El peso debe ser mayor a 0.');
+    setError(null);
+    try {
+      await onSave(reporte, {
+        tipoAnimal: tipo,
+        corral,
+        pesoTotalKg: pesoNum,
+        observaciones: obs.trim(),
+      });
+    } catch (err) {
+      setError(mensajeError(err, 'No se pudo actualizar el animal.'));
+    }
+  }
+
+  return (
+    <Dialog
+      open
+      onClose={onClose}
+      title={`Editar animal ${formatAnimal(reporte.bpReference, reporte.reference)}`}
+      description={`Guía ${reporte.guia ?? '—'} · ${reporte.date}`}
+      className="max-w-lg"
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <Label htmlFor="edit-tipo">Tipo de Animal</Label>
+            <Select id="edit-tipo" value={tipo} onChange={(e) => setTipo(e.target.value)} className="h-9">
+              <option value="">Seleccione...</option>
+              <option value="MACHO">MACHO</option>
+              <option value="HEMBRA">HEMBRA</option>
+              <option value="BUFALO">BUFALO</option>
+              <option value="BUFALA">BUFALA</option>
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="edit-corral">Ubicación (Corral)</Label>
+            <Select id="edit-corral" value={corral} onChange={(e) => setCorral(e.target.value)} className="h-9">
+              <option value="">Seleccione...</option>
+              {Array.from({ length: 26 }, (_, i) => (
+                <option key={i} value={String(i + 1)}>
+                  Corral {i + 1}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="space-y-1">
+            <Label htmlFor="edit-peso">Peso (kg)</Label>
+            <div className="relative">
+              <Input
+                id="edit-peso"
+                inputMode="decimal"
+                className="h-9 pr-11 tabular-nums"
+                title="Doble clic para abrir el teclado numérico"
+                value={peso}
+                onChange={(e) => setPeso(soloDecimal(e.target.value))}
+                onDoubleClick={() => setTecladoPeso(true)}
+              />
+              <button
+                type="button"
+                aria-label="Abrir teclado numérico"
+                title="Abrir teclado numérico (o doble clic en el campo)"
+                onMouseDown={(e) => {
+                  // Evita el blur para que el teclado escriba en este campo.
+                  e.preventDefault();
+                  setTecladoPeso((v) => !v);
+                }}
+                className="absolute right-2 top-1/2 flex size-8 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              >
+                <Keyboard className="size-5" />
+              </button>
+              {tecladoPeso && (
+                <NumericKeypad
+                  value={peso}
+                  onChange={setPeso}
+                  onClose={() => setTecladoPeso(false)}
+                />
+              )}
+            </div>
+          </div>
+          <div className="space-y-1 sm:col-span-2">
+            <Label htmlFor="edit-obs">Observación del animal</Label>
+            <Input
+              id="edit-obs"
+              className="h-9"
+              value={obs}
+              onChange={(e) => setObs(e.target.value)}
+            />
+          </div>
+        </div>
+
+        {error && (
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </p>
+        )}
+
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <Button variant="outline" className="h-9 px-4" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button className="h-9 px-5" onClick={guardar} disabled={saving}>
+            {saving ? <LoaderCircle className="size-4 animate-spin" /> : <Check className="size-4" />}
+            Guardar cambios
+          </Button>
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 function AnimalRow({
   index,
   reporte,
+  selected,
+  onSelect,
   onSave,
   saving,
 }: {
   index: number;
   reporte: PesoEnPie;
+  selected: boolean;
+  onSelect: () => void;
   onSave: (observaciones: string) => void;
   saving: boolean;
 }) {
@@ -1414,7 +1666,14 @@ function AnimalRow({
   }, [reporte.observaciones, editing]);
 
   return (
-    <TR>
+    <TR
+      onClick={onSelect}
+      className={cn(
+        'cursor-pointer',
+        selected && 'bg-sky-100 hover:bg-sky-100',
+      )}
+      aria-selected={selected}
+    >
       <TD className="tabular-nums">{index + 1}</TD>
       <TD className="whitespace-nowrap tabular-nums">
         {formatAnimal(reporte.bpReference, reporte.reference)}
@@ -1425,7 +1684,7 @@ function AnimalRow({
       <TD className="whitespace-nowrap text-right tabular-nums">
         {kg(reporte.pesoTotalKg)}
       </TD>
-      <TD className="min-w-56">
+      <TD className="min-w-56" onClick={(e) => e.stopPropagation()}>
         {editing ? (
           <div className="flex items-center gap-1.5">
             <Input

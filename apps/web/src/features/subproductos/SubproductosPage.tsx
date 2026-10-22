@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import {
   ArrowLeft,
+  CalendarDays,
   CheckCircle2,
   Inbox,
   LoaderCircle,
@@ -17,7 +18,7 @@ import {
   BasculaField,
   useBascula,
 } from '@/components/bascula/Bascula';
-import { cn, plantToday as today } from '@/lib/utils';
+import { cn, formatFechaDia, plantToday as today } from '@/lib/utils';
 import { useAuth } from '@/features/auth/auth-context';
 import {
   useSubproductosLotes,
@@ -130,6 +131,11 @@ export function SubproductosPage() {
                         </span>
                       </div>
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <span className="flex items-center gap-1">
+                          <CalendarDays className="size-3.5" />
+                          Sacrificio: {formatFechaDia(l.date)}
+                        </span>
+                        <span>·</span>
                         <span>
                           {l.guias.length ? l.guias.join(', ') : '—'} ·{' '}
                           {l.caidos} caídos de {l.animalCount}

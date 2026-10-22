@@ -73,6 +73,7 @@ export interface UpdateState {
 interface FrigoDesktopBridge {
   getDeviceInfo: () => Promise<LocalDeviceInfo>;
   openKeyboard?: () => Promise<{ ok: boolean }>;
+  refocusWindow?: () => void;
   readScale?: (options?: {
     port?: string;
     timeoutMs?: number;
@@ -95,6 +96,40 @@ declare global {
 /** Indica si corremos dentro de la app de escritorio. */
 export function isDesktop(): boolean {
   return typeof window !== 'undefined' && !!window.frigoDesktop;
+}
+
+/**
+ * En Electron, después de un alert/confirm/prompt nativo los campos quedan sin
+ * recibir el teclado hasta hacer clic fuera de la ventana. Envuelve esas
+ * funciones para devolverle el foco a la ventana al cerrarse el diálogo.
+ */
+export function instalarArregloFocoDialogos() {
+  const refocus = window.frigoDesktop?.refocusWindow;
+  if (!refocus) return;
+  const confirmNativo = window.confirm.bind(window);
+  const alertNativo = window.alert.bind(window);
+  const promptNativo = window.prompt.bind(window);
+  window.confirm = (message?: string) => {
+    try {
+      return confirmNativo(message);
+    } finally {
+      refocus();
+    }
+  };
+  window.alert = (message?: unknown) => {
+    try {
+      alertNativo(message);
+    } finally {
+      refocus();
+    }
+  };
+  window.prompt = (message?: string, _default?: string) => {
+    try {
+      return promptNativo(message, _default);
+    } finally {
+      refocus();
+    }
+  };
 }
 
 /** Abre el teclado en pantalla de Windows (solo en la app de escritorio). */

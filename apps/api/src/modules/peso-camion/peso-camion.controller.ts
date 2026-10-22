@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   ParseUUIDPipe,
@@ -75,5 +76,13 @@ export class PesoCamionController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.closePie(user, id);
+  }
+
+  @Delete(':id')
+  remove(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.remove(user, id);
   }
 }

@@ -3,17 +3,17 @@ export const PLANT_TIME_ZONE = 'America/Bogota';
 
 /**
  * Hora del día (0-23) en la que arranca la jornada de planta y se reinician
- * los consecutivos/turnos (4:00 a. m.). Todo lo registrado antes de esa hora
+ * los consecutivos/turnos (5:00 a. m.). Todo lo registrado antes de esa hora
  * se considera parte del día de negocio anterior.
  */
-export const PLANT_DAY_CUTOFF_HOUR = 4;
+export const PLANT_DAY_CUTOFF_HOUR = 5;
 
 /**
  * Fecha de hoy (YYYY-MM-DD) según el día de negocio de la planta: la
- * jornada corre de 4:00 a. m. a 4:00 a. m. del día siguiente, en vez de
+ * jornada corre de 5:00 a. m. a 5:00 a. m. del día siguiente, en vez de
  * medianoche a medianoche. Así, un animal sacrificado a la 1:00 a. m. sigue
  * contando como parte del día anterior y los consecutivos (turnos del box,
- * canales, subproductos, etc.) se reinician a las 4:00 a. m.
+ * canales, subproductos, etc.) se reinician a las 5:00 a. m.
  */
 export function plantToday(): string {
   const shifted = new Date(

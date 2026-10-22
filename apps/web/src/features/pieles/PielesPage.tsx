@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import {
+  CalendarDays,
   Check,
   CheckCircle2,
   ChevronDown,
@@ -12,8 +13,9 @@ import {
 } from 'lucide-react';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { PielesIcon } from '@/components/icons/PielesIcon';
-import { BasculaConexion, useBascula } from '@/components/bascula/Bascula';
-import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
+import { useBascula } from '@/components/bascula/Bascula';
+import { FechaFiltro } from '@/components/ui/fecha-filtro';
+import { cn, formatFechaDia, soloDecimal } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
 import {
   usePielesLotes,
@@ -39,17 +41,14 @@ function hora(iso: string | null) {
   });
 }
 
-// Identificador local del animal dentro de su guía de Peso en Pie (A01, A02…),
-// igual al orden en que se insensibilizó.
-function codigoAnimal(sequence: number) {
-  return `A${String(sequence).padStart(2, '0')}`;
-}
 
 export function PielesPage() {
   const [tab, setTab] = useState<Tab>('ordenes');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEventoId, setSelectedEventoId] = useState<string | null>(null);
-  const lotes = usePielesLotes();
+  // Filtro de fecha: null = lotes con pieles pendientes (comportamiento normal).
+  const [fechaFiltro, setFechaFiltro] = useState<string | null>(null);
+  const lotes = usePielesLotes(fechaFiltro);
   const detail = usePielLoteDetail(selectedId);
   const registrar = useRegistrarPiel();
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -62,23 +61,20 @@ export function PielesPage() {
 
   const pendientes = d?.animales.filter((a) => !a.pesado) ?? [];
 
-  // Selecciona automáticamente el primer animal por pesar.
-  useEffect(() => {
-    if (!pendientes.length) {
-      setSelectedEventoId(null);
-      return;
-    }
-    setSelectedEventoId((prev) =>
-      prev && pendientes.some((a) => a.eventoId === prev) ? prev : pendientes[0].eventoId,
-    );
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pendientes.map((a) => a.eventoId).join(',')]);
-
+  // El operario escoge la tarjeta (verde) del animal cuya piel va a pesar.
   const animalSel = pendientes.find((a) => a.eventoId === selectedEventoId) ?? null;
 
   function seleccionarLote(id: string) {
     setSelectedId(id);
+    setSelectedEventoId(null);
     setTab('pieles');
+  }
+
+  function cambiarFecha(valor: string | null) {
+    setFechaFiltro(valor);
+    setSelectedId(null);
+    setSelectedEventoId(null);
+    setTab('ordenes');
   }
 
   function scrollList(dir: 1 | -1) {
@@ -91,7 +87,7 @@ export function PielesPage() {
     if (!Number.isFinite(valor) || valor <= 0) return;
     registrar.mutate(
       { eventoId: animalSel.eventoId, pesoKg: valor },
-      { onSuccess: () => setPeso('0.0') },
+      { onSuccess: () => { setPeso('0.0'); setSelectedEventoId(null); } },
     );
   }
 
@@ -103,7 +99,7 @@ export function PielesPage() {
           <PielesIcon className="size-10 text-foreground" />
         </div>
         <FieldBox label="Fecha:">
-          <div className="flex h-9 items-center text-lg font-semibold">{today()}</div>
+          <FechaFiltro value={fechaFiltro} onChange={cambiarFecha} />
         </FieldBox>
         <FieldBox label="Cliente:" className="flex-1">
           <div className="flex h-9 items-center truncate text-xl font-bold uppercase">
@@ -138,6 +134,7 @@ export function PielesPage() {
             lotes={lista}
             selectedId={selectedId}
             onSelect={seleccionarLote}
+            fechaFiltro={fechaFiltro}
           />
         )}
         {tab === 'pieles' && (
@@ -145,7 +142,7 @@ export function PielesPage() {
             detail={d}
             loading={!!selectedId && detail.isLoading}
             selectedEventoId={selectedEventoId}
-            onSelectAnimal={setSelectedEventoId}
+            onSelectAnimal={(id) => setSelectedEventoId((actual) => (actual === id ? null : id))}
           />
         )}
       </div>
@@ -167,8 +164,6 @@ export function PielesPage() {
           <ChevronDown className="size-7" />
         </button>
       </div>
-
-      <BasculaConexion />
 
       {/* Pie: O.S No. / Animal No. / Peso(kg) + acciones */}
       <FooterPieles
@@ -196,11 +191,13 @@ function OrdenesTab({
   lotes,
   selectedId,
   onSelect,
+  fechaFiltro,
 }: {
   loading: boolean;
   lotes: PielLote[];
   selectedId: string | null;
   onSelect: (id: string) => void;
+  fechaFiltro: string | null;
 }) {
   if (loading) {
     return (
@@ -213,7 +210,9 @@ function OrdenesTab({
     return (
       <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
         <Inbox className="size-6" />
-        Aún no hay animales caídos. En cuanto se insensibilice un animal, su lote aparecerá aquí.
+        {fechaFiltro
+          ? `No hay lotes con animales caídos del ${fechaFiltro}.`
+          : 'Aún no hay animales caídos. En cuanto se insensibilice un animal, su lote aparecerá aquí.'}
       </div>
     );
   }
@@ -236,9 +235,15 @@ function OrdenesTab({
                     : 'border-border bg-card hover:bg-muted/50',
               )}
             >
-              <span>
-                <span className="font-bold tabular-nums">{formatOB(l.reference)}</span>{' '}
-                <span className="text-muted-foreground">|</span> {l.cliente}
+              <span className="min-w-0">
+                <span className="block">
+                  <span className="font-bold tabular-nums">{formatOB(l.reference)}</span>{' '}
+                  <span className="text-muted-foreground">|</span> {l.cliente}
+                </span>
+                <span className="mt-0.5 flex items-center gap-1 text-sm font-normal text-muted-foreground">
+                  <CalendarDays className="size-4" />
+                  Sacrificio: {formatFechaDia(l.date)}
+                </span>
               </span>
               <span className="flex shrink-0 items-center gap-2 tabular-nums text-sm text-muted-foreground">
                 {l.pesados}/{l.caidos} pesados
@@ -305,15 +310,16 @@ function PielesTab({
               <button
                 key={a.eventoId}
                 onClick={() => onSelectAnimal(a.eventoId)}
-                title={`Cayó ${hora(a.stunnedAt)}`}
+                aria-pressed={activo}
+                title={`Tocá para seleccionar el animal ${a.consecutivo} (cayó ${hora(a.stunnedAt)}); luego pesá y registrá`}
                 className={cn(
-                  'relative flex aspect-square items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
+                  'relative flex aspect-square cursor-pointer items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
                   activo
-                    ? 'border-emerald-500 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300 hover:bg-emerald-100'
-                    : 'border-border bg-card text-muted-foreground hover:bg-muted/50',
+                    ? 'border-emerald-600 bg-emerald-500 text-white ring-2 ring-emerald-300'
+                    : 'border-border bg-card text-foreground hover:bg-muted',
                 )}
               >
-                {codigoAnimal(a.sequence)}
+                {a.consecutivo}
               </button>
             );
           })}
@@ -326,33 +332,29 @@ function PielesTab({
             <Clock className="size-4" /> Aún no hay pieles pesadas.
           </div>
         ) : (
-          <div className="max-h-72 overflow-auto rounded-md border border-border">
-            <Table>
-              <THead className="sticky top-0 z-10 bg-muted">
-                <TR className="border-b-2 border-border">
-                  <TH className="w-20 border-r border-border text-center">#</TH>
-                  <TH className="w-48 border-r border-border">Hora</TH>
-                  <TH className="border-r border-border">Operario</TH>
-                  <TH className="w-32 text-right">Peso (kg)</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {detail.animales
-                  .filter((a) => a.pesado)
-                  .reverse()
-                  .map((a) => (
-                    <TR key={a.eventoId} className="border-b border-border even:bg-muted/30">
-                      <TD className="border-r border-border text-center font-semibold tabular-nums">
-                        {codigoAnimal(a.sequence)}
-                      </TD>
-                      <TD className="border-r border-border tabular-nums">{hora(a.pieladoAt)}</TD>
-                      <TD className="border-r border-border">{a.operatorName ?? '—'}</TD>
-                      <TD className="text-right tabular-nums">{a.pesoKg?.toFixed(2)}</TD>
-                    </TR>
-                  ))}
-              </TBody>
-            </Table>
-          </div>
+          <Table>
+            <THead>
+              <TR>
+                <TH className="w-24 whitespace-nowrap">Turno</TH>
+                <TH className="w-40 whitespace-nowrap">Hora</TH>
+                <TH className="whitespace-nowrap">Operario</TH>
+                <TH className="w-32 whitespace-nowrap text-right">Peso (kg)</TH>
+              </TR>
+            </THead>
+            <TBody>
+              {detail.animales
+                .filter((a) => a.pesado)
+                .reverse()
+                .map((a) => (
+                  <TR key={a.eventoId}>
+                    <TD className="py-2 font-semibold tabular-nums">{a.consecutivo}</TD>
+                    <TD className="py-2 tabular-nums">{hora(a.pieladoAt)}</TD>
+                    <TD className="py-2">{a.operatorName ?? '—'}</TD>
+                    <TD className="py-2 text-right tabular-nums">{a.pesoKg?.toFixed(2)}</TD>
+                  </TR>
+                ))}
+            </TBody>
+          </Table>
         )}
       </div>
     </div>
@@ -385,7 +387,7 @@ function FooterPieles({
   onRefresh: () => void;
 }) {
   const osNo = lote ? formatOB(lote.reference) : '—';
-  const animalNo = animal ? codigoAnimal(animal.sequence) : '—';
+  const animalNo = animal ? String(animal.consecutivo) : '—';
 
   return (
     <div className="flex flex-col gap-1">

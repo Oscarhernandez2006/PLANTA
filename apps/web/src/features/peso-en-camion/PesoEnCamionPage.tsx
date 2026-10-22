@@ -15,6 +15,7 @@ import {
   LoaderCircle,
   RefreshCw,
   Dices,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -37,6 +38,7 @@ import {
   useCreatePesoCamion,
   useUpdatePesoCamion,
   useClosePesoCamion,
+  useDeletePesoCamion,
   getNextTempGuia,
   formatReferencia,
   type PesoCamionGuia,
@@ -108,6 +110,7 @@ export function PesoEnCamionPage() {
   const createGuia = useCreatePesoCamion();
   const updateGuia = useUpdatePesoCamion();
   const closeGuia = useClosePesoCamion();
+  const deleteGuia = useDeletePesoCamion();
 
   // Referencia (consecutivo global de producción): la de la guía cargada o la próxima.
   const referencia = editingId
@@ -352,6 +355,34 @@ export function PesoEnCamionPage() {
     }
   }
 
+  // La papelera borra una guía abierta digitada por error.
+  async function borrar() {
+    if (!selectedGuia) return;
+    const ref = selectedGuia.reference;
+    const id = selectedGuia.id;
+    const nombre = selectedGuia.guia ?? formatReferencia(ref);
+    if (
+      !window.confirm(
+        `¿Seguro que querés borrar la guía ${nombre} (${formatReferencia(ref)})? Esta acción no se puede deshacer.`,
+      )
+    )
+      return;
+    setSaveError(null);
+    try {
+      await deleteGuia.mutateAsync(id);
+      if (editingId === id) resetForm();
+      setSelectedGuia(null);
+      showNotice(`Guía ${nombre} borrada.`);
+    } catch (err) {
+      const detail = (
+        err as { response?: { data?: { message?: string | string[] } } }
+      ).response?.data?.message;
+      setSaveError(
+        Array.isArray(detail) ? detail.join(' ') : detail || 'No se pudo borrar la guía.',
+      );
+    }
+  }
+
   function reciboFromForm() {
     return {
       guia,
@@ -430,10 +461,10 @@ export function PesoEnCamionPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           <Button
             size="lg"
-            className="h-9 px-5"
+            className="h-12 px-6 text-base [&_svg]:size-6"
             title="Guardar toda la información"
             onClick={guardar}
             disabled={saving}
@@ -448,17 +479,17 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-12 [&_svg]:size-7"
             title="Nueva guía / limpiar"
             onClick={limpiar}
           >
             <Eraser className="size-5" />
           </Button>
-          <span className="mx-1 h-8 w-px bg-border" />
+          <span className="mx-1 h-10 w-px bg-border" />
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-12 [&_svg]:size-7"
             title="Editar guía seleccionada"
             onClick={editar}
             disabled={!selectedGuia}
@@ -468,7 +499,7 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-12 [&_svg]:size-7"
             title="Imprimir recibo (PDF)"
             onClick={imprimir}
             disabled={!selectedGuia && !editingId}
@@ -478,7 +509,7 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-12 [&_svg]:size-7"
             title="Cerrar guía seleccionada"
             onClick={cerrar}
             disabled={!selectedGuia || closeGuia.isPending}
@@ -488,7 +519,21 @@ export function PesoEnCamionPage() {
           <Button
             variant="outline"
             size="icon"
-            className="size-9"
+            className="size-12 [&_svg]:size-7 text-red-600 hover:bg-red-50 hover:text-red-700"
+            title="Borrar guía seleccionada"
+            onClick={borrar}
+            disabled={!selectedGuia || deleteGuia.isPending}
+          >
+            {deleteGuia.isPending ? (
+              <LoaderCircle className="size-5 animate-spin" />
+            ) : (
+              <Trash2 className="size-5" />
+            )}
+          </Button>
+          <Button
+            variant="outline"
+            size="icon"
+            className="size-12 [&_svg]:size-7"
             title="Refrescar guías abiertas"
             onClick={() => abiertas.refetch()}
             disabled={abiertas.isFetching}
@@ -521,7 +566,7 @@ export function PesoEnCamionPage() {
       {!editingId && selectedGuia && (
         <div className="shrink-0 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
           Guía {formatReferencia(selectedGuia.reference)} seleccionada. Usá el lápiz para
-          editarla, o el botón imprimir.
+          editarla, el botón imprimir, o la papelera para borrarla.
         </div>
       )}
 

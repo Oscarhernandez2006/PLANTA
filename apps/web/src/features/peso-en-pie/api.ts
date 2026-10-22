@@ -39,10 +39,9 @@ export function formatBP(n: number) {
   return `BP${String(n).padStart(6, '0')}`;
 }
 
-// Identificador de animal dentro de su BP: BP000001-A01 (la "A" deja explícito
-// que es un Animal, no otro tipo de sub-documento).
+// Identificador de animal dentro de su BP: BP000001-1 (solo el número).
 export function formatAnimal(bpReference: number, reference: number) {
-  return `${formatBP(bpReference)}-A${String(reference).padStart(2, '0')}`;
+  return `${formatBP(bpReference)}-${reference}`;
 }
 
 export interface SavePesoEnPieInput {
@@ -163,6 +162,21 @@ export function useUpdatePesoEnPie() {
   });
 }
 
+/** Borra un animal registrado por error (solo con la guía abierta en Peso en Pie). */
+export function useDeletePesoEnPie() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.delete<{ id: string; bpReference: number; reference: number }>(
+        `/peso-en-pie/${id}`,
+      )).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['peso-en-pie'] });
+      qc.invalidateQueries({ queryKey: ['sacrificio'] });
+    },
+  });
+}
+
 // ===================== Guías cerradas y repesaje =====================
 
 export interface GuiaCerrada {
@@ -220,7 +234,7 @@ export interface GuiaCerradaDetalle extends GuiaCerrada {
 }
 
 export function formatAnimalCorto(reference: number) {
-  return `A${String(reference).padStart(2, '0')}`;
+  return String(reference);
 }
 
 export function useGuiasCerradas() {

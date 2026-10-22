@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
 import {
+  CalendarDays,
   Check,
   ChevronDown,
   ChevronUp,
@@ -16,7 +17,8 @@ import {
 import { Dialog } from '@/components/ui/dialog';
 import { CanalCalienteIcon } from '@/components/icons/CanalCalienteIcon';
 import { useBascula } from '@/components/bascula/Bascula';
-import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
+import { FechaFiltro } from '@/components/ui/fecha-filtro';
+import { cn, formatFechaDia, plantToday as today, soloDecimal } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
 import { useBodegas } from '../clientes/api';
 import {
@@ -61,10 +63,6 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'reporte', label: 'REPORTE' },
 ];
 
-function codigoAnimal(sequence: number) {
-  return `A${String(sequence).padStart(2, '0')}`;
-}
-
 const TIPOS: { key: CanalTipo; label: string; hint: string }[] = [
   { key: 'canal_completa', label: 'Canal completa', hint: '1 pieza por animal' },
   {
@@ -95,6 +93,21 @@ type PiezaNueva = {
   pieza: CanalPiezaTipo;
   eventoId: string;
 };
+
+/** Última clasificación escogida; se aplica a los siguientes animales. */
+type ClasificacionPredeterminada = {
+  tipo?: CanalAnimalTipo;
+  expendio?: string;
+  cava?: string;
+  destino?: string;
+  /** La bodega es del cliente: solo se repite en órdenes del mismo cliente. */
+  bodega?: { cliente: string; valor: string };
+};
+
+/** Animal con tipo de canal y todas sus piezas pesadas. */
+function animalTerminado(a: CanalAnimal) {
+  return !!a.canalTipo && a.piezas.length > 0 && a.piezas.every((p) => p.pesado);
+}
 
 /** Animal con una media canal ya pesada y la otra mitad pendiente. */
 function mediaIncompleta(detail: CanalLoteDetail | undefined) {
@@ -156,6 +169,18 @@ export function CanalCalientePage() {
     eventoId: string;
     pieza: CanalPiezaTipo;
   } | null>(null);
+  // Animal tocado en la cuadrícula de ANIMALES: manda para clasificar y para
+  // pesar (Animal No. del pie), hasta terminarlo o cambiar de orden.
+  const [animalElegidoId, setAnimalElegidoId] = useState<string | null>(null);
+  // Última clasificación que escogió el operario: queda predeterminada para
+  // los siguientes animales (vive aquí porque ANIMALES se desmonta al pesar).
+  const [predeterminado, setPredeterminado] = useState<ClasificacionPredeterminada>({});
+  // Última pieza escogida en CANALES / CUARTOS (Completo/CIZQ/CDER): se le
+  // aplica sola al siguiente animal sin tipo, para no tener que escogerla
+  // otra vez después de cada presinto.
+  const [piezaPredeterminada, setPiezaPredeterminada] = useState<CanalPiezaTipo | null>(null);
+  const setTipoAuto = useSetCanalTipo();
+  const piezaAutoAplicadaRef = useRef<string | null>(null);
   // Refleja si el presinto se está enviando a imprimir, para que el botón de
   // etiqueta del pie muestre "cargando" y no se pueda disparar dos veces.
   const [imprimiendo, setImprimiendo] = useState(false);
@@ -195,6 +220,18 @@ export function CanalCalientePage() {
         return { animal, pieza: piezaOverride.pieza };
       }
     }
+    // Animal tocado en la cuadrícula: se pesa la pieza que le falte (si solo
+    // le falta una); sin tipo de canal o con ambas mitades pendientes, el
+    // operario debe completar esa elección.
+    if (animalElegidoId) {
+      const animal = detail.data?.animales.find((a) => a.eventoId === animalElegidoId);
+      // Un animal ya terminado deja de mandar (su tarjeta ya no se muestra).
+      if (animal && !animalTerminado(animal)) {
+        const pendientes = animal.piezas.filter((p) => !p.pesado);
+        if (!animal.canalTipo || pendientes.length !== 1) return { animal, pieza: null };
+        return { animal, pieza: pendientes[0].pieza as CanalPiezaTipo };
+      }
+    }
     if (!objetivoBase) return objetivoBase;
     const { animal } = objetivoBase;
     const pendientes = animal.piezas.filter((p) => !p.pesado);
@@ -202,19 +239,58 @@ export function CanalCalientePage() {
     // espera que el operario elija cuál pesar primero con un click explícito.
     if (pendientes.length > 1) return { animal, pieza: null };
     return objetivoBase;
-  }, [objetivoBase, piezaOverride, detail.data]);
+  }, [objetivoBase, piezaOverride, animalElegidoId, detail.data]);
   useEffect(() => {
     setPiezaOverride(null);
   }, [objetivoBase?.animal.eventoId]);
-  // Prioriza el animal recién pesado (para clasificarlo); si no hay uno
-  // reciente, cae al comportamiento normal (siguiente pendiente / último).
+  // Aplica la pieza predeterminada al animal que toca, si aún no tiene pieza
+  // escogida ni nada pesado (va después del efecto anterior para no ser
+  // borrada por él). Una sola vez por animal.
+  const animalObjetivo = objetivo?.animal;
+  useEffect(() => {
+    if (!animalObjetivo || !piezaPredeterminada || objetivo?.pieza) return;
+    if (animalObjetivo.piezas.some((p) => p.pesado)) return;
+    const tipo = PANEL_TIPO[piezaPredeterminada];
+    if (animalObjetivo.canalTipo && animalObjetivo.canalTipo !== tipo) return;
+    if (piezaAutoAplicadaRef.current === animalObjetivo.eventoId) return;
+    piezaAutoAplicadaRef.current = animalObjetivo.eventoId;
+    const eventoId = animalObjetivo.eventoId;
+    setPiezaOverride({ eventoId, pieza: piezaPredeterminada });
+    if (animalObjetivo.canalTipo !== tipo) {
+      setTipoAuto.mutate(
+        { eventoId, tipo },
+        {
+          onError: (err) => {
+            piezaAutoAplicadaRef.current = null;
+            mostrarAlerta(
+              isAxiosError(err) && typeof err.response?.data?.message === 'string'
+                ? err.response.data.message
+                : 'No se pudo asignar el tipo de canal predeterminado.',
+            );
+          },
+        },
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [animalObjetivo?.eventoId, animalObjetivo?.canalTipo, objetivo?.pieza, piezaPredeterminada]);
+  // Prioriza el animal tocado en la cuadrícula; luego el recién pesado (para
+  // clasificarlo); si no, el comportamiento normal (siguiente pendiente / último).
   const animalParaClasificar =
+    detail.data?.animales.find(
+      (a) => a.eventoId === animalElegidoId && !animalTerminado(a),
+    ) ??
     detail.data?.animales.find((a) => a.eventoId === ultimoPesadoId) ??
     objetivo?.animal ??
     siguienteObjetivoAnimal(detail.data);
 
+  function elegirAnimal(eventoId: string) {
+    setAnimalElegidoId(eventoId);
+    setPiezaOverride((po) => (po && po.eventoId !== eventoId ? null : po));
+  }
+
   function seleccionarOrden(ordenBeneficioId: string, _tipo: CanalTipo | null) {
     setSelectedId(ordenBeneficioId);
+    setAnimalElegidoId(null);
     setTab('canales');
   }
 
@@ -230,14 +306,14 @@ export function CanalCalientePage() {
           <CanalCalienteIcon className="size-10 text-foreground" />
         </div>
         <FieldBox label="Fecha:">
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => {
-              setDate(e.target.value || today());
+          {/* Hoy = bandeja de pendientes; otro día (últimos 30) = solo ese día. */}
+          <FechaFiltro
+            value={date === today() ? null : date}
+            onChange={(v) => {
+              setDate(v ?? today());
               setSelectedId(null);
+              setAnimalElegidoId(null);
             }}
-            className="h-9 w-40 bg-transparent text-lg font-semibold outline-none"
           />
         </FieldBox>
         <FieldBox label="Cliente:" className="flex-1">
@@ -268,70 +344,70 @@ export function CanalCalientePage() {
         ))}
       </div>
 
-      {/* Contenido */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-auto rounded-sm border-2 border-border bg-card"
-      >
-        {tab === 'ordenes' && (
-          <OrdenesTab
-            loading={lotes.isLoading}
-            lotes={lista}
-            selectedId={selectedId}
-            onSelect={seleccionarOrden}
-          />
-        )}
-        {tab === 'canales' && (
-          <CanalesTab
-            date={date}
-            detail={detail.data}
-            objetivo={objetivo}
-            onSelectPieza={(eventoId, pieza) =>
-              setPiezaOverride({ eventoId, pieza })
-            }
-            onPiezaSeleccionada={() => setTab('animales')}
-            onAlerta={mostrarAlerta}
-          />
-        )}
-        {tab === 'animales' && (
-          <AnimalesTab
-            date={date}
-            detail={detail.data}
-            objetivoAnimal={animalParaClasificar}
-            imprimiendo={imprimiendo}
-            setImprimiendo={setImprimiendo}
-            ultimoPresinto={ultimoPresinto}
-            setUltimoPresinto={setUltimoPresinto}
-            onAlerta={mostrarAlerta}
-            onAnimalTerminado={(ordenTerminada) => {
-              setUltimoPesadoId(null);
-              setTab(ordenTerminada ? 'reporte' : 'canales');
-            }}
-            registerGuardarEImprimir={(fn) => {
-              animalesImprimirRef.current = fn;
-            }}
-          />
-        )}
-        {tab === 'reporte' && <ReporteTab date={date} />}
-      </div>
-
-      {/* Botones de desplazamiento */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={() => scrollList(-1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Subir"
-        >
-          <ChevronUp className="size-7" />
-        </button>
-        <button
-          onClick={() => scrollList(1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Bajar"
-        >
-          <ChevronDown className="size-7" />
-        </button>
-      </div>
+      {/* Contenido. ANIMALES arma su propia zona: cuadrícula de animales,
+          botones de desplazamiento y panel de clasificación fijo debajo
+          (misma estructura del software anterior). */}
+      {tab === 'animales' ? (
+        <AnimalesTab
+          date={date}
+          detail={detail.data}
+          objetivoAnimal={animalParaClasificar}
+          onElegirAnimal={elegirAnimal}
+          predeterminado={predeterminado}
+          onPredeterminado={(cambio) => setPredeterminado((p) => ({ ...p, ...cambio }))}
+          scrollRef={scrollRef}
+          onScroll={scrollList}
+          imprimiendo={imprimiendo}
+          setImprimiendo={setImprimiendo}
+          ultimoPresinto={ultimoPresinto}
+          setUltimoPresinto={setUltimoPresinto}
+          onAlerta={mostrarAlerta}
+          onAnimalTerminado={(ordenTerminada) => {
+            setUltimoPesadoId(null);
+            setAnimalElegidoId(null);
+            // Con pieza predeterminada el siguiente animal ya queda listo:
+            // se sigue en ANIMALES en vez de volver a escoger en CANALES.
+            setTab(ordenTerminada ? 'reporte' : piezaPredeterminada ? 'animales' : 'canales');
+          }}
+          registerGuardarEImprimir={(fn) => {
+            animalesImprimirRef.current = fn;
+          }}
+        />
+      ) : (
+        <>
+          <div
+            ref={scrollRef}
+            className="flex-1 overflow-auto rounded-sm border-2 border-border bg-card"
+          >
+            {tab === 'ordenes' && (
+              <OrdenesTab
+                loading={lotes.isLoading}
+                lotes={lista}
+                selectedId={selectedId}
+                onSelect={seleccionarOrden}
+              />
+            )}
+            {tab === 'canales' && (
+              <CanalesTab
+                date={date}
+                detail={detail.data}
+                objetivo={objetivo}
+                onSelectPieza={(eventoId, pieza) => {
+                  setPiezaOverride({ eventoId, pieza });
+                  setAnimalElegidoId(eventoId);
+                }}
+                onPiezaPredeterminada={(pieza) => {
+                  setPiezaPredeterminada(pieza);
+                }}
+                onPiezaSeleccionada={() => setTab('animales')}
+                onAlerta={mostrarAlerta}
+              />
+            )}
+            {tab === 'reporte' && <ReporteTab date={date} />}
+          </div>
+          <BotonesScroll onScroll={scrollList} />
+        </>
+      )}
 
       {/* Pie: báscula */}
       <FooterBascula
@@ -359,6 +435,28 @@ export function CanalCalientePage() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** Botones ▲▼ para desplazar la zona de contenido en pantallas táctiles. */
+function BotonesScroll({ onScroll }: { onScroll: (dir: 1 | -1) => void }) {
+  return (
+    <div className="grid shrink-0 grid-cols-2 gap-2">
+      <button
+        onClick={() => onScroll(-1)}
+        className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
+        aria-label="Subir"
+      >
+        <ChevronUp className="size-7" />
+      </button>
+      <button
+        onClick={() => onScroll(1)}
+        className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
+        aria-label="Bajar"
+      >
+        <ChevronDown className="size-7" />
+      </button>
     </div>
   );
 }
@@ -498,8 +596,7 @@ function OrdenesTab({
     <ul className="flex flex-col gap-2 p-2">
       {lotes.map((l) => {
         const activo = l.ordenBeneficioId === selectedId;
-        const completo =
-          l.piezasEsperadas > 0 && l.piezasPesadas >= l.piezasEsperadas;
+        const completo = l.animalCount > 0 && l.animalesPesados >= l.animalCount;
         return (
           <li key={l.ordenBeneficioId}>
             <button
@@ -511,15 +608,24 @@ function OrdenesTab({
                   : 'border-border bg-card hover:bg-muted/50',
               )}
             >
-              <span>
-                <span className="font-bold tabular-nums">{formatOB(l.reference)}</span>{' '}
-                <span className="text-muted-foreground">|</span>{' '}
-                {l.clienteNit ? `${l.clienteNit} - ` : ''}
-                {l.cliente}
+              <span className="min-w-0">
+                <span className="block">
+                  <span className="font-bold tabular-nums">{formatOB(l.reference)}</span>{' '}
+                  <span className="text-muted-foreground">|</span>{' '}
+                  {l.clienteNit ? `${l.clienteNit} - ` : ''}
+                  {l.cliente}
+                </span>
+                <span className="mt-0.5 flex items-center gap-1 text-sm font-normal text-muted-foreground">
+                  <CalendarDays className="size-4" />
+                  Sacrificio: {formatFechaDia(l.date)}
+                </span>
               </span>
               <span className="flex items-center gap-2 text-sm text-muted-foreground">
-                <span className="tabular-nums">
-                  {l.piezasPesadas}/{l.piezasEsperadas || '—'}
+                <span
+                  className="tabular-nums"
+                  title={`${l.piezasPesadas} de ${l.piezasEsperadas} piezas pesadas`}
+                >
+                  {l.animalesPesados}/{l.animalCount} {l.animalCount === 1 ? 'animal' : 'animales'}
                 </span>
                 {completo && (
                   <span className="font-semibold text-emerald-600">✓</span>
@@ -561,6 +667,7 @@ function CanalesTab({
   detail,
   objetivo,
   onSelectPieza,
+  onPiezaPredeterminada,
   onPiezaSeleccionada,
   onAlerta,
 }: {
@@ -568,6 +675,7 @@ function CanalesTab({
   detail: CanalLoteDetail | undefined;
   objetivo: { animal: CanalAnimal; pieza: CanalPiezaTipo | null } | null;
   onSelectPieza: (eventoId: string, pieza: CanalPiezaTipo) => void;
+  onPiezaPredeterminada: (pieza: CanalPiezaTipo) => void;
   onPiezaSeleccionada: () => void;
   onAlerta: (texto: string) => void;
 }) {
@@ -601,7 +709,7 @@ function CanalesTab({
 
   function elegir(pieza: CanalPiezaTipo) {
     if (incompleto) {
-      const cod = codigoAnimal(incompleto.sequence);
+      const cod = String(incompleto.consecutivo);
       const pesada = incompleto.piezas.find((p) => p.pesado)!;
       const falta = incompleto.piezas.find((p) => !p.pesado)!;
       if (pieza !== falta.pieza) {
@@ -625,6 +733,8 @@ function CanalesTab({
       return;
     }
     onSelectPieza(destino.eventoId, pieza);
+    // Queda como pieza predeterminada para los siguientes animales.
+    onPiezaPredeterminada(pieza);
     if (PANEL_TIPO[pieza] !== destino.canalTipo) {
       setTipo.mutate(
         { eventoId: destino.eventoId, tipo: PANEL_TIPO[pieza] },
@@ -662,7 +772,7 @@ function CanalesTab({
                   : 'border-border bg-card hover:bg-muted/50',
               )}
             >
-              {codigoAnimal(a.sequence)}
+              {a.consecutivo}
             </button>
           ))}
         </div>
@@ -674,7 +784,7 @@ function CanalesTab({
           <>
             Animal{' '}
             <span className="font-bold text-foreground">
-              {codigoAnimal(incompleto.sequence)}
+              {incompleto.consecutivo}
             </span>{' '}
             — Falta la{' '}
             <span className="font-bold text-foreground">
@@ -685,7 +795,7 @@ function CanalesTab({
           <>
             Animal{' '}
             <span className="font-bold text-foreground">
-              {codigoAnimal(animal.sequence)}
+              {animal.consecutivo}
             </span>{' '}
             — Toca un recuadro para elegir el tipo de canal.
           </>
@@ -693,7 +803,7 @@ function CanalesTab({
           <>
             Animal{' '}
             <span className="font-bold text-foreground">
-              {codigoAnimal(animal.sequence)}
+              {animal.consecutivo}
             </span>{' '}
             — Orden{' '}
             <span className="font-bold text-foreground">{detail.reference}</span>
@@ -746,6 +856,11 @@ function AnimalesTab({
   date,
   detail,
   objetivoAnimal,
+  onElegirAnimal,
+  predeterminado,
+  onPredeterminado,
+  scrollRef,
+  onScroll,
   imprimiendo,
   setImprimiendo,
   ultimoPresinto,
@@ -757,6 +872,11 @@ function AnimalesTab({
   date: string;
   detail: CanalLoteDetail | undefined;
   objetivoAnimal: CanalAnimal | null;
+  onElegirAnimal: (eventoId: string) => void;
+  predeterminado: ClasificacionPredeterminada;
+  onPredeterminado: (cambio: Partial<ClasificacionPredeterminada>) => void;
+  scrollRef: React.RefObject<HTMLDivElement | null>;
+  onScroll: (dir: 1 | -1) => void;
   imprimiendo: boolean;
   setImprimiendo: (v: boolean) => void;
   ultimoPresinto: PresintoTicketData | null;
@@ -782,19 +902,43 @@ function AnimalesTab({
 
   const eventoId = objetivoAnimal?.eventoId ?? null;
 
-  // Los campos se editan localmente y solo se guardan al presionar "Guardar
-  // clasificación": se recargan desde el animal cada vez que se cambia de
-  // animal, para no arrastrar lo que se estaba editando de otro.
+  // Al cambiar de animal (o volver a esta pestaña) los campos se cargan con
+  // lo guardado del animal; lo que no tenga se toma de la última
+  // clasificación escogida (predeterminada). Las observaciones son de cada
+  // animal y no se repiten.
   useEffect(() => {
-    setTipoLocal(objetivoAnimal?.canalAnimalTipo ?? '');
-    setExpendio(objetivoAnimal?.expendio ?? '');
-    setBodega('');
-    setCava('');
-    setDestino('');
+    setTipoLocal(objetivoAnimal?.canalAnimalTipo ?? predeterminado.tipo ?? '');
+    setExpendio(objetivoAnimal?.expendio ?? predeterminado.expendio ?? '');
+    setBodega(
+      predeterminado.bodega && predeterminado.bodega.cliente === detail?.cliente
+        ? predeterminado.bodega.valor
+        : '',
+    );
+    setCava(predeterminado.cava ?? '');
+    setDestino(predeterminado.destino ?? '');
     setObservaciones('');
     setCavaError(null);
     setGuardadoOk(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [eventoId]);
+
+  // Cada elección del operario queda como predeterminada para los siguientes.
+  const cambiarExpendio = (v: string) => {
+    setExpendio(v);
+    onPredeterminado({ expendio: v });
+  };
+  const cambiarBodega = (v: string) => {
+    setBodega(v);
+    if (detail) onPredeterminado({ bodega: { cliente: detail.cliente, valor: v } });
+  };
+  const cambiarCava = (v: string) => {
+    setCava(v);
+    onPredeterminado({ cava: v });
+  };
+  const cambiarDestino = (v: string) => {
+    setDestino(v);
+    onPredeterminado({ destino: v });
+  };
 
   // La segunda mitad de una media canal queda obligada al tipo que ya se le dio a la primera.
   const tipoBloqueado =
@@ -811,11 +955,12 @@ function AnimalesTab({
   function elegirTipo(t: CanalAnimalTipo) {
     if (tipoBloqueado && t !== tipoBloqueado) {
       onAlerta(
-        `La otra mitad del animal ${codigoAnimal(objetivoAnimal!.sequence)} ya se marcó como ${CANAL_ANIMAL_TIPO_LABEL[tipoBloqueado]}: esta mitad debe ser igual.`,
+        `La otra mitad del animal ${objetivoAnimal!.consecutivo} ya se marcó como ${CANAL_ANIMAL_TIPO_LABEL[tipoBloqueado]}: esta mitad debe ser igual.`,
       );
       return;
     }
     setTipoLocal(t);
+    onPredeterminado({ tipo: t });
   }
 
   /** Guarda tipo/expendio/bodega/cava; onDone se llama solo si todo salió bien.
@@ -922,155 +1067,186 @@ function AnimalesTab({
     });
   });
 
-  if (!detail || !objetivoAnimal) {
-    return (
-      <Empty text="Selecciona una orden en la pestaña ORDENES para clasificar sus animales." />
-    );
-  }
+  const tiposGrupos: CanalAnimalTipo[][] = [
+    ['vaca', 'novilla'],
+    ['toro', 'novillo'],
+    ['bufala', 'bufalo'],
+  ];
+  const ocupado = clasificar.isPending || clasificarPieza.isPending;
+
+  // Solo los animales con algo pendiente: los ya pesados (presinto impreso)
+  // salen de la cuadrícula para que no se vuelvan a escoger.
+  const pendientesGrid = detail?.animales.filter((a) => !animalTerminado(a)) ?? [];
 
   return (
-    <div className="flex h-full flex-col gap-4">
-      <div className="flex flex-1 flex-col gap-4 p-4">
-      <div>
-        <p className="mb-2 text-sm font-semibold text-muted-foreground">
-          Tipos:
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          {(['vaca', 'novilla'] as CanalAnimalTipo[]).map((t) => (
-            <TipoButton
-              key={t}
-              tipo={t}
-              activo={tipo === t}
-              bloqueado={!!tipoBloqueado && t !== tipoBloqueado}
-              onClick={() => elegirTipo(t)}
-            />
-          ))}
-          <div className="w-4" />
-          {(['toro', 'novillo'] as CanalAnimalTipo[]).map((t) => (
-            <TipoButton
-              key={t}
-              tipo={t}
-              activo={tipo === t}
-              bloqueado={!!tipoBloqueado && t !== tipoBloqueado}
-              onClick={() => elegirTipo(t)}
-            />
-          ))}
-          <div className="w-4" />
-          {(['bufala', 'bufalo'] as CanalAnimalTipo[]).map((t) => (
-            <TipoButton
-              key={t}
-              tipo={t}
-              activo={tipo === t}
-              bloqueado={!!tipoBloqueado && t !== tipoBloqueado}
-              onClick={() => elegirTipo(t)}
-            />
-          ))}
-        </div>
-      </div>
-
-      <FieldBox label="Expendio:" className="max-w-xs">
-        <input
-          value={expendio}
-          onChange={(e) => setExpendio(e.target.value)}
-          placeholder="Ej: PIPO F"
-          className="h-9 w-full bg-transparent text-base font-medium outline-none"
-        />
-      </FieldBox>
-
-      <fieldset
-        disabled={!eventoId}
-        className="contents disabled:opacity-40"
+    <>
+      {/* Cuadrícula de animales pendientes de la orden (consecutivo del día). */}
+      <div
+        ref={scrollRef}
+        className="min-h-0 flex-1 overflow-auto rounded-sm border-2 border-border bg-card"
       >
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <FieldBox label="Bodegas:">
-            <BodegaField clienteNombre={detail?.cliente} value={bodega} onChange={setBodega} />
-          </FieldBox>
-          <FieldBox label="Destino:">
-            <textarea
-              value={destino}
-              onChange={(e) => setDestino(e.target.value)}
-              rows={1}
-              className="w-full resize-none bg-transparent text-base outline-none"
-            />
-          </FieldBox>
-        </div>
-
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <div>
-            <p className="mb-2 text-sm font-semibold text-muted-foreground">
-              Cavas de Canales:
-            </p>
-            <div className="flex flex-wrap gap-2">
-              {CAVAS.map((c) => (
+        {!detail || !pendientesGrid.length ? (
+          <Empty
+            text={
+              !detail
+                ? 'Selecciona una orden en la pestaña ORDENES para clasificar sus animales.'
+                : detail.animales.length
+                  ? 'Todos los animales de esta orden ya están pesados.'
+                  : 'Esta orden aún no tiene animales sacrificados.'
+            }
+          />
+        ) : (
+          <div className="grid grid-cols-4 gap-2 p-2 sm:grid-cols-6 lg:grid-cols-8">
+            {pendientesGrid.map((a) => {
+              const activo = a.eventoId === eventoId;
+              const pesadas = a.piezas.filter((p) => p.pesado).length;
+              return (
                 <button
-                  key={c}
+                  key={a.eventoId}
                   type="button"
-                  onClick={() => setCava(c)}
+                  onClick={() => onElegirAnimal(a.eventoId)}
+                  aria-pressed={activo}
+                  title={`Animal ${a.consecutivo}`}
                   className={cn(
-                    'rounded-sm border-2 px-3 py-2 text-sm font-semibold uppercase',
-                    cava === c
-                      ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
-                      : 'border-border bg-card hover:bg-muted',
+                    'flex h-14 flex-col items-center justify-center rounded-sm border-2 leading-tight transition-colors',
+                    activo
+                      ? 'border-emerald-600 bg-emerald-500 text-white ring-2 ring-emerald-300'
+                      : 'border-border bg-card text-foreground hover:bg-muted',
                   )}
                 >
-                  {c}
+                  <span className="text-2xl font-bold tabular-nums">{a.consecutivo}</span>
+                  <span
+                    className={cn(
+                      'text-[11px] font-medium tabular-nums',
+                      activo ? 'text-white/90' : 'text-muted-foreground',
+                    )}
+                  >
+                    {a.piezas.length > 1 && pesadas > 0 ? `${pesadas}/${a.piezas.length}` : '\u00a0'}
+                  </span>
                 </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      <BotonesScroll onScroll={onScroll} />
+
+      {/* Panel de clasificación fijo (Tipos · Bodegas/Destino · Cavas/Observaciones). */}
+      {detail && objetivoAnimal && (
+        <fieldset
+          disabled={!eventoId}
+          className="shrink-0 space-y-3 rounded-sm border-2 border-border bg-card px-3 pb-3 pt-2 disabled:opacity-40"
+        >
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <span className="text-sm font-semibold text-muted-foreground">Tipos:</span>
+            <div className="flex flex-1 flex-wrap items-center justify-between gap-2">
+              {tiposGrupos.map((grupo) => (
+                <div key={grupo.join('-')} className="flex gap-2">
+                  {grupo.map((t) => (
+                    <TipoButton
+                      key={t}
+                      tipo={t}
+                      activo={tipo === t}
+                      bloqueado={!!tipoBloqueado && t !== tipoBloqueado}
+                      onClick={() => elegirTipo(t)}
+                    />
+                  ))}
+                </div>
               ))}
             </div>
           </div>
-          <FieldBox label="Observaciones:" className="relative">
-            <textarea
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              rows={1}
-              className="w-full resize-none bg-transparent pr-10 text-base outline-none"
-            />
-            <Lock className="absolute right-2 top-1 size-5 text-muted-foreground" />
-          </FieldBox>
-        </div>
-      </fieldset>
 
-      <FieldBox label="Último precinto:" className="max-w-xs">
-        <button
-          type="button"
-          disabled={!ultimoPresinto || imprimiendo}
-          onClick={reimprimirUltimo}
-          title="Volver a imprimir este presinto"
-          className="flex h-9 w-full items-center justify-between gap-2 bg-transparent text-left text-base font-semibold tabular-nums outline-none disabled:cursor-not-allowed disabled:text-muted-foreground"
-        >
-          {ultimoPresinto ? codigoBarras(ultimoPresinto) : '—'}
-          <Printer className="size-4 shrink-0 text-muted-foreground" />
-        </button>
-      </FieldBox>
+          <div className="grid grid-cols-1 gap-4 pt-1 sm:grid-cols-2">
+            <FieldBox label="Bodegas:">
+              <BodegaField clienteNombre={detail.cliente} value={bodega} onChange={cambiarBodega} />
+            </FieldBox>
+            <FieldBox label="Destino:">
+              <input
+                value={destino}
+                onChange={(e) => cambiarDestino(e.target.value)}
+                className="h-9 w-full bg-transparent text-xl font-bold uppercase outline-none"
+              />
+            </FieldBox>
+          </div>
 
-      <div className="flex items-center gap-3">
-        <p className="text-xs text-muted-foreground">
-          {clasificar.isPending || clasificarPieza.isPending
-            ? 'Guardando…'
-            : 'Usa el botón de etiqueta del pie para guardar la clasificación.'}
-        </p>
-        {cavaError && (
-          <p className="text-sm font-medium text-red-600">{cavaError}</p>
-        )}
-        {printError && (
-          <p className="text-sm font-medium text-amber-600">{printError}</p>
-        )}
-        {printOk && (
-          <p className="text-sm font-medium text-emerald-600">{printOk}</p>
-        )}
-        {imprimiendo && (
-          <p className="flex items-center gap-1 text-sm font-medium text-muted-foreground">
-            <LoaderCircle className="size-4 animate-spin" /> Imprimiendo…
-          </p>
-        )}
-        {guardadoOk && !cavaError && (
-          <p className="text-sm font-medium text-emerald-600">
-            Clasificación guardada.
-          </p>
-        )}
-      </div>
-      </div>
-    </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div>
+              <p className="mb-1 text-sm font-semibold text-muted-foreground">
+                Cavas de Canales:
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {CAVAS.map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => cambiarCava(c)}
+                    className={cn(
+                      'rounded-sm border-2 px-3 py-2 text-sm font-semibold uppercase',
+                      cava === c
+                        ? 'border-emerald-600 bg-emerald-50 text-emerald-700'
+                        : 'border-border bg-card hover:bg-muted',
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col gap-4 pt-3">
+              <FieldBox label="Observaciones:" className="relative">
+                <input
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                  className="h-8 w-full bg-transparent pr-8 text-base outline-none"
+                />
+                <Lock className="absolute right-2 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+              </FieldBox>
+              <div className="grid grid-cols-2 gap-3">
+                <FieldBox label="Expendio:">
+                  <input
+                    value={expendio}
+                    onChange={(e) => cambiarExpendio(e.target.value)}
+                    placeholder="Ej: PIPO F"
+                    className="h-8 w-full bg-transparent text-base font-medium outline-none placeholder:text-muted-foreground/60"
+                  />
+                </FieldBox>
+                <FieldBox label="Último precinto:">
+                  <button
+                    type="button"
+                    disabled={!ultimoPresinto || imprimiendo}
+                    onClick={reimprimirUltimo}
+                    title="Volver a imprimir este presinto"
+                    className="flex h-8 w-full items-center justify-between gap-2 bg-transparent text-left text-base font-semibold tabular-nums outline-none disabled:cursor-not-allowed disabled:text-muted-foreground"
+                  >
+                    <span className="truncate">{ultimoPresinto ? codigoBarras(ultimoPresinto) : '—'}</span>
+                    <Printer className="size-4 shrink-0 text-muted-foreground" />
+                  </button>
+                </FieldBox>
+              </div>
+            </div>
+          </div>
+
+          {/* Avisos del guardado/impresión (solo cuando hay algo que decir). */}
+          {(ocupado || cavaError || printError || printOk || imprimiendo || guardadoOk) && (
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
+              {ocupado && <span className="text-muted-foreground">Guardando…</span>}
+              {cavaError && <span className="font-medium text-red-600">{cavaError}</span>}
+              {printError && <span className="font-medium text-amber-600">{printError}</span>}
+              {printOk && <span className="font-medium text-emerald-600">{printOk}</span>}
+              {imprimiendo && (
+                <span className="flex items-center gap-1 font-medium text-muted-foreground">
+                  <LoaderCircle className="size-4 animate-spin" /> Imprimiendo…
+                </span>
+              )}
+              {guardadoOk && !cavaError && (
+                <span className="font-medium text-emerald-600">Clasificación guardada.</span>
+              )}
+            </div>
+          )}
+        </fieldset>
+      )}
+    </>
   );
 }
 
@@ -1182,7 +1358,6 @@ function ReporteTab({ date }: { date: string }) {
           <table className="w-full text-sm">
               <thead className="sticky top-0 bg-muted/60 text-left">
                 <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
-                  <th>Animal</th>
                   <th>Turno</th>
                   <th>Barcode</th>
                   <th className="text-right">Cant.(kg)</th>
@@ -1201,10 +1376,7 @@ function ReporteTab({ date }: { date: string }) {
                       seleccion === p.piezaId ? 'bg-blue-600 text-white' : 'hover:bg-muted/50',
                     )}
                   >
-                    <td className="font-semibold tabular-nums">
-                      {codigoAnimal(p.sequence)}
-                    </td>
-                    <td className="tabular-nums">{p.turno ?? '—'}</td>
+                    <td className="font-semibold tabular-nums">{p.turno ?? p.consecutivo}</td>
                     <td className="tabular-nums">
                       {p.canalTipo
                         ? codigoBarras({
@@ -1350,9 +1522,15 @@ function FooterBascula({
   }
 
   const piezaLabel = objetivo?.pieza ? PIEZA_LABEL[objetivo.pieza] : '—';
-  const animalNo = objetivo ? codigoAnimal(objetivo.animal.sequence) : '—';
+  const animalNo = objetivo ? String(objetivo.animal.consecutivo) : '—';
   const osNo = detail ? formatOB(detail.reference) : '—';
-  const sinTipo = !!objetivo && !objetivo.pieza;
+  const sinPieza = !!objetivo && !objetivo.pieza;
+  const animalPesado =
+    sinPieza &&
+    objetivo.animal.piezas.length > 0 &&
+    objetivo.animal.piezas.every((p) => p.pesado);
+  const sinTipo = sinPieza && !objetivo.animal.canalTipo;
+  const elegirMitad = sinPieza && !animalPesado && !sinTipo;
   const completo = !!detail && !objetivo;
 
   return (
@@ -1419,7 +1597,7 @@ function FooterBascula({
         )}
       </button>
 
-      {(error || sinTipo || completo) && (
+      {(error || sinPieza || completo) && (
         <div className="w-full">
           {error && (
             <p className="text-xs font-medium text-red-600">{error}</p>
@@ -1427,6 +1605,16 @@ function FooterBascula({
           {sinTipo && (
             <p className="text-xs font-medium text-amber-600">
               Selecciona el tipo de canal de este animal para empezar a pesar.
+            </p>
+          )}
+          {elegirMitad && (
+            <p className="text-xs font-medium text-amber-600">
+              Escoge en CANALES / CUARTOS qué mitad (CIZQ o CDER) vas a pesar.
+            </p>
+          )}
+          {animalPesado && (
+            <p className="text-xs font-medium text-emerald-600">
+              El animal {animalNo} ya tiene todas sus piezas pesadas.
             </p>
           )}
           {completo && (

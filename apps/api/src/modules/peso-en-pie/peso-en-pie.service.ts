@@ -82,7 +82,7 @@ export class PesoEnPieService {
 
   /**
    * Vista previa del BP de una guía y del consecutivo del próximo animal
-   * (A01, A02…), con la misma regla que `create`, para que el operario pueda
+   * (1, 2…), con la misma regla que `create`, para que el operario pueda
    * marcar el animal antes de pesarlo. Si la guía es nueva, el BP es una
    * estimación que se confirma al guardar el primer animal.
    */
@@ -388,6 +388,34 @@ export class PesoEnPieService {
         `El total en pie (${total.toFixed(2)} kg) superaría el neto de báscula camión (${neto.toFixed(2)} kg). Disponible: ${Math.max(neto - (total - p.pesoKg), 0).toFixed(2)} kg.`,
       );
     }
+  }
+
+  /**
+   * Borra un animal registrado por error. Solo mientras la guía sigue abierta
+   * en Peso en Pie (animal pendiente). Se borra en firme para que su número
+   * (A0n) pueda volver a usarse sin chocar con la restricción única
+   * (planta, BP, referencia); los demás animales conservan su número.
+   */
+  async remove(ctx: AuthContext, id: string) {
+    const existing = await this.prisma.pesoEnPie.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+      include: {
+        insensibilizacion: { select: { id: true } },
+        _count: { select: { repesajes: true } },
+      },
+    });
+    if (!existing) throw new NotFoundException('Animal no encontrado.');
+    if (
+      existing.status !== PesoEnPieStatus.pendiente ||
+      existing.insensibilizacion ||
+      existing._count.repesajes > 0
+    ) {
+      throw new BadRequestException(
+        'La guía de este animal ya se cerró en Peso en Pie; no se puede borrar.',
+      );
+    }
+    await this.prisma.pesoEnPie.delete({ where: { id } });
+    return { id, bpReference: existing.bpReference, reference: existing.reference };
   }
 
   async findAll(ctx: AuthContext, status?: PesoEnPieStatus) {
@@ -710,7 +738,7 @@ export class PesoEnPieService {
 
   /**
    * Registra el repesaje de un animal en la ronda en curso. Los animales se
-   * repesan en el mismo orden en que se pesaron (A01, A02…). Guarda el peso
+   * repesan en el mismo orden en que se pesaron (1, 2…). Guarda el peso
    * anterior, el nuevo y la merma, y deja el nuevo peso como el vigente.
    */
   async repesarAnimal(ctx: AuthContext, pesoEnPieId: string, pesoKg: number) {
@@ -752,7 +780,7 @@ export class PesoEnPieService {
       }
       if (siguiente.id !== pesoEnPieId) {
         throw new BadRequestException(
-          `Los animales se repesan en orden: sigue el animal A${String(siguiente.reference).padStart(2, '0')}.`,
+          `Los animales se repesan en orden: sigue el animal ${siguiente.reference}.`,
         );
       }
 

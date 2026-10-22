@@ -214,6 +214,37 @@ export class PesoCamionService {
     return this.toDto(rec);
   }
 
+  /**
+   * Borra una guía abierta digitada por error. No se permite si ya tiene
+   * animales pesados en Peso en Pie (quedarían sin guía). Se borra en firme
+   * (no con deletedAt) para que la referencia pueda volver a usarse sin
+   * chocar con la restricción única (planta, fecha, referencia).
+   */
+  async remove(ctx: AuthContext, id: string) {
+    const existing = await this.prisma.pesoCamion.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+    });
+    if (!existing) throw new NotFoundException('Guía no encontrada.');
+    if (existing.status !== PesoCamionStatus.abierta) {
+      throw new BadRequestException('Solo se pueden borrar guías abiertas.');
+    }
+    const guia = existing.guia?.trim();
+    if (guia || existing.pieStatus === PesoCamionStatus.cerrada) {
+      const animales = guia
+        ? await this.prisma.pesoEnPie.count({
+            where: { plantId: ctx.plantId, date: existing.date, guia, deletedAt: null },
+          })
+        : 0;
+      if (animales > 0 || existing.pieStatus === PesoCamionStatus.cerrada) {
+        throw new BadRequestException(
+          'La guía ya tiene animales pesados en Peso en Pie; no se puede borrar.',
+        );
+      }
+    }
+    await this.prisma.pesoCamion.delete({ where: { id } });
+    return { id, reference: existing.reference };
+  }
+
   async findAll(ctx: AuthContext, status?: PesoCamionStatus, pieStatus?: PesoCamionStatus) {
     const rows = await this.prisma.pesoCamion.findMany({
       where: {

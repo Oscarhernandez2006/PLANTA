@@ -10,9 +10,11 @@ import {
   useOrdenBeneficioCandidates,
   useOrdenBeneficioNextReference,
   useCreateOrdenBeneficio,
+  useDividirOrdenBeneficio,
   formatOB,
   type OrdenBeneficioStatus,
 } from './orden-beneficio-api';
+import { DividirOrdenModal } from './DividirOrdenModal';
 
 export function OrdenBeneficioPage() {
   const todayStr = today();
@@ -78,14 +80,19 @@ function RegistrarOrdenBeneficioForm({
 }) {
   const nextRef = useOrdenBeneficioNextReference(date);
   const crear = useCreateOrdenBeneficio();
+  const dividir = useDividirOrdenBeneficio();
   const [guia, setGuia] = useState('');
   const [status, setStatus] = useState<OrdenBeneficioStatus>('activo');
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
+  // Modal "una orden o dividir": se abre al pulsar Guardar.
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalError, setModalError] = useState<string | null>(null);
 
   const seleccionada = guiasDisponibles.find((g) => g.guia === guia);
+  const guardando = crear.isPending || dividir.isPending;
 
-  async function guardar(e: React.FormEvent) {
+  function guardar(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setOkMsg(null);
@@ -93,14 +100,26 @@ function RegistrarOrdenBeneficioForm({
       setError('Selecciona una guía de movilización.');
       return;
     }
+    setModalError(null);
+    setModalOpen(true);
+  }
+
+  async function confirmar(cantidades: number[]) {
+    if (!seleccionada) return;
+    setModalError(null);
     try {
-      const created = await crear.mutateAsync({
-        cliente: seleccionada.cliente,
-        guia: seleccionada.guia,
-        date,
-        status,
-      });
-      setOkMsg(`Lote ${formatOB(created.reference)} registrado.`);
+      const base = { cliente: seleccionada.cliente, guia: seleccionada.guia, date, status };
+      const creadas =
+        cantidades.length === 1
+          ? [await crear.mutateAsync(base)]
+          : await dividir.mutateAsync({ ...base, cantidades });
+      const refs = creadas.map((o) => formatOB(o.reference));
+      setOkMsg(
+        refs.length === 1
+          ? `Lote ${refs[0]} registrado.`
+          : `${refs.length} lotes registrados: ${refs.join(', ')}.`,
+      );
+      setModalOpen(false);
       setGuia('');
       setStatus('activo');
       void nextRef.refetch();
@@ -109,7 +128,7 @@ function RegistrarOrdenBeneficioForm({
       const detail = (
         err as { response?: { data?: { message?: string | string[] } } }
       ).response?.data?.message;
-      setError(
+      setModalError(
         Array.isArray(detail) ? detail.join(' ') : detail || 'No se pudo crear el lote.',
       );
     }
@@ -211,8 +230,8 @@ function RegistrarOrdenBeneficioForm({
 
           {seleccionada && (
             <p className="text-sm text-muted-foreground">
-              Se asignarán los {seleccionada.disponibles} animales disponibles
-              de esta guía al nuevo lote.
+              La guía tiene {seleccionada.disponibles} animales disponibles. Al
+              guardar podrás crear una sola orden o dividirlos en varias.
             </p>
           )}
           {error && (
@@ -231,13 +250,26 @@ function RegistrarOrdenBeneficioForm({
               type="submit"
               size="lg"
               className="h-9 px-8"
-              disabled={!seleccionada || crear.isPending}
+              disabled={!seleccionada || guardando}
             >
               <Save className="size-5" />
-              {crear.isPending ? 'Guardando…' : 'Guardar'}
+              {guardando ? 'Guardando…' : 'Guardar'}
             </Button>
           </div>
         </form>
+        {seleccionada && (
+          <DividirOrdenModal
+            open={modalOpen}
+            onClose={() => setModalOpen(false)}
+            guia={seleccionada.guia}
+            cliente={seleccionada.cliente}
+            disponibles={seleccionada.disponibles}
+            primeraReferencia={nextRef.data?.next ?? null}
+            guardando={guardando}
+            error={modalError}
+            onConfirm={confirmar}
+          />
+        )}
       </CardContent>
     </Card>
   );
