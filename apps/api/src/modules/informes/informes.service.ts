@@ -17,6 +17,8 @@ const PRODUCTO_POR_PIEZA: Record<CanalPiezaTipo, { codigo: string; nombre: strin
 };
 
 const ORDEN_PIEZA: Record<CanalPiezaTipo, number> = { canal: 0, cizq: 1, cder: 2 };
+/** Sebo por res para el informe de sacrificio (no se pesa en planta). */
+const SEBO_KG_POR_RES = 7;
 
 /** Producto terminado del informe de producción (siempre el mismo). */
 const PRODUCTO_TERMINADO = { codigo: '18000', nombre: 'POSTAS DE RES' };
@@ -371,11 +373,13 @@ export class InformesService {
   }
 
   /**
-   * Detalle por animal: peso en pie (PEP), turno, peso en caliente (PEC),
-   * piel y rendimiento (PEC ÷ PEP). El PEP es el peso individual del animal
-   * en Peso en Pie: el animal N de la orden es el N de su guía; si la guía se
-   * repartió en varias órdenes del día, se desplaza por los animales de las
-   * órdenes anteriores de esa guía.
+   * REPORTE BENEFICIO DE ANIMALES de una orden: guías con su proveedor y
+   * procedencia, y por animal la guía, la referencia del ganado/finca, el
+   * tipo, el código del precinto, el turno, PEP, PEC, piel, rendimiento y la
+   * logística de Canal Caliente (observación, cava y destino). El PEP es el
+   * peso individual del animal en Peso en Pie: el animal N de la orden es el N
+   * de su guía; si la guía se repartió en varias órdenes del día, se desplaza
+   * por los animales de las órdenes anteriores de esa guía.
    */
   async sacrificioDetalle(ctx: AuthContext, ordenId: string) {
     const orden = await this.prisma.ordenBeneficio.findFirst({
@@ -395,16 +399,28 @@ export class InformesService {
             stunnedAt: true,
             pesoPielKg: true,
             canalAnimalTipo: true,
-            canalPiezas: { select: { pesoKg: true } },
+            canalTipo: true,
+            conCola: true,
+            canalPiezas: {
+              select: {
+                pieza: true,
+                pesoKg: true,
+                turno: true,
+                cava: true,
+                destino: true,
+                observaciones: true,
+              },
+            },
           },
         },
       },
     });
     if (!orden) throw new NotFoundException('Orden no encontrada.');
 
-    // Solo se cruza con Peso en Pie si la orden tiene una única guía.
-    const guia = orden.guias.length === 1 ? orden.guias[0].trim() : null;
-    const [previas, animalesPie, camion, delDia, cliente] = await Promise.all([
+    const guias = orden.guias.map((g) => g.trim()).filter(Boolean);
+    // Solo se cruza animal por animal con Peso en Pie si la orden tiene una única guía.
+    const guia = guias.length === 1 ? guias[0] : null;
+    const [previas, animalesPie, camiones, delDia, cliente] = await Promise.all([
       guia
         ? this.prisma.ordenBeneficio.aggregate({
             _sum: { animalCount: true },
@@ -423,12 +439,13 @@ export class InformesService {
             select: { reference: true, pesoTotalKg: true, tipoAnimal: true, procedencia: true },
           })
         : [],
-      guia
-        ? this.prisma.pesoCamion.findFirst({
-            where: { plantId: ctx.plantId, deletedAt: null, date: orden.date, guia },
-            select: { procedencia: true },
+      guias.length
+        ? this.prisma.pesoCamion.findMany({
+            where: { plantId: ctx.plantId, deletedAt: null, guia: { in: guias } },
+            orderBy: { reference: 'asc' },
+            select: { guia: true, proveedor: true, procedencia: true, referenciaLote: true },
           })
-        : null,
+        : [],
       // Consecutivo (turno) del día: animales de las órdenes previas del mismo día.
       this.prisma.ordenBeneficio.findMany({
         where: { plantId: ctx.plantId, deletedAt: null, date: orden.date },
@@ -441,6 +458,41 @@ export class InformesService {
       }),
     ]);
 
+    // Código de proveedor (NIT) y de procedencia (RSPP) para el bloque de guías.
+    const nombresProveedor = [...new Set(camiones.map((c) => c.proveedor).filter((x): x is string => !!x))];
+    const nombresProcedencia = [...new Set(camiones.map((c) => c.procedencia).filter((x): x is string => !!x))];
+    const [proveedores, procedencias] = await Promise.all([
+      nombresProveedor.length
+        ? this.prisma.proveedor.findMany({
+            where: { concepto: { in: nombresProveedor } },
+            select: { concepto: true, nit: true, code: true },
+          })
+        : [],
+      nombresProcedencia.length
+        ? this.prisma.procedencia.findMany({
+            where: { concepto: { in: nombresProcedencia } },
+            select: { concepto: true, rspp: true, nit: true, code: true },
+          })
+        : [],
+    ]);
+    const codProveedor = new Map(proveedores.map((p) => [p.concepto, p.nit || String(p.code)]));
+    const codProcedencia = new Map(procedencias.map((p) => [p.concepto, p.rspp || p.nit || String(p.code)]));
+    const conCodigo = (nombre: string | null, codigo?: string) =>
+      nombre ? (codigo ? `${codigo} - ${nombre}` : nombre) : null;
+    const camionPorGuia = new Map(camiones.map((c) => [c.guia?.trim() ?? '', c]));
+    const guiasDetalle = guias.map((g) => {
+      const c = camionPorGuia.get(g);
+      return {
+        guia: g,
+        referencia: c?.referenciaLote ?? null,
+        proveedor: conCodigo(c?.proveedor ?? null, c?.proveedor ? codProveedor.get(c.proveedor) : undefined),
+        procedencia: conCodigo(
+          c?.procedencia ?? null,
+          c?.procedencia ? codProcedencia.get(c.procedencia) : undefined,
+        ),
+      };
+    });
+
     const desfase = previas?._sum.animalCount ?? 0;
     const piePorReferencia = new Map(animalesPie.map((a) => [a.reference, a]));
     let base = 0;
@@ -448,24 +500,33 @@ export class InformesService {
       if (o.id === orden.id) break;
       base += o.animalCount;
     }
-    const finca = camion?.procedencia ?? animalesPie[0]?.procedencia ?? null;
+    const finca = camiones[0]?.procedencia ?? animalesPie[0]?.procedencia ?? null;
     const r1 = (n: number) => Math.round(n * 100) / 100;
+    const unicos = (vals: (string | null)[]) =>
+      [...new Set(vals.map((v) => v?.trim()).filter(Boolean))].join(' / ') || null;
 
     const animales = orden.eventos.map((e) => {
       const pie = piePorReferencia.get(desfase + e.sequence);
       const pepKg = pie?.pesoTotalKg == null ? null : Number(pie.pesoTotalKg);
-      const pecKg = e.canalPiezas.length
-        ? r1(e.canalPiezas.reduce((s, p) => s + Number(p.pesoKg), 0))
-        : null;
+      const piezas = [...e.canalPiezas].sort((a, b) => ORDEN_PIEZA[a.pieza] - ORDEN_PIEZA[b.pieza]);
+      const pecKg = piezas.length ? r1(piezas.reduce((s, p) => s + Number(p.pesoKg), 0)) : null;
       return {
         sequence: e.sequence,
         turno: base + e.sequence,
+        guia: guia ?? (guias.join(', ') || null),
+        referencia: guia ? camionPorGuia.get(guia)?.referenciaLote ?? null : null,
         tipo: e.canalAnimalTipo?.toUpperCase() ?? pie?.tipoAnimal ?? null,
+        canalAnimalTipo: e.canalAnimalTipo,
+        canalTipo: e.canalTipo,
+        piezas: piezas.map((p) => ({ pieza: p.pieza, turno: p.turno })),
         stunnedAt: e.stunnedAt.toISOString(),
         pepKg,
         pecKg,
         pielKg: e.pesoPielKg == null ? null : Number(e.pesoPielKg),
         rendimiento: pepKg && pecKg != null ? r1((pecKg / pepKg) * 100) : null,
+        observacion: unicos(piezas.map((p) => p.observaciones)),
+        ubicacion: unicos(piezas.map((p) => p.cava)),
+        destino: unicos(piezas.map((p) => p.destino)),
       };
     });
 
@@ -475,6 +536,7 @@ export class InformesService {
     const conAmbos = animales.filter((a) => a.pepKg && a.pecKg != null);
     const pepAmbos = conAmbos.reduce((s, a) => s + a.pepKg!, 0);
     const pecAmbos = conAmbos.reduce((s, a) => s + a.pecKg!, 0);
+    const pecKg = suma('pecKg');
 
     return {
       id: orden.id,
@@ -484,14 +546,18 @@ export class InformesService {
       cliente: orden.cliente,
       clienteNit: cliente?.nit ?? null,
       guias: orden.guias,
+      guiasDetalle,
       finca,
       animalCount: orden.animalCount,
       animales,
       totales: {
         animales: animales.length,
         pepKg: suma('pepKg'),
-        pecKg: suma('pecKg'),
+        pecKg,
         pielKg: suma('pielKg'),
+        // No se pesa en planta: 7 kg por res, como en la hoja de retomas.
+        seboKg: animales.length * SEBO_KG_POR_RES,
+        promedioKg: animales.length ? r1(pecKg / animales.length) : null,
         rendimiento: pepAmbos > 0 ? r1((pecAmbos / pepAmbos) * 100) : null,
       },
     };

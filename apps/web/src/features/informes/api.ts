@@ -125,7 +125,13 @@ export interface InformeSacrificioRow {
 export interface SacrificioAnimal {
   sequence: number;
   turno: number;
+  guia: string | null;
+  /** Referencia del ganado/finca digitada en Peso en Camión. */
+  referencia: string | null;
   tipo: string | null;
+  canalAnimalTipo: CanalAnimalTipo | null;
+  canalTipo: CanalTipo | null;
+  piezas: { pieza: CanalPiezaTipo; turno: number | null }[];
   stunnedAt: string;
   /** Peso en pie (kg). */
   pepKg: number | null;
@@ -134,6 +140,10 @@ export interface SacrificioAnimal {
   pielKg: number | null;
   /** PEC ÷ PEP × 100. */
   rendimiento: number | null;
+  observacion: string | null;
+  /** Cava de Canal Caliente. */
+  ubicacion: string | null;
+  destino: string | null;
 }
 
 export interface DetalleSacrificio {
@@ -144,6 +154,8 @@ export interface DetalleSacrificio {
   cliente: string;
   clienteNit: string | null;
   guias: string[];
+  /** Guías de movilización con su proveedor y procedencia (código - nombre). */
+  guiasDetalle: { guia: string; referencia: string | null; proveedor: string | null; procedencia: string | null }[];
   finca: string | null;
   animalCount: number;
   animales: SacrificioAnimal[];
@@ -152,6 +164,8 @@ export interface DetalleSacrificio {
     pepKg: number;
     pecKg: number;
     pielKg: number;
+    seboKg: number;
+    promedioKg: number | null;
     rendimiento: number | null;
   };
 }

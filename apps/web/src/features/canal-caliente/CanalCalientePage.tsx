@@ -407,7 +407,12 @@ export function CanalCalientePage() {
                 onAlerta={mostrarAlerta}
               />
             )}
-            {tab === 'reporte' && <ReporteTab date={date} />}
+            {tab === 'reporte' && (
+              <ReporteTab
+                date={date}
+                orden={selectedLote ? { reference: selectedLote.reference, date: selectedLote.date } : null}
+              />
+            )}
           </div>
           <BotonesScroll onScroll={scrollList} />
         </>
@@ -1289,19 +1294,34 @@ function TipoButton({
   );
 }
 
-function ReporteTab({ date }: { date: string }) {
+function ReporteTab({
+  date,
+  orden,
+}: {
+  date: string;
+  /** Orden seleccionada: el reporte y la reimpresión se limitan a ella. */
+  orden: { reference: number; date: string } | null;
+}) {
   const piezas = useCanalPiezas(date);
-  // Precinto seleccionado (azul) para reimprimir solo ese; sin selección se reimprimen todos.
+  // Precinto seleccionado (azul) para reimprimir solo ese; sin selección se reimprimen todos los de la lista.
   const [seleccion, setSeleccion] = useState<string | null>(null);
   const [reimprimiendo, setReimprimiendo] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   // El reporte va en orden consecutivo (A01, A02…); en media canal, CIZQ antes que CDER.
   const ordenPieza: Record<string, number> = { canal: 0, cizq: 1, cder: 2 };
-  const rows = [...(piezas.data ?? [])].sort(
-    (a, b) =>
-      a.consecutivo - b.consecutivo ||
-      (ordenPieza[a.pieza] ?? 9) - (ordenPieza[b.pieza] ?? 9),
-  );
+  const rows = [...(piezas.data ?? [])]
+    .filter((p) => !orden || (p.reference === orden.reference && p.date === orden.date))
+    .sort(
+      (a, b) =>
+        a.consecutivo - b.consecutivo ||
+        (ordenPieza[a.pieza] ?? 9) - (ordenPieza[b.pieza] ?? 9),
+    );
+
+  // Al cambiar de orden se limpia la selección y el último resultado.
+  useEffect(() => {
+    setSeleccion(null);
+    setResultado(null);
+  }, [orden?.reference, orden?.date]);
 
   /**
    * Reimprime en RAW (sin diálogo) el precinto seleccionado o, si no hay, todos,
@@ -1364,7 +1384,7 @@ function ReporteTab({ date }: { date: string }) {
     <div className="flex h-full flex-col p-2">
       <div className="flex-1 overflow-auto">
         {!hayDatos ? (
-          <Empty text="Sin datos para el reporte de esta fecha." />
+          <Empty text={orden ? 'Esta orden aún no tiene canales pesadas.' : 'Sin datos para el reporte de esta fecha.'} />
         ) : (
           <table className="w-full text-sm">
               <thead className="sticky top-0 bg-muted/60 text-left">
@@ -1436,7 +1456,9 @@ function ReporteTab({ date }: { date: string }) {
           title={
             seleccion
               ? 'Reimprimir el precinto seleccionado'
-              : 'Reimprimir todos los precintos de la lista'
+              : orden
+                ? 'Reimprimir todos los precintos de esta orden'
+                : 'Reimprimir todos los precintos de la lista'
           }
           className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
         >
@@ -1449,7 +1471,9 @@ function ReporteTab({ date }: { date: string }) {
           title={
             seleccion
               ? 'Reimprimir el precinto de vísceras del animal seleccionado'
-              : 'Reimprimir los precintos de vísceras de todos los animales de la lista'
+              : orden
+                ? 'Reimprimir los precintos de vísceras de todos los animales de esta orden'
+                : 'Reimprimir los precintos de vísceras de todos los animales de la lista'
           }
           className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
         >

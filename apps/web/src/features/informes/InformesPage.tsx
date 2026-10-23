@@ -37,12 +37,17 @@ import {
   type InformeSacrificioRow,
 } from './api';
 import {
-  COLUMNAS_SACRIFICIO,
+  GRUPOS_SACRIFICIO,
   LEYENDA_SACRIFICIO,
+  TIPOS_ANIMAL,
+  clienteTexto,
+  conteoAnimales,
   descargarSacrificioExcel,
   descargarSacrificioPdf,
   filasSacrificio,
+  guiasEncabezado,
   num,
+  tituloSacrificio,
 } from './sacrificio-export';
 import {
   COLUMNAS_ANIMALES,
@@ -856,7 +861,7 @@ function DetalleSacrificioDialog({
     <Dialog
       open
       onClose={onClose}
-      title={`Informe de sacrificio OS No.: ${formatOB(orden.reference)}`}
+      title={`Reporte beneficio de animales orden/lote No. ${formatOB(orden.reference)}`}
       description={`${orden.cliente} · ${orden.date}${d?.finca ? ` · ${d.finca}` : ''}`}
       className="max-w-6xl"
       scrollInterno
@@ -900,41 +905,132 @@ function DetalleSacrificioDialog({
           <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
         ) : (
           <>
+            <table className="w-full border-collapse text-center text-sm">
+              <tbody>
+                <tr>
+                  <td className={cn(cab, 'text-center text-base')} colSpan={3}>
+                    {tituloSacrificio(d)}
+                  </td>
+                </tr>
+                <tr>
+                  <th className={cn(cab, 'w-1/5 text-center')}>Fecha de proceso</th>
+                  <th className={cn(cab, 'text-center')} colSpan={2}>
+                    Cliente
+                  </th>
+                </tr>
+                <tr>
+                  <td className={cel}>{d.date}</td>
+                  <td className={cel} colSpan={2}>
+                    {clienteTexto(d)}
+                  </td>
+                </tr>
+                <tr>
+                  <th className={cn(cab, 'text-center')} colSpan={3}>
+                    Guías de movilización de animales en pie
+                  </th>
+                </tr>
+                <tr>
+                  <th className={cn(cab, 'text-center')}>No.</th>
+                  <th className={cn(cab, 'text-center')}>Proveedor</th>
+                  <th className={cn(cab, 'text-center')}>Procedencia</th>
+                </tr>
+                {guiasEncabezado(d).map((g) => (
+                  <tr key={g.guia}>
+                    <td className={cn(cel, 'tabular-nums')}>{g.guia}</td>
+                    <td className={cel}>{g.proveedor ?? '—'}</td>
+                    <td className={cel}>{g.procedencia ?? '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+
             <div className="overflow-auto rounded-md border border-border">
               <table className="w-full border-collapse text-sm">
                 <thead className="sticky top-0">
                   <tr>
-                    {COLUMNAS_SACRIFICIO.map((c, i) => (
-                      <th key={c} className={cn(cab, i >= 6 && c !== 'TURNO' ? 'text-right' : 'text-left')}>
+                    <th className={cn(cab, 'text-center')} rowSpan={2}>No.</th>
+                    {GRUPOS_SACRIFICIO.slice(0, 3).map((g) => (
+                      <th key={g.titulo} className={cn(cab, 'text-center')} colSpan={g.columnas.length}>
+                        {g.titulo}
+                      </th>
+                    ))}
+                    <th className={cn(cab, 'text-center')} rowSpan={2}>RND(%)</th>
+                    <th className={cn(cab, 'text-center')} colSpan={GRUPOS_SACRIFICIO[3].columnas.length}>
+                      {GRUPOS_SACRIFICIO[3].titulo}
+                    </th>
+                  </tr>
+                  <tr>
+                    {GRUPOS_SACRIFICIO.flatMap((g) => g.columnas).map((c) => (
+                      <th key={c} className={cn(cab, 'text-center')}>
                         {c}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="tabular-nums">
+                <tbody className="text-center tabular-nums">
                   {filas.map((f) => (
                     <tr key={f.turno} className="even:bg-muted/30">
                       <td className={cel}>{f.no}</td>
-                      <td className={cel}>{f.fecha}</td>
-                      <td className={cel}>{f.cliente}</td>
-                      <td className={cel}>{f.finca}</td>
-                      <td className={cel}>{f.lote}</td>
+                      <td className={cel}>{f.guia}</td>
+                      <td className={cel}>{f.ref}</td>
                       <td className={cel}>{f.tipo}</td>
-                      <td className={cn(cel, 'text-right')}>{num(f.pep)}</td>
+                      <td className={cel}>{f.codigo}</td>
                       <td className={cn(cel, 'font-semibold')}>{f.turno}</td>
-                      <td className={cn(cel, 'text-right')}>{num(f.pec)}</td>
+                      <td className={cn(cel, 'text-right')}>{num(f.pep)}</td>
+                      <td className={cn(cel, 'text-right font-semibold')}>{num(f.pec)}</td>
                       <td className={cn(cel, 'text-right')}>{num(f.piel)}</td>
                       <td className={cn(cel, 'text-right font-semibold')}>{num(f.rnd)}</td>
+                      <td className={cel}>{f.observacion}</td>
+                      <td className={cel}>{f.ubicacion}</td>
+                      <td className={cel}>{f.destino}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
 
+            {(() => {
+              const c = conteoAnimales(d);
+              return (
+                <table className="w-full border-collapse text-center text-sm">
+                  <thead>
+                    <tr>
+                      <th className={cn(cab, 'text-center')} colSpan={8}>Animales</th>
+                    </tr>
+                    <tr>
+                      <th className={cn(cab, 'text-center')} colSpan={2}>Sexo</th>
+                      <th className={cn(cab, 'text-center')} colSpan={6}>Tipo</th>
+                    </tr>
+                    <tr>
+                      {['Hembras', 'Machos', ...TIPOS_ANIMAL.map(([, t]) => t)].map((h) => (
+                        <th key={h} className={cn(cab, 'text-center')}>
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="text-base font-bold tabular-nums">
+                      <td className={cel}>{c.hembras}</td>
+                      <td className={cel}>{c.machos}</td>
+                      {TIPOS_ANIMAL.map(([t]) => (
+                        <td key={t} className={cel}>
+                          {c.tipos[t]}
+                        </td>
+                      ))}
+                    </tr>
+                  </tbody>
+                </table>
+              );
+            })()}
+
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
-                  {['Animales', 'PEP(kg)', 'PEC(kg)', 'PIEL(kg)', 'RND(%)'].map((c) => (
+                  <th className={cn(cab, 'text-center')} colSpan={7}>Totales</th>
+                </tr>
+                <tr>
+                  {['Animales', 'PEP(kg)', 'PIEL(kg)', 'SEBO(kg)', 'PEC(kg)', 'PROM(kg)', 'RND(%)'].map((c) => (
                     <th key={c} className={cn(cab, 'text-center')}>
                       {c}
                     </th>
@@ -945,8 +1041,10 @@ function DetalleSacrificioDialog({
                 <tr className="text-center text-base font-bold tabular-nums">
                   <td className={cel}>{d.totales.animales}</td>
                   <td className={cel}>{num(d.totales.pepKg)}</td>
-                  <td className={cel}>{num(d.totales.pecKg)}</td>
                   <td className={cel}>{num(d.totales.pielKg)}</td>
+                  <td className={cel}>{num(d.totales.seboKg)}</td>
+                  <td className={cel}>{num(d.totales.pecKg)}</td>
+                  <td className={cel}>{num(d.totales.promedioKg)}</td>
                   <td className={cel}>{num(d.totales.rendimiento)}</td>
                 </tr>
               </tbody>
