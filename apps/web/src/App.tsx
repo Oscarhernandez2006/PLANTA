@@ -43,6 +43,15 @@ import { ClientesPage } from './features/clientes/ClientesPage';
 import { ConservacionPage } from './features/conservacion/ConservacionPage';
 import { PiezasDespostePage } from './features/piezas-desposte/PiezasDespostePage';
 import { InformesPage } from './features/informes/InformesPage';
+import { HistoricoSacrificioPage } from './features/historico-sacrificio/HistoricoSacrificioPage';
+import { BeneficioHistoricoPage } from './features/historico-sacrificio/BeneficioHistoricoPage';
+import { RetomasHistoricoPage } from './features/historico-sacrificio/RetomasHistoricoPage';
+import { ConsolidadoHistoricoPage } from './features/historico-sacrificio/ConsolidadoHistoricoPage';
+import { ConsolidadoRetomasPage } from './features/historico-sacrificio/ConsolidadoRetomasPage';
+import { TarifasHistoricoPage } from './features/historico-sacrificio/TarifasHistoricoPage';
+import { DatosHistoricoPage } from './features/historico-sacrificio/DatosHistoricoPage';
+import { DashboardHistoricoPage } from './features/historico-sacrificio/DashboardHistoricoPage';
+import { historicoSacrificioItems } from './components/layout/nav-config';
 import { DashboardPage } from './pages/DashboardPage';
 import { GoodsReceiptsPage } from './features/goods-receipts/GoodsReceiptsPage';
 
@@ -92,6 +101,27 @@ const router = createRouter([
       { path: 'conservacion', element: <ConservacionPage /> },
       { path: 'piezas-desposte', element: <PiezasDespostePage /> },
       { path: 'informes', element: <InformesPage /> },
+      ...historicoSacrificioItems.map((item) => ({
+        path: item.to.slice(1),
+        element:
+          item.to === '/historico-sacrificio/dashboard' ? (
+            <DashboardHistoricoPage />
+          ) : item.to === '/historico-sacrificio/beneficio' ? (
+            <BeneficioHistoricoPage />
+          ) : item.to === '/historico-sacrificio/retomas' ? (
+            <RetomasHistoricoPage />
+          ) : item.to === '/historico-sacrificio/consolidados' ? (
+            <ConsolidadoHistoricoPage />
+          ) : item.to === '/historico-sacrificio/consolidados-retomas' ? (
+            <ConsolidadoRetomasPage />
+          ) : item.to === '/historico-sacrificio/tarifa' ? (
+            <TarifasHistoricoPage />
+          ) : item.to === '/historico-sacrificio/datos' ? (
+            <DatosHistoricoPage />
+          ) : (
+            <HistoricoSacrificioPage key={item.to} titulo={item.label} icon={item.icon} />
+          ),
+      })),
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
       { path: 'configuracion/estaciones', element: <DevicesPage /> },
       { path: 'configuracion/parametros-estacion', element: <ParametrosEstacionPage /> },

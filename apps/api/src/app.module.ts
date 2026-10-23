@@ -31,6 +31,7 @@ import { SupplierModule } from './modules/supplier/supplier.module';
 import { InventariosModule } from './modules/inventarios/inventarios.module';
 import { ConservacionModule } from './modules/conservacion/conservacion.module';
 import { InformesModule } from './modules/informes/informes.module';
+import { HistoricoSacrificioModule } from './modules/historico-sacrificio/historico-sacrificio.module';
 
 @Module({
   imports: [
@@ -68,6 +69,7 @@ import { InformesModule } from './modules/informes/informes.module';
     InventariosModule,
     ConservacionModule,
     InformesModule,
+    HistoricoSacrificioModule,
   ],
   controllers: [HealthController],
 })

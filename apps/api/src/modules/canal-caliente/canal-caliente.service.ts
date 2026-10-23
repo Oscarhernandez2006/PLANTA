@@ -16,6 +16,8 @@ import { RegistrarCanalDto } from './dto/registrar-canal.dto';
 import { ClasificarAnimalDto } from './dto/clasificar-animal.dto';
 import { ClasificarPiezaDto } from './dto/clasificar-pieza.dto';
 import { CAVA_CAPACIDAD } from './cava-capacidad';
+import { piezasEsperadas } from './piezas-esperadas';
+import { HistoricoBeneficioSync } from '../historico-sacrificio/historico-beneficio.sync';
 
 function dateOnly(value?: string) {
   return plantDateOnly(value);
@@ -49,22 +51,12 @@ function assertFechaFiltro(dateStr?: string) {
   }
 }
 
-/** Piezas esperadas por animal según el tipo de canal de la orden. */
-function piezasEsperadas(tipo: CanalTipo | null): CanalPiezaTipo[] {
-  if (tipo === CanalTipo.canal_completa) return [CanalPiezaTipo.canal];
-  if (
-    tipo === CanalTipo.media_canal ||
-    tipo === CanalTipo.media_canal_con_cola ||
-    tipo === CanalTipo.media_canal_sin_cola
-  ) {
-    return [CanalPiezaTipo.cizq, CanalPiezaTipo.cder];
-  }
-  return [];
-}
-
 @Injectable()
 export class CanalCalienteService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly historico: HistoricoBeneficioSync,
+  ) {}
 
   /**
    * Base del consecutivo global por día: para cada orden devuelve cuántos
@@ -295,6 +287,7 @@ export class CanalCalienteService {
         ...(dto.expendio !== undefined && { expendio: dto.expendio }),
       },
     });
+    if (dto.tipo !== undefined) await this.historico.sincronizarPorEvento(ctx.plantId, evt.id);
     return { ok: true };
   }
 
@@ -422,6 +415,8 @@ export class CanalCalienteService {
       },
       select: { id: true },
     });
+    // Si con esta pieza quedó terminada la orden, pasa al Histórico Sacrificio.
+    await this.historico.sincronizarSeguro(ctx.plantId, evt.ordenBeneficioId);
     // Se devuelve el id de la pieza recién creada para que el frontend pueda
     // clasificarla (bodega/cava/destino) e imprimir su presinto de inmediato,
     // sin esperar un segundo viaje de red a buscarla.
@@ -437,13 +432,15 @@ export class CanalCalienteService {
           ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
         },
       },
-      select: { id: true, despacho: { select: { id: true } } },
+      select: { id: true, eventoId: true, despacho: { select: { id: true } } },
     });
     if (!pieza) throw new NotFoundException('Pieza no encontrada.');
     if (pieza.despacho) {
       throw new BadRequestException('Esta pieza ya fue despachada: no se puede deshacer.');
     }
     await this.prisma.canalPieza.delete({ where: { id: pieza.id } });
+    // La orden deja de estar completa: se quita su fila del histórico.
+    await this.historico.sincronizarPorEvento(ctx.plantId, pieza.eventoId);
     return { ok: true };
   }
 

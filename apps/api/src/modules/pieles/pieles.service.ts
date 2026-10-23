@@ -8,6 +8,7 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { RegistrarPielDto } from './dto/registrar-piel.dto';
 import { RegistrarLoteDto } from './dto/registrar-lote.dto';
 import { plantDateOnly } from '../../common/plant-date';
+import { HistoricoBeneficioSync } from '../historico-sacrificio/historico-beneficio.sync';
 
 function dateOnly(value?: string) {
   return plantDateOnly(value);
@@ -18,7 +19,10 @@ const DIAS_FILTRO = 30;
 
 @Injectable()
 export class PielesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly historico: HistoricoBeneficioSync,
+  ) {}
 
   /**
    * Base del consecutivo global por día: para cada orden devuelve cuántos
@@ -158,6 +162,8 @@ export class PielesService {
         pielOperatorId: ctx.userId,
       },
     });
+    // Si la orden ya estaba terminada en Canal Caliente, actualiza sus pieles en el histórico.
+    await this.historico.sincronizarPorEvento(ctx.plantId, evt.id);
     return { ok: true };
   }
 
@@ -321,6 +327,7 @@ export class PielesService {
         }),
       ),
     );
+    await this.historico.sincronizarSeguro(ctx.plantId, o.id);
     return { ok: true, count: n };
   }
 }

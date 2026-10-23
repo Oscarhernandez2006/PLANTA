@@ -1,4 +1,4 @@
-import { MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, SlidersHorizontal, ShieldCheck, UserCog } from 'lucide-react';
+import { MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, SlidersHorizontal, ShieldCheck, UserCog, LayoutDashboard, History, RotateCcw, Layers, Repeat2, BadgeDollarSign, Database } from 'lucide-react';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
 import { PostaReciboIcon } from '@/components/icons/PostaReciboIcon';
@@ -24,6 +24,17 @@ export interface NavGroup {
   title: string;
   items: NavItem[];
 }
+
+/** Submódulos de Histórico Sacrificio (también generan sus rutas en App.tsx). */
+export const historicoSacrificioItems: NavItem[] = [
+  { to: '/historico-sacrificio/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  { to: '/historico-sacrificio/beneficio', label: 'Beneficio', icon: History },
+  { to: '/historico-sacrificio/retomas', label: 'Retomas', icon: RotateCcw },
+  { to: '/historico-sacrificio/consolidados', label: 'Consolidados', icon: Layers },
+  { to: '/historico-sacrificio/consolidados-retomas', label: 'Consolidados Retomas', icon: Repeat2 },
+  { to: '/historico-sacrificio/tarifa', label: 'Tarifa', icon: BadgeDollarSign },
+  { to: '/historico-sacrificio/datos', label: 'Datos', icon: Database },
+];
 
 /**
  * Módulos del menú lateral, por grupo. La ruta (`to`) es también la clave del
@@ -93,6 +104,10 @@ export const navGroups: NavGroup[] = [
       { to: '/piezas-desposte', label: 'Piezas Desposte', icon: Puzzle },
       { to: '/informes', label: 'Informes', icon: FileBarChart },
     ],
+  },
+  {
+    title: 'Histórico Sacrificio',
+    items: historicoSacrificioItems,
   },
   {
     title: 'Configuración',
