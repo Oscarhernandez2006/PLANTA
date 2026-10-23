@@ -237,6 +237,11 @@ export class PesoEnPieService {
     if (neto == null || neto <= 0) {
       throw new BadRequestException('La guía no tiene peso neto de báscula camión.');
     }
+    if (camion.salida == null || Number(camion.salida) <= 0) {
+      throw new BadRequestException(
+        'La guía no tiene peso de salida en báscula camión; regístralo antes de promediar.',
+      );
+    }
     const cantidad = camion.cantidad ?? 0;
     if (cantidad <= 0) {
       throw new BadRequestException('La guía no tiene cantidad de animales.');

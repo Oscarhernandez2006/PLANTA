@@ -139,9 +139,38 @@ export class PesoCamionService {
     if (!existing) throw new NotFoundException('Guía no encontrada.');
     await this.assertGuiaDisponible(ctx, dto.guia, id);
 
-    const rec = await this.prisma.pesoCamion.update({
-      where: { id },
-      data: this.fields(dto),
+    const guiaAnterior = existing.guia?.trim() || null;
+    const guiaNueva = dto.guia?.trim() || null;
+    const rec = await this.prisma.$transaction(async (tx) => {
+      // Si se corrige el número de guía, los animales de Peso en Pie y las
+      // órdenes de beneficio (que buscan por número de guía) lo siguen.
+      if (guiaAnterior && guiaNueva && guiaAnterior !== guiaNueva) {
+        await tx.pesoEnPie.updateMany({
+          where: {
+            plantId: ctx.plantId,
+            deletedAt: null,
+            OR: [
+              { bcReference: existing.reference },
+              { bcReference: null, date: existing.date, guia: guiaAnterior },
+            ],
+          },
+          data: { guia: guiaNueva },
+        });
+        const ordenes = await tx.ordenBeneficio.findMany({
+          where: { plantId: ctx.plantId, deletedAt: null, guias: { has: guiaAnterior } },
+          select: { id: true, guias: true },
+        });
+        for (const o of ordenes) {
+          await tx.ordenBeneficio.update({
+            where: { id: o.id },
+            data: { guias: o.guias.map((g) => (g === guiaAnterior ? guiaNueva : g)) },
+          });
+        }
+      }
+      return tx.pesoCamion.update({
+        where: { id },
+        data: this.fields(dto),
+      });
     });
     return this.toDto(rec);
   }
