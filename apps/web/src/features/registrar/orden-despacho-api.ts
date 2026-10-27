@@ -40,6 +40,20 @@ export function useOrdenesDespachoActivas() {
   });
 }
 
+/** Órdenes a las que se les puede crear una OP: activas o ya cerradas en Canal Fría sin OP. */
+export function useOrdenesDespachoParaProduccion() {
+  return useQuery({
+    queryKey: ['dispatch-orders', 'para-produccion'],
+    queryFn: async () =>
+      (
+        await api.get<{ data: OrdenDespacho[] }>('/dispatch-orders', {
+          params: { paraProduccion: true, pageSize: 100 },
+        })
+      ).data.data,
+    refetchInterval: 10000,
+  });
+}
+
 export function useOrdenDespachoNextNumber() {
   return useQuery({
     queryKey: ['dispatch-orders', 'next-number'],

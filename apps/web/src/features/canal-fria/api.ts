@@ -59,10 +59,24 @@ export function useItemsDespacho(orderId: string | null) {
 export function useAgregarItemDespacho(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (barcode: string) =>
-      (await api.post<ItemDespacho>(`/dispatch-orders/${orderId}/items`, { barcode })).data,
+    mutationFn: async ({ barcode, despachoKg }: { barcode: string; despachoKg?: number }) =>
+      (await api.post<ItemDespacho>(`/dispatch-orders/${orderId}/items`, { barcode, despachoKg }))
+        .data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['dispatch-orders', 'items', orderId] });
+      qc.invalidateQueries({ queryKey: ['inventarios'] });
+    },
+  });
+}
+
+/** Cierra la OD: ya no recibe canales, pero se le puede crear la OP y rotular. */
+export function useCerrarOrdenDespacho() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (orderId: string) =>
+      (await api.patch(`/dispatch-orders/${orderId}/cerrar`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['dispatch-orders'] });
       qc.invalidateQueries({ queryKey: ['inventarios'] });
     },
   });

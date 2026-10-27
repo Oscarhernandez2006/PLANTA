@@ -397,7 +397,7 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
           ))}
       </div>
 
-      {tab === 'totales' && orden && (
+      {orden && (
         <div className="flex items-stretch gap-2">
           <FieldBox label="Total Piezas:" className="w-40">
             <div className="flex h-10 items-center justify-end text-3xl font-bold tabular-nums">
@@ -416,9 +416,10 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
             onClick={() => setConfirmarCierre(true)}
             disabled={!items.length || cerrar.isPending}
             title={items.length ? 'Cerrar la orden de despacho' : 'La orden no tiene canales'}
-            className={cn(botonIcono, 'ml-auto self-center')}
+            className="ml-auto flex items-center gap-3 self-center rounded-md border-2 border-foreground/70 bg-card px-5 py-3 text-base font-bold uppercase hover:bg-muted disabled:opacity-40"
           >
-            <Lock className="size-8" />
+            <Lock className="size-7" />
+            Cerrar orden
           </button>
         </div>
       )}
@@ -430,8 +431,8 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
               ¿Está seguro de cerrar la orden con consecutivo <b>{formatDC(orden.dcNumber)}</b>?
             </p>
             <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-              Las {items.length} canales ({num(totalNeto)} kg) quedan como despachadas y salen del
-              inventario. El registro se conserva para consulta o devoluciones.
+              Las {items.length} canales ({num(totalNeto)} kg) quedan como DESPACHADAS: salen de la
+              cava y en Inventarios se ven marcadas con esta orden, con su trazabilidad.
               {sinPesar > 0 &&
                 ` Ojo: ${sinPesar} ${sinPesar === 1 ? 'canal no tiene' : 'canales no tienen'} peso de despacho.`}
             </p>

@@ -40,6 +40,14 @@ export class InventariosController {
     return this.service.bodega(user, id);
   }
 
+  @Get('canales/:piezaId/trazabilidad')
+  trazabilidadCanal(
+    @CurrentUser() user: AuthContext,
+    @Param('piezaId', ParseUUIDPipe) piezaId: string,
+  ) {
+    return this.service.trazabilidadCanal(user, piezaId);
+  }
+
   @Get('cavas-subproducto/:cava')
   cavaSubproducto(
     @CurrentUser() user: AuthContext,

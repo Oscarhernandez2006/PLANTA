@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Filter, ListOrdered, Pencil, Plus, RefreshCw, Save, Search, Snowflake } from 'lucide-react';
+import { Filter, ListOrdered, Pencil, Plus, RefreshCw, Save, Search, Snowflake, X } from 'lucide-react';
 import { isAxiosError } from 'axios';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -143,8 +143,20 @@ function ProductosClienteDialog({
   const catalogo = useProductsAdmin('');
   const [agregando, setAgregando] = useState(false);
   const [editando, setEditando] = useState<ProductoAsignado | null>(null);
+  const [busqueda, setBusqueda] = useState('');
 
   const lista = asignados.data ?? [];
+  const q = busqueda.trim().toUpperCase();
+  const filtrados = lista
+    .map((p, i) => ({ p, no: i + 1 }))
+    .filter(
+      ({ p }) =>
+        !q ||
+        p.codigo.toUpperCase().includes(q) ||
+        p.nombre.toUpperCase().includes(q) ||
+        p.tipo.toUpperCase().includes(q) ||
+        (p.refPluSku ?? '').toUpperCase().includes(q),
+    );
   const opciones = useMemo(() => {
     const ya = new Set(lista.map((p) => p.id));
     return (catalogo.data ?? [])
@@ -163,8 +175,30 @@ function ProductosClienteDialog({
       className="max-w-6xl"
     >
       <div className="space-y-4">
-        <div className="flex justify-end">
-          <Button className="h-9" onClick={() => setAgregando(true)}>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative w-full sm:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-9 pl-9 pr-8"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar por código, producto, tipo o REF…"
+            />
+            {busqueda && (
+              <button
+                type="button"
+                onClick={() => setBusqueda('')}
+                title="Limpiar búsqueda"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              >
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            {q ? `${filtrados.length} de ${lista.length}` : lista.length} producto(s)
+          </p>
+          <Button className="ml-auto h-9" onClick={() => setAgregando(true)}>
             <Plus className="size-5" />
             Agregar conservación
           </Button>
@@ -202,15 +236,21 @@ function ProductosClienteDialog({
                     Este cliente aún no tiene productos asignados.
                   </td>
                 </tr>
+              ) : filtrados.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-6 text-center text-muted-foreground">
+                    Ningún producto coincide con la búsqueda.
+                  </td>
+                </tr>
               ) : (
-                lista.map((p, i) => (
+                filtrados.map(({ p, no }) => (
                   <tr
                     key={p.id}
                     className={cn('hover:bg-muted/40', !p.active && 'text-muted-foreground')}
                   >
                     <td className={cn(celda, 'tabular-nums')}>
                       <div className="flex items-center justify-center gap-2">
-                        {String(i + 1).padStart(2, '0')}
+                        {String(no).padStart(2, '0')}
                         <button
                           type="button"
                           onClick={() => setEditando(p)}

@@ -169,8 +169,9 @@ export class ProductionOrderService {
     if (od.clienteId !== dto.clienteId) {
       throw new BadRequestException('La orden de despacho no pertenece a ese cliente.');
     }
-    if (od.status !== DispatchOrderStatus.activo) {
-      throw new BadRequestException('La orden de despacho no está activa.');
+    // Cerrada en Canal Fría (facturado) también sirve: ya no recibe canales, pero se procesa.
+    if (od.status === DispatchOrderStatus.inactivo) {
+      throw new BadRequestException('La orden de despacho está inactiva.');
     }
 
     return this.prisma.$transaction(async (tx) => {

@@ -1,12 +1,26 @@
 import { useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
-import { ChevronDown, ChevronUp, Gauge, Inbox, LoaderCircle, RefreshCw, Save, Trash2, X } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronUp,
+  Gauge,
+  Inbox,
+  LoaderCircle,
+  Lock,
+  RefreshCw,
+  Save,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { useBascula } from '@/components/bascula/Bascula';
+import { Button } from '@/components/ui/button';
+import { Dialog } from '@/components/ui/dialog';
 import { cn, soloDecimal } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
 import {
   useAgregarItemDespacho,
+  useCerrarOrdenDespacho,
   useItemsDespacho,
   usePesarItemDespacho,
   useQuitarItemDespacho,
@@ -353,6 +367,7 @@ export function CanalFriaPage() {
   const [orden, setOrden] = useState<OrdenDespacho | null>(null);
   const ordenes = useOrdenesDespachoActivas();
   const scrollRef = useRef<HTMLDivElement>(null);
+  const barcodeRef = useRef<HTMLInputElement>(null);
   const [barcode, setBarcode] = useState('');
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
   const itemsQuery = useItemsDespacho(orden?.id ?? null);
@@ -360,10 +375,21 @@ export function CanalFriaPage() {
   const agregar = useAgregarItemDespacho(orden?.id ?? null);
   const quitar = useQuitarItemDespacho(orden?.id ?? null);
   const pesar = usePesarItemDespacho(orden?.id ?? null);
+  const cerrar = useCerrarOrdenDespacho();
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [seleccionadoId, setSeleccionadoId] = useState<string | null>(null);
   const seleccionado = items.find((i) => i.itemId === seleccionadoId) ?? null;
   const [scanError, setScanError] = useState<string | null>(null);
   const buscando = agregar.isPending;
+  const pesoKg = Number(peso.replace(',', '.'));
+  const hayPeso = Number.isFinite(pesoKg) && pesoKg > 0;
+  const sinPesar = items.filter((i) => i.despachoKg === null).length;
+  const totalFrio = items.reduce((s, i) => s + (i.despachoKg ?? 0), 0);
+
+  const mensajeApi = (err: unknown, porDefecto: string) => {
+    const m = isAxiosError(err) ? err.response?.data?.message : null;
+    return typeof m === 'string' ? m : porDefecto;
+  };
 
   function seleccionar(item: ItemDespacho | null) {
     setSeleccionadoId(item?.itemId ?? null);
@@ -371,48 +397,57 @@ export function CanalFriaPage() {
     setScanError(null);
   }
 
-  /** Guarda el peso de despacho de la fila elegida y pasa a la siguiente sin pesar. */
+  /** Lee la báscula y deja listo el código de barras para pistolear. */
+  async function tomarPeso() {
+    setScanError(null);
+    await leerBascula();
+    barcodeRef.current?.focus();
+  }
+
+  /** Corrige el peso en frío de la fila seleccionada y pasa a la siguiente sin pesar. */
   async function guardarPeso() {
     if (!seleccionado || pesar.isPending) return;
-    const kg = Number(peso.replace(',', '.'));
-    if (!Number.isFinite(kg) || kg <= 0) {
+    if (!hayPeso) {
       setScanError('Toma un peso mayor a 0 antes de guardar.');
       return;
     }
     setScanError(null);
     try {
-      await pesar.mutateAsync({ itemId: seleccionado.itemId, despachoKg: kg });
+      await pesar.mutateAsync({ itemId: seleccionado.itemId, despachoKg: pesoKg });
       const siguiente = items.find(
         (i) => i.itemId !== seleccionado.itemId && i.despachoKg === null,
       );
       seleccionar(siguiente ?? null);
     } catch (err) {
-      const m = isAxiosError(err) ? err.response?.data?.message : null;
-      setScanError(typeof m === 'string' ? m : 'No se pudo guardar el peso.');
+      setScanError(mensajeApi(err, 'No se pudo guardar el peso.'));
     }
   }
 
+  /** Pistolea la canal y la guarda en la orden con el peso en frío que marca la báscula. */
   async function escanear() {
     const codigo = barcode.trim();
     if (!codigo || !orden || buscando) return;
+    if (!hayPeso) {
+      setScanError('Primero toma el peso de la báscula y luego pistolea la canal.');
+      return;
+    }
     setScanError(null);
     try {
-      await agregar.mutateAsync(codigo);
+      await agregar.mutateAsync({ barcode: codigo, despachoKg: pesoKg });
       setBarcode('');
+      // Cada canal lleva su propio pesaje: el peso se limpia para no repetirlo en la siguiente.
+      setPeso('0.0');
+      setSeleccionadoId(null);
       setTab('registro');
     } catch (err) {
-      const m = isAxiosError(err) ? err.response?.data?.message : null;
-      setScanError(typeof m === 'string' ? m : 'No se pudo despachar la canal.');
+      setScanError(mensajeApi(err, 'No se pudo despachar la canal.'));
     }
   }
 
   function quitarItem(itemId: string) {
     setScanError(null);
     quitar.mutate(itemId, {
-      onError: (err) => {
-        const m = isAxiosError(err) ? err.response?.data?.message : null;
-        setScanError(typeof m === 'string' ? m : 'No se pudo quitar la canal.');
-      },
+      onError: (err) => setScanError(mensajeApi(err, 'No se pudo quitar la canal.')),
     });
   }
 
@@ -420,6 +455,22 @@ export function CanalFriaPage() {
     setOrden(o);
     setSeleccionadoId(null);
     setScanError(null);
+  }
+
+  function cerrarOrden() {
+    if (!orden) return;
+    cerrar.mutate(orden.id, {
+      onSuccess: () => {
+        setConfirmarCierre(false);
+        elegirOrden(null);
+        setPeso('0.0');
+        setTab('ordenes');
+      },
+      onError: (err) => {
+        setConfirmarCierre(false);
+        setScanError(mensajeApi(err, 'No se pudo cerrar la orden.'));
+      },
+    });
   }
 
   function scrollList(dir: 1 | -1) {
@@ -538,10 +589,89 @@ export function CanalFriaPage() {
         </button>
       </div>
 
-      {/* Pie: báscula */}
+      {/* Totales: cierre de la orden */}
+      {tab === 'totales' && orden && (
+        <div className="flex items-stretch gap-2">
+          <FieldBox label="Total piezas:" className="w-40">
+            <div className="flex h-10 items-center justify-end text-3xl font-bold tabular-nums">
+              {items.length}
+            </div>
+          </FieldBox>
+          <FieldBox label="Total frío (kg):" className="w-52">
+            <div className="flex h-10 items-center justify-end text-3xl font-bold tabular-nums text-emerald-700">
+              {num(totalFrio)}
+            </div>
+          </FieldBox>
+          <button
+            onClick={() => setConfirmarCierre(true)}
+            disabled={!items.length || cerrar.isPending}
+            title={items.length ? 'Cerrar la orden de despacho' : 'La orden no tiene canales'}
+            className="ml-auto flex items-center gap-3 self-center rounded-md border-2 border-foreground/70 bg-card px-5 py-3 text-base font-bold uppercase hover:bg-muted disabled:opacity-40"
+          >
+            <Lock className="size-7" />
+            Cerrar orden
+          </button>
+        </div>
+      )}
+
+      {confirmarCierre && orden && (
+        <Dialog open onClose={() => setConfirmarCierre(false)} title="Cerrar orden" className="max-w-lg">
+          <div className="space-y-4">
+            <p className="text-base">
+              ¿Está seguro de cerrar la orden con consecutivo <b>{formatOD(orden.odNumber)}</b>?
+            </p>
+            <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+              Las {items.length} canales ({num(totalFrio)} kg en frío) quedan en proceso y ya no se
+              podrán agregar ni quitar canales. La orden de producción y el rotulado siguen
+              funcionando con esta orden.
+              {sinPesar > 0 &&
+                ` Ojo: ${sinPesar} ${sinPesar === 1 ? 'canal no tiene' : 'canales no tienen'} peso en frío.`}
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmarCierre(false)}>
+                No
+              </Button>
+              <Button disabled={cerrar.isPending} onClick={cerrarOrden}>
+                <Lock className="size-4" />
+                {cerrar.isPending ? 'Cerrando…' : 'Sí, cerrar'}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+
+      {/* Pie: báscula y pistoleo (primero el peso, luego el código) */}
       <div className="flex flex-wrap items-stretch gap-2">
+        <FieldBox label="Peso frío (kg):" className="w-40">
+          <input
+            value={peso}
+            onChange={(e) => setPeso(soloDecimal(e.target.value))}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              if (seleccionado) void guardarPeso();
+              else barcodeRef.current?.focus();
+            }}
+            inputMode="decimal"
+            disabled={!orden}
+            title={
+              seleccionado
+                ? 'Enter para corregir el peso de la fila seleccionada'
+                : 'Peso con el que se guardará la próxima canal'
+            }
+            className="h-10 w-full bg-transparent text-center text-3xl font-bold text-emerald-700 outline-none disabled:opacity-50"
+          />
+        </FieldBox>
+        <button
+          onClick={() => void tomarPeso()}
+          disabled={leyendo || !orden}
+          title="Leer báscula"
+          className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
+        >
+          {leyendo ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge className="size-6" />}
+        </button>
         <FieldBox label="Código de barras:" className="min-w-56 flex-1">
           <input
+            ref={barcodeRef}
             value={barcode}
             onChange={(e) => setBarcode(e.target.value)}
             onKeyDown={(e) => {
@@ -549,7 +679,13 @@ export function CanalFriaPage() {
             }}
             disabled={!orden || buscando}
             autoFocus
-            placeholder={orden ? 'Escanea el presinto y presiona Enter…' : 'Elige una orden'}
+            placeholder={
+              !orden
+                ? 'Elige una orden'
+                : hayPeso
+                  ? 'Pistolea la canal…'
+                  : 'Primero toma el peso de la báscula'
+            }
             className="h-10 w-full bg-transparent text-xl font-semibold outline-none disabled:opacity-50"
           />
         </FieldBox>
@@ -576,31 +712,10 @@ export function CanalFriaPage() {
         >
           <RefreshCw className="size-6" />
         </button>
-        <FieldBox label="Peso(kg):" className="w-36">
-          <input
-            value={peso}
-            onChange={(e) => setPeso(soloDecimal(e.target.value))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void guardarPeso();
-            }}
-            inputMode="decimal"
-            disabled={!seleccionado}
-            title={seleccionado ? 'Enter para guardar el peso' : 'Selecciona una fila de Productos'}
-            className="h-10 w-full bg-transparent text-center text-3xl font-bold text-emerald-700 outline-none disabled:opacity-50"
-          />
-        </FieldBox>
-        <button
-          onClick={leerBascula}
-          disabled={leyendo || !seleccionado}
-          title="Leer báscula"
-          className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
-        >
-          {leyendo ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge className="size-6" />}
-        </button>
         <button
           onClick={() => void guardarPeso()}
           disabled={!seleccionado || pesar.isPending}
-          title="Guardar peso de despacho"
+          title="Corregir el peso en frío de la fila seleccionada"
           className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
         >
           {pesar.isPending ? <LoaderCircle className="size-6 animate-spin" /> : <Save className="size-6" />}

@@ -75,7 +75,15 @@ export class DispatchOrderController {
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: AddDispatchItemDto,
   ) {
-    return this.service.addItem(user, id, dto.barcode);
+    return this.service.addItem(user, id, dto.barcode, dto.despachoKg);
+  }
+
+  @Patch(':id/cerrar')
+  cerrar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.cerrar(user, id);
   }
 
   @Get(':id')

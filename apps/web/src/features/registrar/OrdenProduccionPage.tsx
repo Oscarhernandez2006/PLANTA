@@ -9,7 +9,7 @@ import { plantToday as today } from '@/lib/utils';
 import {
   formatOD,
   useClientesActivos,
-  useOrdenesDespachoActivas,
+  useOrdenesDespachoParaProduccion,
   type OrdenDespachoStatus,
 } from './orden-despacho-api';
 import {
@@ -48,7 +48,7 @@ function RegistrarOrdenProduccionForm() {
   const next = useOrdenProduccionNextNumber();
   const crear = useCreateOrdenProduccion();
   const clientes = useClientesActivos();
-  const ordenesDespacho = useOrdenesDespachoActivas();
+  const ordenesDespacho = useOrdenesDespachoParaProduccion();
 
   const [processDate, setProcessDate] = useState(manana(hoy));
   const [clienteId, setClienteId] = useState('');
@@ -183,11 +183,12 @@ function RegistrarOrdenProduccionForm() {
                     ? 'Primero selecciona el cliente'
                     : odDelCliente.length
                       ? 'Selecciona la orden de despacho'
-                      : 'El cliente no tiene órdenes de despacho activas'}
+                      : 'El cliente no tiene órdenes de despacho disponibles'}
                 </option>
                 {odDelCliente.map((o) => (
                   <option key={o.id} value={o.id}>
                     {formatOD(o.odNumber)} — proceso {o.processDate.slice(0, 10)}
+                    {o.status !== 'activo' && ' (cerrada en Canal Fría)'}
                   </option>
                 ))}
               </Select>

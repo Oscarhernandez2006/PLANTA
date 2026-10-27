@@ -114,6 +114,17 @@ export class DispatchOrderService {
       plantId: ctx.plantId,
       deletedAt: null,
       ...(query.status ? { status: query.status } : {}),
+      ...(query.paraProduccion
+        ? {
+            OR: [
+              { status: DispatchOrderStatus.activo },
+              {
+                status: DispatchOrderStatus.facturado,
+                productionOrders: { none: { deletedAt: null } },
+              },
+            ],
+          }
+        : {}),
     };
 
     const [total, data] = await this.prisma.$transaction([
@@ -159,8 +170,11 @@ export class DispatchOrderService {
     return items.map((i) => itemRow(i, barcodeDe(i)));
   }
 
-  /** Despacha la pieza del presinto: sale de su cava y queda asociada a la orden. */
-  async addItem(ctx: AuthContext, orderId: string, barcode: string) {
+  /**
+   * Despacha la pieza del presinto: sale de su cava y queda asociada a la orden. Si llega el
+   * peso en frío (báscula leída antes de pistolear), se guarda en el mismo paso.
+   */
+  async addItem(ctx: AuthContext, orderId: string, barcode: string, despachoKg?: number) {
     const order = await this.findOne(ctx, orderId);
     if (order.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de despacho no está activa.');
@@ -207,6 +221,7 @@ export class DispatchOrderService {
             canalPiezaId: pieza.id,
             cavaOrigen: pieza.cava!,
             pesoCalienteKg: pieza.pesoKg,
+            despachoKg: despachoKg != null ? new Prisma.Decimal(despachoKg) : null,
             createdById: ctx.userId,
           },
           include: itemInclude,
@@ -239,6 +254,24 @@ export class DispatchOrderService {
       include: itemInclude,
     });
     return itemRow(actualizado, barcodeDe(actualizado));
+  }
+
+  /**
+   * Cierra la orden cuando ya se pistolearon todas sus canales: no se pueden agregar ni quitar
+   * más, pero aún se le puede crear la orden de producción y rotular.
+   */
+  async cerrar(ctx: AuthContext, id: string) {
+    const order = await this.findOne(ctx, id);
+    if (order.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de despacho no está activa.');
+    }
+    const items = await this.prisma.dispatchOrderItem.count({ where: { dispatchOrderId: id } });
+    if (!items) throw new BadRequestException('La orden no tiene canales registradas.');
+    await this.prisma.dispatchOrder.update({
+      where: { id },
+      data: { status: DispatchOrderStatus.facturado },
+    });
+    return { ok: true };
   }
 
   /** Deshace un despacho por error: la pieza vuelve a su cava de origen. */

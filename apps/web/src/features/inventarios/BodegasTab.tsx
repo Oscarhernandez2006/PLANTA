@@ -10,11 +10,12 @@ import { formatOT } from '../registrar/orden-traslado-api';
 import { formatOC } from '../registrar/orden-acondicionamiento-api';
 import { formatDC } from '../registrar/despacho-canales-api';
 import { useBodegaInventario, useBodegasInventario, type BodegaDetalle, type BodegaResumen } from './api';
+import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
 
-const kg = (n: number) =>
+export const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const fecha = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '—');
+export const fecha = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '—');
 
 const PIEZA: Record<string, string> = { canal: 'CANAL', cizq: 'CIZQ', cder: 'CDER' };
 
@@ -119,7 +120,7 @@ function BodegaDialog({ bodega, onClose }: { bodega: BodegaResumen; onClose: () 
   );
 }
 
-function Caja({ titulo, valor, detalle, className }: { titulo: string; valor: string; detalle?: string; className?: string }) {
+export function Caja({ titulo, valor, detalle, className }: { titulo: string; valor: string; detalle?: string; className?: string }) {
   return (
     <div className="rounded-md border border-border px-4 py-2">
       <p className="text-xs font-semibold uppercase text-muted-foreground">{titulo}</p>
@@ -130,15 +131,20 @@ function Caja({ titulo, valor, detalle, className }: { titulo: string; valor: st
 }
 
 function Resumen({ d }: { d: BodegaDetalle }) {
-  const canalesKg = d.canales.reduce((s, c) => s + (c.pesoFrioKg ?? c.pesoKg), 0);
-  const canalesEnOrden = d.canales.filter((c) => c.enOrden || c.enDespacho).length;
+  const enPlanta = d.canales.filter((c) => !c.enDespacho?.cerrada && !c.enOrden?.cerrada);
+  const canalesKg = enPlanta.reduce((s, c) => s + (c.pesoFrioKg ?? c.pesoKg), 0);
+  const canalesEnOrden = enPlanta.filter((c) => c.enOrden || c.enDespacho).length;
+  const despachadas = d.canales.filter((c) => c.enDespacho?.cerrada).length;
+  const procesadas = d.canales.filter((c) => c.enOrden?.cerrada).length;
   const productosKg = d.productos.reduce((s, p) => s + p.netoKg, 0);
   const productosEnProceso = d.productos.filter((p) => p.trasladoOt && !p.transformadoOc).length;
   const transformados = d.productos.filter((p) => p.transformadoOc).length;
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-      <Caja titulo="Canales" valor={String(d.canales.length)} detalle={`${kg(canalesKg)} kg`} />
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
+      <Caja titulo="Canales" valor={String(enPlanta.length)} detalle={`${kg(canalesKg)} kg`} />
       <Caja titulo="Canales en orden" valor={String(canalesEnOrden)} className="text-amber-600" />
+      <Caja titulo="Despachadas" valor={String(despachadas)} className="text-sky-700" />
+      <Caja titulo="Procesadas" valor={String(procesadas)} className="text-violet-700" />
       <Caja titulo="Productos rotulados" valor={String(d.productos.length)} detalle={`${kg(productosKg)} kg`} className="text-emerald-700" />
       <Caja titulo="Productos en proceso" valor={String(productosEnProceso)} className="text-amber-600" />
       <Caja titulo="Transformados" valor={String(transformados)} className="text-violet-700" />
@@ -150,8 +156,10 @@ const th = 'whitespace-nowrap border-b-2 border-border px-2 py-1.5 text-left tex
 const td = 'whitespace-nowrap border-b border-border px-2 py-1';
 
 function Canales({ d }: { d: BodegaDetalle }) {
+  const [trazaId, setTrazaId] = useState<string | null>(null);
   return (
     <section className="space-y-2">
+      {trazaId && <TrazabilidadCanalDialog piezaId={trazaId} onClose={() => setTrazaId(null)} />}
       <h3 className="text-base font-semibold">Canales ({d.canales.length})</h3>
       {!d.canales.length ? (
         <p className="text-sm text-muted-foreground">No hay canales en esta bodega.</p>
@@ -167,7 +175,12 @@ function Canales({ d }: { d: BodegaDetalle }) {
             </thead>
             <tbody>
               {d.canales.map((c) => (
-                <tr key={c.id} className="odd:bg-muted/30">
+                <tr
+                  key={c.id}
+                  onClick={() => setTrazaId(c.id)}
+                  title="Ver trazabilidad de la canal"
+                  className="cursor-pointer odd:bg-muted/30 hover:bg-muted/60"
+                >
                   <td className={td}>{c.reference}</td>
                   <td className={td}>A{String(c.sequence).padStart(2, '0')}</td>
                   <td className={td}>
@@ -183,10 +196,19 @@ function Canales({ d }: { d: BodegaDetalle }) {
                   <td className={cn(td, 'text-right')}>{kg(c.pesoKg)}</td>
                   <td className={cn(td, 'text-right')}>{c.pesoFrioKg == null ? '—' : kg(c.pesoFrioKg)}</td>
                   <td className={td}>
-                    {c.enOrden ? (
+                    {c.enOrden?.cerrada ? (
+                      <span className="rounded-sm bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        PROCESADA · {formatOD(c.enOrden.odNumber)}
+                        {c.enOrden.opNumbers.length > 0 && ` · ${c.enOrden.opNumbers.map(formatOP).join(', ')}`}
+                      </span>
+                    ) : c.enOrden ? (
                       <span className={enProceso}>
                         {formatOD(c.enOrden.odNumber)}
                         {c.enOrden.opNumbers.length > 0 && ` · ${c.enOrden.opNumbers.map(formatOP).join(', ')} · EN PROCESO`}
+                      </span>
+                    ) : c.enDespacho?.cerrada ? (
+                      <span className="rounded-sm bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                        DESPACHADA · {formatDC(c.enDespacho.dcNumber)} · {c.enDespacho.tipo === 'caliente' ? 'CALIENTE' : 'FRÍO'}
                       </span>
                     ) : c.enDespacho ? (
                       <span className="rounded-sm bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
@@ -206,7 +228,7 @@ function Canales({ d }: { d: BodegaDetalle }) {
   );
 }
 
-function Productos({ d }: { d: BodegaDetalle }) {
+export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
   const resumen = useMemo(() => {
     const m = new Map<string, { codigo: string; producto: string; piezas: number; kg: number; enProceso: number; transformados: number }>();
     for (const p of d.productos) {

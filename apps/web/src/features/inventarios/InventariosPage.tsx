@@ -6,6 +6,9 @@ import { formatOD } from '../registrar/orden-despacho-api';
 import { formatOP } from '../registrar/orden-produccion-api';
 import { formatDC } from '../registrar/despacho-canales-api';
 import { BodegasTab } from './BodegasTab';
+import { ClientesView } from './ClientesView';
+import { FiltroSelect } from './FiltroSelect';
+import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
 import {
   useCava,
   useCavaSubproducto,
@@ -17,6 +20,7 @@ import {
 } from './api';
 
 type Tab = `cava-${string}` | `sub-${string}` | 'bodegas';
+type Vista = 'clientes' | 'cava';
 
 function hora(iso: string | null) {
   if (!iso) return '—';
@@ -58,47 +62,81 @@ export function InventariosPage() {
     { key: 'bodegas', label: 'BODEGAS' },
   ];
   const [tab, setTab] = useState<Tab>(tabs[0].key);
+  const [vista, setVista] = useState<Vista>('clientes');
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-2rem)] max-w-5xl flex-col gap-2 p-2">
-      <div className="flex items-center gap-2 rounded-sm border-2 border-border bg-card p-3">
+    <div className="flex h-full min-h-0 w-full flex-col gap-2">
+      <div className="flex flex-wrap items-center gap-2 rounded-sm border-2 border-border bg-card p-3">
         <Warehouse className="size-8 text-foreground" />
         <div>
           <h1 className="text-lg font-bold">Inventarios</h1>
           <p className="text-sm text-muted-foreground">
-            Existencias por cava de canales y subproductos, y por bodega de cada cliente.
+            {vista === 'clientes'
+              ? 'Existencias por cliente, bodega y orden.'
+              : 'Existencias por cava de canales y subproductos, y por bodega de cada cliente.'}
           </p>
+        </div>
+        <div role="radiogroup" className="ml-auto flex rounded-full border-2 border-border bg-muted/40 p-1">
+          {(
+            [
+              { key: 'clientes', label: 'Vista por clientes' },
+              { key: 'cava', label: 'Vista por cava' },
+            ] as const
+          ).map((v) => (
+            <button
+              key={v.key}
+              role="radio"
+              aria-checked={vista === v.key}
+              onClick={() => setVista(v.key)}
+              className={cn(
+                'rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors',
+                vista === v.key
+                  ? 'bg-emerald-600 text-white shadow'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {v.label}
+            </button>
+          ))}
         </div>
       </div>
 
-      <div className="flex flex-wrap overflow-hidden rounded-sm border-2 border-border">
-        {tabs.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              'flex-1 border-r-2 border-b-2 border-border px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide transition-colors last:border-r-0',
-              tab === t.key
-                ? 'bg-background text-foreground shadow-[inset_0_-3px_0_0] shadow-emerald-600'
-                : 'bg-muted/40 text-muted-foreground hover:bg-muted',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      <div className="flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
-        {tab === 'bodegas' ? (
-          <BodegasTab />
-        ) : tab.startsWith('cava-') ? (
-          <CavaTab cava={tab.replace('cava-', '')} />
-        ) : (
-          <div className="h-full overflow-auto">
-            <CavaSubproductoTab cava={tab.replace('sub-', '')} />
+      {vista === 'clientes' ? (
+        <div className="min-h-0 flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
+          <ClientesView />
+        </div>
+      ) : (
+        <>
+          <div className="flex flex-wrap overflow-hidden rounded-sm border-2 border-border">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  'flex-1 border-r-2 border-b-2 border-border px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide transition-colors last:border-r-0',
+                  tab === t.key
+                    ? 'bg-background text-foreground shadow-[inset_0_-3px_0_0] shadow-emerald-600'
+                    : 'bg-muted/40 text-muted-foreground hover:bg-muted',
+                )}
+              >
+                {t.label}
+              </button>
+            ))}
           </div>
-        )}
-      </div>
+
+          <div className="min-h-0 flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
+            {tab === 'bodegas' ? (
+              <BodegasTab />
+            ) : tab.startsWith('cava-') ? (
+              <CavaTab cava={tab.replace('cava-', '')} />
+            ) : (
+              <div className="h-full overflow-auto">
+                <CavaSubproductoTab cava={tab.replace('sub-', '')} />
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -109,42 +147,13 @@ const PIEZA_LABEL: Record<CavaAnimalRow['pieza'], string> = {
   cder: 'CDER',
 };
 
-function FiltroSelect({
-  label,
-  value,
-  onChange,
-  opciones,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  opciones: { value: string; label: string }[];
-}) {
-  return (
-    <label className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
-      {label}
-      <select
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        className="h-9 rounded-sm border-2 border-border bg-card px-2 text-sm font-medium normal-case text-foreground outline-none focus:border-emerald-500"
-      >
-        <option value="">Todos</option>
-        {opciones.map((o) => (
-          <option key={o.value} value={o.value}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
 function CavaTab({ cava }: { cava: string }) {
   const { data, isLoading } = useCava(cava);
   const [cliente, setCliente] = useState('');
   const [tipo, setTipo] = useState('');
   const [pieza, setPieza] = useState('');
   const [estado, setEstado] = useState('');
+  const [trazaId, setTrazaId] = useState<string | null>(null);
   const rows = data ?? [];
 
   const clientes = useMemo(
@@ -168,7 +177,7 @@ function CavaTab({ cava }: { cava: string }) {
   if (!rows.length)
     return <Empty text={`No hay animales ubicados en la ${cava}.`} />;
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full min-h-0 flex-col">
       <div className="flex flex-wrap items-center gap-4 border-b-2 border-border px-3 py-2">
         <FiltroSelect
           label="Cliente"
@@ -205,8 +214,8 @@ function CavaTab({ cava }: { cava: string }) {
         <Empty text="No hay canales con estos filtros." />
       ) : (
     <div className="min-h-0 flex-1 overflow-auto">
-    <table className="w-full text-sm">
-      <thead className="sticky top-0 bg-muted/60 text-left">
+    <table className="w-full whitespace-nowrap text-sm">
+      <thead className="sticky top-0 z-10 bg-muted text-left">
         <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
           <th>Orden</th>
           <th>Animal</th>
@@ -224,7 +233,12 @@ function CavaTab({ cava }: { cava: string }) {
       </thead>
       <tbody className="divide-y divide-border">
         {filtradas.map((r: CavaAnimalRow) => (
-          <tr key={r.piezaId} className="[&>td]:px-3 [&>td]:py-2">
+          <tr
+            key={r.piezaId}
+            onClick={() => setTrazaId(r.piezaId)}
+            title="Ver trazabilidad de la canal"
+            className="cursor-pointer hover:bg-muted/50 [&>td]:px-3 [&>td]:py-2"
+          >
             <td className="tabular-nums">{r.reference}</td>
             <td className="tabular-nums">A{String(r.sequence).padStart(2, '0')}</td>
             <td className="tabular-nums">{r.turno ?? '—'}</td>
@@ -238,7 +252,7 @@ function CavaTab({ cava }: { cava: string }) {
                   })
                 : '—'}
             </td>
-            <td>{r.cliente}</td>
+            <td className="min-w-48 whitespace-normal">{r.cliente}</td>
             <td className="tabular-nums">{r.date}</td>
             <td className="text-xs uppercase">{r.canalAnimalTipo ?? '—'}</td>
             <td className="text-xs font-semibold uppercase text-red-600">
@@ -269,8 +283,8 @@ function CavaTab({ cava }: { cava: string }) {
                 <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>
               )}
             </td>
-            <td>{r.destino || '—'}</td>
-            <td>{r.observaciones || '—'}</td>
+            <td className="whitespace-normal">{r.destino || '—'}</td>
+            <td className="min-w-40 whitespace-normal">{r.observaciones || '—'}</td>
             <td className="text-right font-semibold tabular-nums">
               {r.pesoKg.toFixed(2)}
             </td>
@@ -280,6 +294,7 @@ function CavaTab({ cava }: { cava: string }) {
     </table>
     </div>
       )}
+      {trazaId && <TrazabilidadCanalDialog piezaId={trazaId} onClose={() => setTrazaId(null)} />}
     </div>
   );
 }
