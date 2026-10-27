@@ -8,6 +8,7 @@ import {
   type OrdenProduccion,
 } from '../registrar/orden-produccion-api';
 import { Mensaje } from './ui';
+import { formatPieza } from './etiqueta-desposte-zpl';
 import { formatOT } from '../registrar/orden-traslado-api';
 
 const kg = (n: number) =>
@@ -133,7 +134,7 @@ export function ReporteDesposte({ orden, prefijo }: { orden: OrdenProduccion; pr
                         <tr key={e.id} className="border-b border-border odd:bg-muted/30">
                           <td className="px-2 py-1">{hora(e.createdAt)}</td>
                           <td className="px-2 py-1 font-semibold">{e.codigo ?? '—'}</td>
-                          <td className="px-2 py-1 font-semibold">#{e.pieza}</td>
+                          <td className="px-2 py-1 font-semibold">#{formatPieza(e.pieza)}</td>
                           <td className="px-2 py-1">{e.productoCodigo}</td>
                           <td className="px-2 py-1 font-medium uppercase">
                             {e.productoNombre}

@@ -135,11 +135,33 @@ const canastillaDto = (c: CanastillaRow) => {
 type Db = Prisma.TransactionClient;
 type EstadoRotulado = Awaited<ReturnType<ProductionOrderService['estadoProducto']>>;
 
-/** Código de barras: lote (OP, 7 dígitos) + código de producto + pieza (4 dígitos) o C + canastilla (3). */
+/**
+ * Código de barras: lote (OP, 7 dígitos) + código de producto + estación (2) y pieza (4), o
+ * C + canastilla (3). La pieza se guarda como estación × 10000 + consecutivo de la estación.
+ */
 const codigoBarras = (opNumber: number, productoCodigo: string, sufijo: string) =>
   `${String(opNumber).padStart(7, '0')}${productoCodigo.replace(/\D/g, '')}${sufijo}`;
-const sufijoPieza = (pieza: number) => String(pieza).padStart(4, '0');
+const sufijoPieza = (pieza: number) => String(pieza).padStart(6, '0');
 const sufijoCanastilla = (numero: number) => `C${String(numero).padStart(3, '0')}`;
+
+const PIEZAS_POR_ESTACION = 10000;
+const MAX_ESTACION = 99;
+
+/** Número de la estación: los dígitos al final de su nombre (DBOVINO3 → 3, LOGISTICA 2 → 2); sin número = 0. */
+export function numeroEstacion(nombre?: string | null): number {
+  const m = nombre?.trim().match(/(\d+)$/);
+  return m ? Number(m[1]) : 0;
+}
+
+/** Si dos estaciones crean el contador a la vez, la segunda choca con la llave: se reintenta. */
+async function conReintento<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') return fn();
+    throw err;
+  }
+}
 
 @Injectable()
 export class ProductionOrderService {
@@ -417,27 +439,42 @@ export class ProductionOrderService {
   async reservarEtiqueta(
     ctx: AuthContext,
     productionOrderId: string,
-    dto: { productId: string; tiendaId: string; sobrante?: boolean; taraKg?: number },
+    dto: { productId: string; tiendaId: string; sobrante?: boolean; taraKg?: number; estacion?: string },
   ) {
     const estado = await this.estadoProducto(this.prisma, ctx, productionOrderId, dto.productId);
     this.validarDestino(estado, dto.tiendaId, dto.sobrante ?? false, dto.taraKg);
 
-    const counter = await this.prisma.rotuladoConsecutivo.upsert({
-      where: {
-        plantId_productionOrderId_productId: {
-          plantId: ctx.plantId,
-          productionOrderId,
-          productId: dto.productId,
-        },
-      },
-      create: { plantId: ctx.plantId, productionOrderId, productId: dto.productId, ultimo: 1 },
-      update: { ultimo: { increment: 1 } },
-      select: { ultimo: true },
-    });
+    const estacion = numeroEstacion(dto.estacion);
+    if (estacion > MAX_ESTACION) {
+      throw new BadRequestException(
+        `La estación ${dto.estacion} tiene el número ${estacion}; el máximo es ${MAX_ESTACION}.`,
+      );
+    }
+    const llave = { plantId: ctx.plantId, productionOrderId, productId: dto.productId };
+    // La estación 0 (sin número en el nombre) sigue con el consecutivo general del producto.
+    const counter = await conReintento(() =>
+      estacion === 0
+        ? this.prisma.rotuladoConsecutivo.upsert({
+            where: { plantId_productionOrderId_productId: llave },
+            create: { ...llave, ultimo: 1 },
+            update: { ultimo: { increment: 1 } },
+            select: { ultimo: true },
+          })
+        : this.prisma.rotuladoConsecutivoEstacion.upsert({
+            where: { plantId_productionOrderId_productId_estacion: { ...llave, estacion } },
+            create: { ...llave, estacion, ultimo: 1 },
+            update: { ultimo: { increment: 1 } },
+            select: { ultimo: true },
+          }),
+    );
+    if (counter.ultimo >= PIEZAS_POR_ESTACION) {
+      throw new BadRequestException('Se agotó el consecutivo de etiquetas de esta estación para este producto.');
+    }
+    const pieza = estacion * PIEZAS_POR_ESTACION + counter.ultimo;
     const { opNumber, productoCodigo } = await this.datosCodigo(productionOrderId, dto.productId);
     return {
-      pieza: counter.ultimo,
-      codigo: codigoBarras(opNumber, productoCodigo, sufijoPieza(counter.ultimo)),
+      pieza,
+      codigo: codigoBarras(opNumber, productoCodigo, sufijoPieza(pieza)),
     };
   }
 
@@ -460,6 +497,9 @@ export class ProductionOrderService {
     });
     if (!order) throw new BadRequestException('La orden de producción no existe.');
 
+    const estacion = Math.floor(dto.pieza / PIEZAS_POR_ESTACION);
+    const consecutivoEstacion = dto.pieza % PIEZAS_POR_ESTACION;
+    const llave = { plantId: ctx.plantId, productionOrderId, productId: dto.productId };
     const [bodega, consecutivo, { opNumber, productoCodigo }] = await Promise.all([
       dto.bodegaId
         ? this.prisma.bodega.findFirst({
@@ -467,20 +507,19 @@ export class ProductionOrderService {
             select: { id: true },
           })
         : Promise.resolve(null),
-      this.prisma.rotuladoConsecutivo.findUnique({
-        where: {
-          plantId_productionOrderId_productId: {
-            plantId: ctx.plantId,
-            productionOrderId,
-            productId: dto.productId,
-          },
-        },
-        select: { ultimo: true },
-      }),
+      estacion === 0
+        ? this.prisma.rotuladoConsecutivo.findUnique({
+            where: { plantId_productionOrderId_productId: llave },
+            select: { ultimo: true },
+          })
+        : this.prisma.rotuladoConsecutivoEstacion.findUnique({
+            where: { plantId_productionOrderId_productId_estacion: { ...llave, estacion } },
+            select: { ultimo: true },
+          }),
       this.datosCodigo(productionOrderId, dto.productId),
     ]);
     if (dto.bodegaId && !bodega) throw new BadRequestException('La bodega no pertenece al cliente de la orden.');
-    if (!consecutivo || dto.pieza > consecutivo.ultimo) {
+    if (!consecutivo || consecutivoEstacion < 1 || consecutivoEstacion > consecutivo.ultimo) {
       throw new BadRequestException(`La pieza #${dto.pieza} no fue reservada para este producto.`);
     }
     const codigo = codigoBarras(opNumber, productoCodigo, sufijoPieza(dto.pieza));
@@ -729,7 +768,8 @@ export class ProductionOrderService {
         productId: query.productId,
         deletedAt: null,
       },
-      orderBy: { pieza: 'desc' },
+      // Por hora de impresión: con varias estaciones la pieza ya no sigue un solo orden.
+      orderBy: { createdAt: 'desc' },
       select: etiquetaSelect,
     });
     return rows.map(etiquetaDto);

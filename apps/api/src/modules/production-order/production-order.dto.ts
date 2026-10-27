@@ -51,6 +51,12 @@ export class ReservarEtiquetaDto {
   @Min(0)
   @Max(999999)
   taraKg?: number;
+
+  /** Nombre de la estación que rotula; su número (DBOVINO3 → 3) va dentro del código de barras. */
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  estacion?: string;
 }
 
 export class EstadoRotuladoDto {
@@ -99,10 +105,11 @@ export class GuardarEtiquetaDto {
   @IsUUID()
   bodegaId?: string;
 
+  // Estación × 10000 + consecutivo de la estación (estación 3, pieza 7 → 30007).
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(9999)
+  @Max(999999)
   pieza!: number;
 
   /** Lo calcula el servidor (lote + producto + pieza); se acepta solo por compatibilidad. */

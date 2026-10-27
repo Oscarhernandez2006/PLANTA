@@ -22,6 +22,16 @@ export interface EtiquetaDesposteDatos {
 
 const dots = (mm: number) => Math.round((mm * 203) / 25.4);
 
+/**
+ * La pieza se guarda como estación × 10000 + consecutivo de la estación: 30007 se muestra
+ * "3-7" (estación 3, pieza 7). Sin estación (0) se muestra solo el consecutivo.
+ */
+export function formatPieza(pieza: number) {
+  const estacion = Math.floor(pieza / 10000);
+  const n = pieza % 10000;
+  return estacion ? `${estacion}-${n}` : String(n);
+}
+
 const limpiar = (value: string) => value.replace(/[\^~\r\n]/g, ' ').trim();
 
 let logoZpl: Promise<string> | null = null;
@@ -83,8 +93,8 @@ export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): Element
   const canastilla = datos.canastilla;
   const piezaCodigo = canastilla
     ? `C${String(canastilla.numero).padStart(3, '0')}`
-    : String(datos.pieza).padStart(4, '0');
-  const piezaTexto = canastilla ? String(datos.pieza).padStart(2, '0') : String(datos.pieza);
+    : String(datos.pieza).padStart(6, '0');
+  const piezaTexto = canastilla ? String(datos.pieza).padStart(2, '0') : formatPieza(datos.pieza);
   const codigo = datos.codigo || `${loteCodigo}${productoCodigo}${piezaCodigo}`;
   const nombreProducto = datos.productoNombre.trim().toUpperCase();
   const nombre = nombreProducto.endsWith(datos.empaque.toUpperCase())
@@ -129,7 +139,7 @@ export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): Element
     texto(14, 151, 23, 18, datos.lote),
     texto(130, 148, 18, 18, datos.ref || '---'),
     texto(220, 151, 20, 18, 'BOVINO'),
-    texto(328, 151, 23, 18, piezaTexto),
+    texto(piezaTexto.length > 3 ? 310 : 328, 151, 23, 18, piezaTexto),
     caja(360, 124, 2, 116, 2),
     caja(12, 172, 350, 2, 2),
     texto(14, 180, 19, 22, `FECHA DE SACRIFICIO:    ${fecha(datos.sacrificio)}`),
@@ -162,7 +172,7 @@ export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): Element
     texto(22, 367, 24, 17, 'BARCODE'),
     texto(36, 387, 24, 17, loteCodigo),
     texto(36, 407, 24, 17, productoCodigo),
-    texto(42, 427, 24, 17, piezaCodigo),
+    texto(piezaCodigo.length > 4 ? 36 : 42, 427, 24, 17, piezaCodigo),
     { t: 'qr', x: 104, y: 346, aumento: 4, valor: codigo },
     texto(196, 372, 14, 18, 'Para: AGROPECUARIA SANTACRUZ'),
     texto(196, 390, 14, 18, 'KM 3 VIA ORIENTAL - MALAMBO'),
@@ -177,7 +187,7 @@ function anchoCode128B(valor: string) {
   return 11 * valor.length + 35;
 }
 
-export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: string) {
+export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: string, copias = 1) {
   const zpl = elementosEtiquetaDesposte(datos).map((e) => {
     switch (e.t) {
       case 'logo':
@@ -198,6 +208,8 @@ export function generarEtiquetaDesposteZpl(datos: EtiquetaDesposteDatos, logo: s
     '^XA',
     '^CI28',
     ...zpl,
+    // ^PQ: la impresora repite la misma etiqueta (p. ej. canastilla: una para la bolsa y otra para la canastilla).
+    ...(copias > 1 ? [`^PQ${copias},0,1,Y`] : []),
     '^XZ',
   ].join('\n');
 }

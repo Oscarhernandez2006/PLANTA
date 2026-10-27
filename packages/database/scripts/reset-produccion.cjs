@@ -12,6 +12,7 @@ async function main() {
     prisma.rotuladoEtiqueta.deleteMany(),
     prisma.rotuladoCanastilla.deleteMany(),
     prisma.rotuladoConsecutivo.deleteMany(),
+    prisma.rotuladoConsecutivoEstacion.deleteMany(),
     prisma.productionOrder.deleteMany(),
 
     // Despacho (Canal Fría): los ítems apuntan a piezas de canal

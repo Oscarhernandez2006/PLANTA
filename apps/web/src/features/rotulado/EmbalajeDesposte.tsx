@@ -28,7 +28,7 @@ import {
   type EtiquetaRotulado,
   type OrdenProduccion,
 } from '../registrar/orden-produccion-api';
-import { generarEtiquetaDesposteZpl, obtenerLogoEtiquetaZpl } from './etiqueta-desposte-zpl';
+import { formatPieza, generarEtiquetaDesposteZpl, obtenerLogoEtiquetaZpl } from './etiqueta-desposte-zpl';
 import { FieldBox, SIN_IMPRESORA, useImpresoraEtiquetas } from './ui';
 
 type Conservacion = 'refrigerado' | 'congelado';
@@ -47,6 +47,9 @@ function sumarDias(iso: string, dias: number) {
 
 const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+/** Al cerrar una canastilla salen dos etiquetas iguales: una para la bolsa y otra para la canastilla. */
+const COPIAS_CANASTILLA = 2;
 
 const mensajeApi = (err: unknown, porDefecto: string) => {
   const m = isAxiosError(err) ? err.response?.data?.message : null;
@@ -299,11 +302,11 @@ export function EmbalajeDesposte({
         ref: c.datos.ref ?? '',
         codigo: c.codigo ?? undefined,
         canastilla: { numero: c.numero, taraKg: c.taraKg, brutoKg: c.brutoKg },
-      }, logo));
+      }, logo, reimpresion ? 1 : COPIAS_CANASTILLA));
       setAlerta({
         id: Date.now(),
         texto: resultado.ok
-          ? `Canastilla N.º ${c.numero} ${reimpresion ? 'reimpresa' : 'cerrada e impresa'}.`
+          ? `Canastilla N.º ${c.numero} ${reimpresion ? 'reimpresa' : `cerrada: ${COPIAS_CANASTILLA} etiquetas impresas (bolsa y canastilla)`}.`
           : resultado.error || 'No se pudo imprimir la etiqueta de la canastilla.',
       });
     } catch {
@@ -353,7 +356,7 @@ export function EmbalajeDesposte({
       setAlerta({
         id: Date.now(),
         texto: resultado.ok
-          ? `Pieza #${e.pieza} reimpresa.`
+          ? `Pieza #${formatPieza(e.pieza)} reimpresa.`
           : resultado.error || 'No se pudo reimprimir la etiqueta.',
       });
     } catch {
@@ -425,16 +428,19 @@ export function EmbalajeDesposte({
       if (reserva === null) {
         const response = await api.post<{ pieza: number; codigo: string }>(
           `/production-orders/${orden.id}/etiquetas/reservar`,
-          { productId: producto.id, tiendaId, sobrante, taraKg: Number(taraKg.toFixed(2)) },
+          {
+            productId: producto.id,
+            tiendaId,
+            sobrante,
+            taraKg: Number(taraKg.toFixed(2)),
+            // El nombre registrado en Estaciones (DBOVINO3) da el número que va en el código.
+            estacion: equipo.deviceName ?? equipo.hostname ?? undefined,
+          },
         );
         reserva = response.data;
         setPiezaPendiente(reserva);
       }
       const { pieza, codigo } = reserva;
-      if (pieza > 9999) {
-        setAlerta({ id: Date.now(), texto: 'Se agotó el consecutivo de etiquetas para este producto.' });
-        return;
-      }
       if (imprimir) {
         const logo = await obtenerLogoEtiquetaZpl();
         const resultado = await printRaw(impresora, generarEtiquetaDesposteZpl({
@@ -870,7 +876,7 @@ export function EmbalajeDesposte({
                       : 'odd:bg-muted/30 hover:bg-muted',
                   )}
                 >
-                  <td className="px-2 py-1 font-semibold">#{e.pieza}</td>
+                  <td className="px-2 py-1 font-semibold">#{formatPieza(e.pieza)}</td>
                   <td className="px-2 py-1 font-semibold">{e.codigo ?? '—'}</td>
                   <td className="px-2 py-1">{horaDe(e.createdAt)}</td>
                   <td className="px-2 py-1">
@@ -908,7 +914,7 @@ export function EmbalajeDesposte({
           title={
             seleccionada === null
               ? 'Selecciona una fila de la tabla'
-              : `Borrar la pieza #${etiquetas.find((e) => e.id === seleccionada)?.pieza ?? ''}`
+              : `Borrar la pieza #${(() => { const p = etiquetas.find((e) => e.id === seleccionada)?.pieza; return p != null ? formatPieza(p) : ''; })()}`
           }
           className={cn(botonIcono, 'size-auto self-stretch')}
         >
@@ -933,7 +939,7 @@ export function EmbalajeDesposte({
             {ultimaEsCanastilla && ultimaCanastilla
               ? `Canast. ${ultimaCanastilla.numero} · ${ultimaCanastilla.unds} und · ${kg(ultimaCanastilla.netoKg)} kg · ${horaDe(ultimaCanastilla.cerradaAt!)}`
               : ultima
-                ? `#${ultima.pieza} · ${kg(ultima.netoKg)} kg · ${horaDe(ultima.createdAt)}`
+                ? `#${formatPieza(ultima.pieza)} · ${kg(ultima.netoKg)} kg · ${horaDe(ultima.createdAt)}`
                 : ''}
           </button>
         </FieldBox>
@@ -1014,7 +1020,7 @@ export function EmbalajeDesposte({
         >
           <div className="space-y-4">
             <p className="text-base">
-              La pieza <b>#{confirmarBorrado.pieza}</b> ({kg(confirmarBorrado.netoKg)} kg) está en la{' '}
+              La pieza <b>#{formatPieza(confirmarBorrado.pieza)}</b> ({kg(confirmarBorrado.netoKg)} kg) está en la{' '}
               <b>canastilla N.º {confirmarBorrado.canastillaNumero}</b>, que ya estaba cerrada.
             </p>
             <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">

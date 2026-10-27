@@ -537,6 +537,7 @@ model ProductionOrder {
   dispatchOrder        DispatchOrder           @relation(fields: [dispatchOrderId], references: [id])
   createdBy            AppUser                 @relation("productionCreatedBy", fields: [createdById], references: [id])
   rotuladoConsecutivos RotuladoConsecutivo[]
+  rotuladoConsecutivosEstacion RotuladoConsecutivoEstacion[]
   etiquetas            RotuladoEtiqueta[]
   canastillas          RotuladoCanastilla[]
   tiendas              ProductionOrderTienda[]
@@ -560,6 +561,26 @@ model RotuladoConsecutivo {
 
   @@id([plantId, productionOrderId, productId])
   @@map("rotulado_consecutivo")
+}
+
+// Consecutivo de piezas por estación (número sacado del nombre de la estación: DBOVINO3 → 3).
+// Cada estación numera sus propias piezas; la estación va dentro del código de barras, así
+// dos estaciones rotulando a la vez nunca generan el mismo código. La estación 0 (sin número
+// en el nombre) sigue usando RotuladoConsecutivo.
+model RotuladoConsecutivoEstacion {
+  plantId           String   @map("plant_id") @db.Uuid
+  productionOrderId String   @map("production_order_id") @db.Uuid
+  productId         String   @map("product_id") @db.Uuid
+  estacion          Int
+  ultimo            Int      @default(0)
+  updatedAt         DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant           Plant           @relation(fields: [plantId], references: [id])
+  productionOrder ProductionOrder @relation(fields: [productionOrderId], references: [id])
+  product         Product         @relation(fields: [productId], references: [id])
+
+  @@id([plantId, productionOrderId, productId, estacion])
+  @@map("rotulado_consecutivo_estacion")
 }
 
 // Preparar orden: cuántas canales de la orden de producción van a cada tienda del cliente.
@@ -789,6 +810,7 @@ model Product {
   postaReceiptItems          PostaReceiptItem[]
   clientes                   ClienteProducto[]
   rotuladoConsecutivos       RotuladoConsecutivo[]
+  rotuladoConsecutivosEstacion RotuladoConsecutivoEstacion[]
   rotuladoEtiquetas          RotuladoEtiqueta[]
   transferItems              TransferOrderItem[]
   dispatchProductItems       DispatchProductItem[]
@@ -820,6 +842,7 @@ model Plant {
   conditioningOrders         ConditioningOrder[]
   canalDispatchOrders        CanalDispatchOrder[]
   rotuladoConsecutivos       RotuladoConsecutivo[]
+  rotuladoConsecutivosEstacion RotuladoConsecutivoEstacion[]
   rotuladoEtiquetas          RotuladoEtiqueta[]
   acondicionamientoEtiquetas AcondicionamientoEtiqueta[]
   canalReceipts              CanalReceiptOrder[]
