@@ -57,7 +57,9 @@ function datosEtiqueta(e: EtiquetaEncontrada): EtiquetaDesposteDatos {
     codigo: e.codigo ?? undefined,
     ...(e.tipo === 'canastilla' && e.canastillaNumero !== null
       ? { canastilla: { numero: e.canastillaNumero, taraKg: e.taraKg, brutoKg: e.brutoKg } }
-      : {}),
+      : e.empaque === 'AL VACIO'
+        ? { taraKg: e.taraKg }
+        : {}),
   };
 }
 

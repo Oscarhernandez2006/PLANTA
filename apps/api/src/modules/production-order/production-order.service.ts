@@ -637,7 +637,7 @@ export class ProductionOrderService {
 
   /**
    * Reimpresión: busca la etiqueta por su código de barras
-   * (lote + producto + pieza de 4 dígitos, o + C + canastilla de 3 dígitos).
+   * (lote + producto + estación y pieza, o + C + canastilla de 3 dígitos).
    */
   async buscarEtiqueta(ctx: AuthContext, codigoBarras: string) {
     const valor = codigoBarras.trim().toUpperCase();

@@ -171,10 +171,10 @@ export function EmbalajeDesposte({
     return () => clearTimeout(t);
   }, [alerta]);
 
-  // Si cambia el bruto o la tara, el neto vuelve a calcularse.
+  // Si cambia el bruto, la tara o el tipo de empaque, el neto vuelve a calcularse.
   useEffect(() => {
     setNetoManual(null);
-  }, [bruto, tara]);
+  }, [bruto, tara, alVacio]);
   const [bodegaId, setBodegaId] = useState('');
   const bodegas = useBodegas(orden.cliente.id);
   const bodegasActivas = useMemo(
@@ -240,7 +240,8 @@ export function EmbalajeDesposte({
 
   const taraKg = Number(tara.replace(',', '.')) || 0;
   const brutoKg = Number(bruto.replace(',', '.')) || 0;
-  const netoCalculado = Math.max(brutoKg - taraKg, 0);
+  // Al vacío la tara es la bolsa: el neto es el bruto completo y la tara se imprime aparte.
+  const netoCalculado = alVacio ? brutoKg : Math.max(brutoKg - taraKg, 0);
   const netoTexto = netoManual ?? netoCalculado.toFixed(2);
   const netoKg = netoManual !== null ? Number(netoManual) || 0 : netoCalculado;
   const ultima = etiquetas[0] ?? null;
@@ -262,6 +263,18 @@ export function EmbalajeDesposte({
   useEffect(() => {
     if (canastilla?.taraPiezas != null) setTara(canastilla.taraPiezas.toFixed(2));
   }, [canastilla?.id, canastilla?.taraPiezas]);
+
+  /**
+   * Lee la báscula y deja el peso en Bruto, sin importar qué casilla tenga el cursor:
+   * cierra los teclados abiertos y quita el foco para que nada pise el valor leído.
+   */
+  async function tomarPeso() {
+    setTecladoTara(false);
+    setTecladoBruto(false);
+    setTecladoNeto(false);
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+    await leerBascula();
+  }
 
   async function registrar(registro: GuardarEtiquetaInput) {
     try {
@@ -352,6 +365,7 @@ export function EmbalajeDesposte({
         temperatura: e.temperatura,
         ref: e.ref ?? '',
         codigo: e.codigo ?? undefined,
+        ...(e.empaque === 'AL VACIO' ? { taraKg: e.taraKg } : {}),
       }, logo));
       setAlerta({
         id: Date.now(),
@@ -458,6 +472,7 @@ export function EmbalajeDesposte({
           temperatura: temp,
           ref,
           codigo,
+          ...(alVacio ? { taraKg: Number(taraKg.toFixed(2)) } : {}),
         }, logo));
         if (!resultado.ok) {
           setAlerta({ id: Date.now(), texto: resultado.error || 'No se pudo imprimir la etiqueta.' });
@@ -704,7 +719,11 @@ export function EmbalajeDesposte({
             onChange={(e) => setNetoManual(soloDecimal(e.target.value))}
             onClick={() => setTecladoNeto(true)}
             inputMode="none"
-            title="Se calcula como bruto − tara; también se puede digitar"
+            title={
+              alVacio
+                ? 'Al vacío: el neto es el bruto completo (la tara de la bolsa sale aparte en la etiqueta)'
+                : 'Se calcula como bruto − tara; también se puede digitar'
+            }
             className="h-9 w-full bg-transparent text-center text-2xl font-bold tabular-nums text-emerald-600 outline-none"
           />
           {tecladoNeto && (
@@ -716,7 +735,7 @@ export function EmbalajeDesposte({
           )}
         </FieldBox>
         <div className="flex shrink-0 items-center gap-2">
-          <button onClick={leerBascula} disabled={leyendo} title="Leer báscula" className={botonIcono}>
+          <button onClick={() => void tomarPeso()} disabled={leyendo} title="Leer báscula" className={botonIcono}>
             {leyendo ? <LoaderCircle className="size-7 animate-spin" /> : <Gauge className="size-8" />}
           </button>
           <button

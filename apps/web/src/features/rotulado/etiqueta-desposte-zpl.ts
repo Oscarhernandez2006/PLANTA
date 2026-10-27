@@ -18,6 +18,8 @@ export interface EtiquetaDesposteDatos {
   codigo?: string;
   /** Solo en la etiqueta de canastilla: `pieza` son las unidades que lleva. */
   canastilla?: { numero: number; taraKg: number; brutoKg: number };
+  /** Pieza al vacío: el neto es el bruto completo y la tara del empaque se imprime aparte. */
+  taraKg?: number;
 }
 
 const dots = (mm: number) => Math.round((mm * 203) / 25.4);
@@ -154,7 +156,13 @@ export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): Element
           texto(370, 215, 20, 14, canastilla.taraKg.toFixed(1)),
           texto(422, 215, 20, 14, canastilla.brutoKg.toFixed(1)),
         ]
-      : [texto(364, 152, 110, 55, datos.netoKg.toFixed(2))]),
+      : datos.taraKg !== undefined
+        ? [
+            texto(366, 148, 70, 36, datos.netoKg.toFixed(2)),
+            texto(392, 200, 13, 9, 'TARA(kg)'),
+            texto(396, 215, 20, 14, datos.taraKg.toFixed(2)),
+          ]
+        : [texto(364, 152, 110, 55, datos.netoKg.toFixed(2))]),
     caja(12, 238, 455, 2, 2),
     texto(14, 243, 20, 20, `CONSERVACION: ${datos.conservacion.toUpperCase()} ${datos.temperatura}`),
     texto(14, 261, 20, 17, 'Instruciones de uso: Cocinar completamente antes de consumir.'),
