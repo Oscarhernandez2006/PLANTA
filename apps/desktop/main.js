@@ -372,10 +372,130 @@ ipcMain.handle('printer:list', async () => {
  * y lo manda vía `print-raw.ps1` (WinSpool RAW), evitando compartir la
  * impresora o depender del puerto exacto (USB001, etc.).
  */
+/**
+ * Impresión RAW en Windows con un PowerShell que queda abierto (print-raw-worker.ps1): compila
+ * la ayuda de WinSpool una sola vez, así cada etiqueta sale casi al instante. Si el proceso no
+ * arranca o falla, se usa el método de siempre (un PowerShell por impresión).
+ */
+const impresionRaw = {
+  hijo: null,
+  listo: null,
+  pendientes: new Map(),
+  siguienteId: 1,
+};
+
+function cerrarWorkerImpresion(motivo) {
+  const { hijo, pendientes } = impresionRaw;
+  impresionRaw.hijo = null;
+  impresionRaw.listo = null;
+  for (const { resolve, timer } of pendientes.values()) {
+    clearTimeout(timer);
+    resolve({ ok: false, error: motivo, reintentar: true });
+  }
+  pendientes.clear();
+  if (hijo && !hijo.killed) hijo.kill();
+}
+
+function iniciarWorkerImpresion() {
+  if (process.platform !== 'win32') return Promise.resolve(false);
+  if (impresionRaw.listo) return impresionRaw.listo;
+
+  impresionRaw.listo = new Promise((resolveListo) => {
+    let hijo;
+    try {
+      hijo = spawn(
+        'powershell.exe',
+        ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', rutaScript('print-raw-worker.ps1')],
+        { windowsHide: true },
+      );
+    } catch {
+      impresionRaw.listo = null;
+      resolveListo(false);
+      return;
+    }
+    impresionRaw.hijo = hijo;
+    let buffer = '';
+    let listo = false;
+    const arranque = setTimeout(() => {
+      if (!listo) {
+        cerrarWorkerImpresion('worker_sin_respuesta');
+        resolveListo(false);
+      }
+    }, 30000);
+
+    hijo.stdout.on('data', (d) => {
+      buffer += d.toString();
+      const lineas = buffer.split(/\r?\n/);
+      buffer = lineas.pop() ?? '';
+      for (const linea of lineas) {
+        if (!listo && linea.trim() === 'READY') {
+          listo = true;
+          clearTimeout(arranque);
+          resolveListo(true);
+          continue;
+        }
+        const [id, estado, ...resto] = linea.split('\t');
+        const trabajo = impresionRaw.pendientes.get(id);
+        if (!trabajo) continue;
+        impresionRaw.pendientes.delete(id);
+        clearTimeout(trabajo.timer);
+        trabajo.resolve(
+          estado === 'OK'
+            ? { ok: true, output: `OK: ${resto.join(' ')} bytes enviados.` }
+            : { ok: false, error: resto.join(' ') || 'error_impresion' },
+        );
+      }
+    });
+    hijo.stderr.on('data', () => {});
+    const terminar = () => {
+      clearTimeout(arranque);
+      if (impresionRaw.hijo === hijo) cerrarWorkerImpresion('worker_cerrado');
+      if (!listo) resolveListo(false);
+    };
+    hijo.on('exit', terminar);
+    hijo.on('error', terminar);
+  });
+  return impresionRaw.listo;
+}
+
+async function imprimirConWorker(printerName, content) {
+  if (!(await iniciarWorkerImpresion()) || !impresionRaw.hijo) {
+    return { ok: false, error: 'worker_no_disponible', reintentar: true };
+  }
+  const id = String(impresionRaw.siguienteId++);
+  const linea = [
+    id,
+    Buffer.from(printerName, 'utf8').toString('base64'),
+    Buffer.from(content, 'utf8').toString('base64'),
+  ].join('\t');
+  return new Promise((resolve) => {
+    // Si el spooler no responde, se descarta el proceso y se reintenta con el método de siempre.
+    const timer = setTimeout(() => {
+      impresionRaw.pendientes.delete(id);
+      cerrarWorkerImpresion('worker_sin_respuesta');
+      resolve({ ok: false, error: 'worker_sin_respuesta', reintentar: true });
+    }, 15000);
+    impresionRaw.pendientes.set(id, { resolve, timer });
+    impresionRaw.hijo.stdin.write(`${linea}\n`);
+  });
+}
+
 ipcMain.handle('printer:print-raw', async (_, { printerName, content } = {}) => {
   if (!printerName || !content) {
     return { ok: false, error: 'faltan_datos' };
   }
+  if (process.platform === 'win32') {
+    const rapido = await imprimirConWorker(printerName, content);
+    // Un error de la impresora (nombre, spooler) se informa; solo se reintenta si falló el proceso.
+    if (rapido.ok || !rapido.reintentar) return rapido;
+  }
+  return imprimirUnaVez(printerName, content);
+});
+
+app.on('before-quit', () => cerrarWorkerImpresion('app_cerrada'));
+
+/** Método de siempre: un proceso por impresión (Windows: print-raw.ps1; Linux/macOS: CUPS). */
+function imprimirUnaVez(printerName, content) {
   const tempFile = path.join(
     os.tmpdir(),
     `presinto-${Date.now()}-${Math.random().toString(36).slice(2)}.zpl`,
@@ -424,7 +544,7 @@ ipcMain.handle('printer:print-raw', async (_, { printerName, content } = {}) => 
       resolve({ ok: false, error: String(err) });
     });
   });
-});
+}
 
 let mainWindow = null;
 
@@ -628,6 +748,8 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     void arrancar();
+    // Deja listo el proceso de impresión para que la primera etiqueta no espere a PowerShell.
+    setTimeout(() => void iniciarWorkerImpresion(), 3000);
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });

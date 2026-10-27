@@ -29,11 +29,13 @@
       "preload.js",
       "open-touch-keyboard.ps1",
       "print-raw.ps1",
+      "print-raw-worker.ps1",
       "web/**"
     ],
     "asarUnpack": [
       "open-touch-keyboard.ps1",
-      "print-raw.ps1"
+      "print-raw.ps1",
+      "print-raw-worker.ps1"
     ],
     "win": {
       "target": [

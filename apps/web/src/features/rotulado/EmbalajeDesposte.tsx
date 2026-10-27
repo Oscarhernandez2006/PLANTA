@@ -48,73 +48,36 @@ function sumarDias(iso: string, dias: number) {
 const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-/** Al cerrar una canastilla salen dos etiquetas iguales: una para la bolsa y otra para la canastilla. */
-const COPIAS_CANASTILLA = 2;
+/**
+ * Etiquetas al cerrar una canastilla: al vacío salen 2 iguales (una para la bolsa y otra para la
+ * canastilla); a granel sale 1, porque cada pieza ya lleva la suya pegada.
+ */
+const copiasCanastilla = (empaque: string | undefined) => (empaque === 'AL VACIO' ? 2 : 1);
+
+type MemoriaEmbalaje = { alVacio?: boolean; tara?: string; ref?: string };
+const claveMemoria = (ordenId: string) => `rotulado-desposte:${ordenId}`;
+
+/** Lo último que digitó el operario en la OP (sesión de la app), para no repetirlo en cada producto. */
+function leerMemoriaEmbalaje(ordenId: string): MemoriaEmbalaje {
+  try {
+    return JSON.parse(sessionStorage.getItem(claveMemoria(ordenId)) ?? '{}') as MemoriaEmbalaje;
+  } catch {
+    return {};
+  }
+}
+
+function guardarMemoriaEmbalaje(ordenId: string, valor: MemoriaEmbalaje) {
+  try {
+    sessionStorage.setItem(claveMemoria(ordenId), JSON.stringify(valor));
+  } catch {
+    // Sin almacenamiento disponible: solo se pierde la comodidad de recordar los datos.
+  }
+}
 
 const mensajeApi = (err: unknown, porDefecto: string) => {
   const m = isAxiosError(err) ? err.response?.data?.message : null;
   return Array.isArray(m) ? m.join(' ') : typeof m === 'string' ? m : porDefecto;
 };
-
-/** Cierre de canastilla: la tara es la misma con la que se pesaron sus piezas; bruto = neto + tara. */
-function CerrarCanastillaDialog({
-  canastilla,
-  undsPorCaja,
-  guardando,
-  onCerrar,
-  onClose,
-}: {
-  canastilla: CanastillaRotulado;
-  undsPorCaja: number;
-  guardando: boolean;
-  onCerrar: (taraKg: number) => void;
-  onClose: () => void;
-}) {
-  const taraKg = canastilla.taraPiezas ?? 0;
-  const caja = 'rounded-md border border-border px-3 py-2 text-center';
-  const titulo = 'text-xs font-semibold uppercase text-muted-foreground';
-
-  return (
-    <Dialog open onClose={onClose} title={`Cerrar canastilla N.º ${canastilla.numero}`} className="max-w-lg">
-      <div className="space-y-4">
-        <p className="text-base">
-          Tienda <b>{canastilla.tiendaCodigo} · {canastilla.tiendaNombre}</b>
-        </p>
-        <div className="grid grid-cols-4 gap-2">
-          <div className={caja}>
-            <p className={titulo}>Unds</p>
-            <p className="text-2xl font-bold tabular-nums">
-              {canastilla.unds}/{undsPorCaja}
-            </p>
-          </div>
-          <div className={caja}>
-            <p className={titulo}>Neto (kg)</p>
-            <p className="text-2xl font-bold tabular-nums text-emerald-600">{canastilla.netoKg.toFixed(2)}</p>
-          </div>
-          <div className={caja} title="Tara con la que se pesaron las piezas de esta canastilla">
-            <p className={titulo}>Tara (kg)</p>
-            <p className="text-2xl font-bold tabular-nums">{taraKg.toFixed(2)}</p>
-          </div>
-          <div className={caja}>
-            <p className={titulo}>Bruto (kg)</p>
-            <p className="text-2xl font-bold tabular-nums text-red-600">
-              {(canastilla.netoKg + taraKg).toFixed(2)}
-            </p>
-          </div>
-        </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={onClose}>
-            Cancelar
-          </Button>
-          <Button disabled={guardando} onClick={() => onCerrar(taraKg)}>
-            <Package className="size-4" />
-            {guardando ? 'Cerrando…' : 'Cerrar e imprimir'}
-          </Button>
-        </div>
-      </div>
-    </Dialog>
-  );
-}
 
 /** Mensaje que impide etiquetar hasta cerrar la canastilla abierta. */
 function bloqueoCanastilla(estado: EstadoRotulado | undefined) {
@@ -147,15 +110,20 @@ export function EmbalajeDesposte({
   const [conservacion, setConservacion] = useState<Conservacion>(
     producto.refrigeradoDias > 0 || producto.congeladoDias === 0 ? 'refrigerado' : 'congelado',
   );
-  const [alVacio, setAlVacio] = useState(/VAC[IÍ]O/i.test(producto.nombre));
-  const [tara, setTara] = useState('0.00');
+  // Empaque, tara y ref se conservan al cambiar de producto dentro de la misma OP.
+  const [memoria] = useState(() => leerMemoriaEmbalaje(orden.id));
+  const [alVacio, setAlVacio] = useState(memoria.alVacio ?? /VAC[IÍ]O/i.test(producto.nombre));
+  const [tara, setTara] = useState(memoria.tara ?? '0.00');
   const [tecladoTara, setTecladoTara] = useState(false);
   const [tecladoBruto, setTecladoBruto] = useState(false);
   const [tecladoNeto, setTecladoNeto] = useState(false);
   // Neto digitado a mano; null = se calcula como bruto − tara.
   const [netoManual, setNetoManual] = useState<string | null>(null);
   // Número interno que digita el operario.
-  const [ref, setRef] = useState('');
+  const [ref, setRef] = useState(memoria.ref ?? '');
+  useEffect(() => {
+    guardarMemoriaEmbalaje(orden.id, { alVacio, tara, ref });
+  }, [orden.id, alVacio, tara, ref]);
   const keyboard = useKeyboard();
   const { peso: bruto, setPeso: setBruto, leyendo, error, leerBascula } = useBascula('0.00');
   const [alerta, setAlerta] = useState<{ id: number; texto: string } | null>(null);
@@ -203,7 +171,6 @@ export function EmbalajeDesposte({
   const cerrarCanastilla = useCerrarCanastilla(orden.id, producto.id);
   const [seleccionada, setSeleccionada] = useState<string | null>(null);
   const [pidiendoSobrante, setPidiendoSobrante] = useState(false);
-  const [cerrando, setCerrando] = useState(false);
   const [confirmarBorrado, setConfirmarBorrado] = useState<EtiquetaRotulado | null>(null);
 
   function borrar(etiquetaId: string, reabrir: boolean) {
@@ -288,6 +255,14 @@ export function EmbalajeDesposte({
         id: Date.now(),
         texto: `${mensajeApi(err, 'La etiqueta se imprimió pero no se guardó.')} Presiona etiquetar de nuevo para reintentar el guardado (no se reimprime).`,
       });
+      return;
+    }
+    // Si con esta pieza la canastilla quedó llena (o su tienda completa), se cierra sola y sale su
+    // etiqueta enseguida, sin preguntar.
+    const { data: nuevo } = await estadoQuery.refetch();
+    const c = nuevo?.canastilla;
+    if (c && c.unds > 0 && bloqueoCanastilla(nuevo)) {
+      await cerrar(c.taraPiezas ?? registro.taraKg, c.id);
     }
   }
 
@@ -315,11 +290,18 @@ export function EmbalajeDesposte({
         ref: c.datos.ref ?? '',
         codigo: c.codigo ?? undefined,
         canastilla: { numero: c.numero, taraKg: c.taraKg, brutoKg: c.brutoKg },
-      }, logo, reimpresion ? 1 : COPIAS_CANASTILLA));
+      }, logo, reimpresion ? 1 : copiasCanastilla(c.datos.empaque)));
+      const copias = copiasCanastilla(c.datos.empaque);
       setAlerta({
         id: Date.now(),
         texto: resultado.ok
-          ? `Canastilla N.º ${c.numero} ${reimpresion ? 'reimpresa' : `cerrada: ${COPIAS_CANASTILLA} etiquetas impresas (bolsa y canastilla)`}.`
+          ? `Canastilla N.º ${c.numero} ${
+              reimpresion
+                ? 'reimpresa'
+                : copias > 1
+                  ? `cerrada: ${copias} etiquetas impresas (bolsa y canastilla)`
+                  : 'cerrada e impresa'
+            }.`
           : resultado.error || 'No se pudo imprimir la etiqueta de la canastilla.',
       });
     } catch {
@@ -327,14 +309,13 @@ export function EmbalajeDesposte({
     }
   }
 
-  async function cerrar(taraCanastilla: number) {
-    if (!canastilla) return;
+  async function cerrar(taraCanastilla: number, canastillaId = canastilla?.id) {
+    if (!canastillaId) return;
     try {
       const c = await cerrarCanastilla.mutateAsync({
-        canastillaId: canastilla.id,
+        canastillaId,
         taraKg: taraCanastilla,
       });
-      setCerrando(false);
       await imprimirCanastilla(c);
     } catch (err) {
       setAlerta({ id: Date.now(), texto: mensajeApi(err, 'No se pudo cerrar la canastilla.') });
@@ -751,12 +732,18 @@ export function EmbalajeDesposte({
             {imprimiendo ? <LoaderCircle className="size-7 animate-spin" /> : <Barcode className="size-8" />}
           </button>
           <button
-            onClick={() => setCerrando(true)}
+            // Las canastillas se cierran solas al llenarse; este botón cierra ya una incompleta
+            // (sobrantes o fin de turno) e imprime su etiqueta, sin preguntar.
+            onClick={() => canastilla && void cerrar(canastilla.taraPiezas ?? taraKg, canastilla.id)}
             disabled={!canastilla || imprimiendo || cerrarCanastilla.isPending}
-            title={canastilla ? `Cerrar la canastilla N.º ${canastilla.numero}` : 'No hay canastilla abierta'}
+            title={
+              canastilla
+                ? `Cerrar ya la canastilla N.º ${canastilla.numero} (${canastilla.unds} und) e imprimir su etiqueta`
+                : 'No hay canastilla abierta'
+            }
             className={cn(botonIcono, bloqueo && 'animate-pulse border-amber-500 bg-amber-100')}
           >
-            <Package className="size-8" />
+            {cerrarCanastilla.isPending ? <LoaderCircle className="size-7 animate-spin" /> : <Package className="size-8" />}
           </button>
         </div>
         <FieldBox label={canastilla ? `Canast. ${canastilla.numero}:` : 'Canast.:'} className="w-28 shrink-0">
@@ -1062,16 +1049,6 @@ export function EmbalajeDesposte({
             </div>
           </div>
         </Dialog>
-      )}
-
-      {cerrando && canastilla && estado && (
-        <CerrarCanastillaDialog
-          canastilla={canastilla}
-          undsPorCaja={estado.capacidadCanastilla}
-          guardando={cerrarCanastilla.isPending}
-          onCerrar={(t) => void cerrar(t)}
-          onClose={() => setCerrando(false)}
-        />
       )}
     </div>
   );
