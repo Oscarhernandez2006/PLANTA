@@ -111,12 +111,19 @@ export class HistoricoBeneficioSync {
         }),
         this.prisma.pesoEnPie.findMany({
           where: { plantId, deletedAt: null, date: orden.date, guia: guias[0] },
-          select: { reference: true, pesoTotalKg: true },
+          select: { reference: true, pesoTotalKg: true, ordenBeneficioId: true, ordenSequence: true },
         }),
       ]);
       const desfase = previas._sum.animalCount ?? 0;
+      // Asignación explícita a la orden; si no existe (órdenes antiguas), por posición.
+      const explicitos = animales.filter((a) => a.ordenBeneficioId === orden.id);
+      const porSeq = new Map(explicitos.map((a) => [a.ordenSequence, Number(a.pesoTotalKg ?? 0)]));
       const porRef = new Map(animales.map((a) => [a.reference, Number(a.pesoTotalKg ?? 0)]));
-      for (const e of orden.eventos) pesoPie += porRef.get(desfase + e.sequence) ?? 0;
+      for (const e of orden.eventos) {
+        pesoPie += explicitos.length
+          ? (porSeq.get(e.sequence) ?? 0)
+          : (porRef.get(desfase + e.sequence) ?? 0);
+      }
     } else if (guias.length > 1) {
       const agg = await this.prisma.pesoEnPie.aggregate({
         _sum: { pesoTotalKg: true },

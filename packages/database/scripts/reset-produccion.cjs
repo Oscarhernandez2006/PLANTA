@@ -1,6 +1,6 @@
 // Borra TODA la información transaccional (pruebas) dejando intactos los
 // catálogos (clientes con sus tiendas, bodegas y conservación, proveedores,
-// procedencias, conductores, productos), usuarios/operarios y equipos registrados.
+// procedencias, conductores, productos), usuarios/operarios.
 // Pensado para dejar la BD lista antes de salir a producción.
 // Uso: node packages/database/scripts/reset-produccion.cjs
 const { PrismaClient } = require('@prisma/client');
@@ -52,7 +52,7 @@ async function main() {
   ]);
 
   console.log(
-    'Listo: se borraron todas las transacciones. Catálogos (clientes, tiendas, bodegas, conservación, proveedores, procedencias, conductores, productos), usuarios y equipos quedaron intactos.',
+    'Listo: se borraron todas las transacciones. Catálogos (clientes, tiendas, bodegas, conservación, proveedores, procedencias, conductores, productos), usuarios quedaron intactos.',
   );
 }
 

@@ -16,11 +16,7 @@ import {
 } from './orden-acondicionamiento-api';
 
 /** Día siguiente a `iso` (YYYY-MM-DD). */
-function manana(iso: string) {
-  const d = new Date(`${iso}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + 1);
-  return d.toISOString().slice(0, 10);
-}
+
 
 export function OrdenAcondicionamientoPage() {
   return (
@@ -47,9 +43,11 @@ function RegistrarOrdenAcondicionamientoForm() {
   const clientes = useClientesActivos();
   const ordenesTraslado = useOrdenesTrasladoCerradas();
 
-  const [processDate, setProcessDate] = useState(manana(hoy));
+  const [registrationDate, setRegistrationDate] = useState(hoy);
+  const [processDate, setProcessDate] = useState(hoy);
   const [clienteId, setClienteId] = useState('');
   const [transferOrderId, setTransferOrderId] = useState('');
+  const [proceso, setProceso] = useState<'inyectado' | 'porcionado'>('porcionado');
   const [status, setStatus] = useState<OrdenDespachoStatus>('activo');
   const [error, setError] = useState<string | null>(null);
   const [okMsg, setOkMsg] = useState<string | null>(null);
@@ -79,20 +77,23 @@ function RegistrarOrdenAcondicionamientoForm() {
     setOkMsg(null);
     if (!clienteId) return setError('Selecciona el cliente.');
     if (!transferOrderId) return setError('Selecciona la orden de traslado.');
+    if (!registrationDate) return setError('Selecciona la fecha de registro.');
     if (!processDate) return setError('Selecciona la fecha de proceso.');
     try {
       const created = await crear.mutateAsync({
         clienteId,
         transferOrderId,
-        registrationDate: hoy,
+        registrationDate,
         processDate,
+        proceso,
         status,
       });
       setOkMsg(
         `Orden de acondicionamiento ${formatOC(created.ocNumber)} registrada (${formatOT(created.transferOrder.otNumber)}).`,
       );
       void next.refetch();
-      setProcessDate(manana(hoy));
+      setRegistrationDate(hoy);
+      setProcessDate(hoy);
       setClienteId('');
       setTransferOrderId('');
       setStatus('activo');
@@ -130,7 +131,13 @@ function RegistrarOrdenAcondicionamientoForm() {
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="oc-fec-registro">Fecha de registro</Label>
-              <Input id="oc-fec-registro" type="date" className="h-9" value={hoy} disabled />
+              <Input
+                id="oc-fec-registro"
+                type="date"
+                className="h-9"
+                value={registrationDate}
+                onChange={(e) => setRegistrationDate(e.target.value)}
+              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="oc-fec-proceso">Fecha de proceso</Label>
@@ -139,7 +146,6 @@ function RegistrarOrdenAcondicionamientoForm() {
                 type="date"
                 className="h-9"
                 value={processDate}
-                min={hoy}
                 onChange={(e) => setProcessDate(e.target.value)}
               />
             </div>
@@ -181,6 +187,18 @@ function RegistrarOrdenAcondicionamientoForm() {
                     {formatOT(o.otNumber)} — proceso {o.processDate.slice(0, 10)}
                   </option>
                 ))}
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="oc-proceso">Proceso</Label>
+              <Select
+                id="oc-proceso"
+                className="h-9"
+                value={proceso}
+                onChange={(e) => setProceso(e.target.value as 'inyectado' | 'porcionado')}
+              >
+                <option value="porcionado">Porcionado</option>
+                <option value="inyectado">Inyectado</option>
               </Select>
             </div>
             <div className="space-y-1.5">

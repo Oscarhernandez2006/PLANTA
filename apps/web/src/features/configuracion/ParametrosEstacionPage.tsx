@@ -88,8 +88,8 @@ function zplPrueba(estacion: string) {
  */
 export function ParametrosEstacionPage() {
   const desktop = isDesktop();
-  const { deviceName, hostname, mac } = useDevice();
-  const estacion = deviceName ?? hostname ?? 'Estación';
+  const { hostname, mac } = useDevice();
+  const estacion = hostname ?? 'Estación';
 
   // ---- Impresora ----
   const [impresoras, setImpresoras] = useState<PrinterInfo[]>([]);

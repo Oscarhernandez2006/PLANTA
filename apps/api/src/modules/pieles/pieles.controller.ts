@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -31,6 +32,14 @@ export class PielesController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.loteDetail(user, id);
+  }
+
+  @Patch('lotes/:id/cerrar')
+  cerrar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.cerrar(user, id);
   }
 
   @Get('pendientes')

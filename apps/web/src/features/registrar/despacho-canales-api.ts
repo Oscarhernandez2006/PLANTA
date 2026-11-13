@@ -24,7 +24,7 @@ export interface OrdenDespachoCanales {
 
 // Consecutivo de Despacho de Canales: DC + 7 dígitos (DC0000001), común a caliente y frío.
 export function formatDC(n: number) {
-  return `DC${String(n).padStart(7, '0')}`;
+  return `DC${n}`;
 }
 
 export function useDespachoCanalesNextNumber() {

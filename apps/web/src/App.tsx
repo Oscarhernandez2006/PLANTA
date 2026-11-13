@@ -11,8 +11,7 @@ import { OnScreenKeyboard } from './components/keyboard/OnScreenKeyboard';
 import { AuthProvider, useAuth } from './features/auth/auth-context';
 import { LoginPage } from './features/auth/LoginPage';
 import { WelcomeScreen } from './features/auth/WelcomeScreen';
-import { DeviceGate } from './features/device/DeviceGate';
-import { DevicesPage } from './features/device/DevicesPage';
+import { DeviceProvider } from './features/device/device-context';
 import { ParametrosEstacionPage } from './features/configuracion/ParametrosEstacionPage';
 import { PermisosPage } from './features/configuracion/PermisosPage';
 import { UsuariosPage } from './features/configuracion/UsuariosPage';
@@ -43,6 +42,13 @@ import { ClientesPage } from './features/clientes/ClientesPage';
 import { ConservacionPage } from './features/conservacion/ConservacionPage';
 import { PiezasDespostePage } from './features/piezas-desposte/PiezasDespostePage';
 import { InformesPage } from './features/informes/InformesPage';
+import { TallerDespostePage } from './features/talleres/TallerDespostePage';
+import { TallerAcondicionamientoPage } from './features/talleres/TallerAcondicionamientoPage';
+import { PreciosPage } from './features/talleres/PreciosPage';
+import { ResultadosPage } from './features/talleres/ResultadosPage';
+import { HistorialTalleresPage } from './features/talleres/HistorialTalleresPage';
+import { TarifasPage } from './features/talleres/TarifasPage';
+import { CostoGanadoPage } from './features/talleres/CostoGanadoPage';
 import { HistoricoSacrificioPage } from './features/historico-sacrificio/HistoricoSacrificioPage';
 import { BeneficioHistoricoPage } from './features/historico-sacrificio/BeneficioHistoricoPage';
 import { RetomasHistoricoPage } from './features/historico-sacrificio/RetomasHistoricoPage';
@@ -101,6 +107,13 @@ const router = createRouter([
       { path: 'conservacion', element: <ConservacionPage /> },
       { path: 'piezas-desposte', element: <PiezasDespostePage /> },
       { path: 'informes', element: <InformesPage /> },
+      { path: 'talleres/desposte', element: <TallerDespostePage /> },
+      { path: 'talleres/acondicionamiento', element: <TallerAcondicionamientoPage /> },
+      { path: 'talleres/precios', element: <PreciosPage /> },
+      { path: 'talleres/resultados', element: <ResultadosPage /> },
+      { path: 'talleres/historial', element: <HistorialTalleresPage /> },
+      { path: 'talleres/tarifas', element: <TarifasPage /> },
+      { path: 'talleres/costo-ganado', element: <CostoGanadoPage /> },
       ...historicoSacrificioItems.map((item) => ({
         path: item.to.slice(1),
         element:
@@ -123,7 +136,6 @@ const router = createRouter([
           ),
       })),
       { path: 'ingresos', element: <GoodsReceiptsPage /> },
-      { path: 'configuracion/estaciones', element: <DevicesPage /> },
       { path: 'configuracion/parametros-estacion', element: <ParametrosEstacionPage /> },
       { path: 'configuracion/permisos', element: <PermisosPage /> },
       { path: 'configuracion/usuarios', element: <UsuariosPage /> },
@@ -150,13 +162,13 @@ function Gate() {
 
 export function App() {
   return (
-    <DeviceGate>
+    <DeviceProvider>
       <AuthProvider>
         <KeyboardProvider>
           <Gate />
           <OnScreenKeyboard />
         </KeyboardProvider>
       </AuthProvider>
-    </DeviceGate>
+    </DeviceProvider>
   );
 }

@@ -8,6 +8,7 @@ import { formatOT } from '../registrar/orden-traslado-api';
 import {
   formatOC,
   useOrdenesAcondicionamientoActivas,
+  useResumenAcondicionamiento,
   type OrdenAcondicionamiento,
 } from '../registrar/orden-acondicionamiento-api';
 import { EmbalajeAcondicionamiento } from './EmbalajeAcondicionamiento';
@@ -83,6 +84,11 @@ export function RotuladoAcondicionamientoPage() {
   const [tienda, setTienda] = useState<Tienda | null>(null);
   const [producto, setProducto] = useState<ProductoAsignado | null>(null);
   const ordenes = useOrdenesAcondicionamientoActivas();
+  // Para Inyectado: productos del traslado, para no elegir de todo el catálogo.
+  const resumen = useResumenAcondicionamiento(orden?.id ?? '');
+  const inyectado = orden?.proceso === 'inyectado';
+  const productosInyectado =
+    inyectado ? (resumen.data?.recibido ?? []).map((r) => r.productId) : undefined;
   const scrollRef = useRef<HTMLDivElement>(null);
   const propioScroll =
     (tab === 'productos' && !!orden) ||
@@ -166,6 +172,14 @@ export function RotuladoAcondicionamientoPage() {
                     {o.cliente.concepto}
                     <span className="mx-2 text-muted-foreground">|</span>
                     <span className="tabular-nums">{formatOT(o.transferOrder.otNumber)}</span>
+                    <span
+                      className={cn(
+                        'ml-3 rounded-sm px-1.5 py-0.5 text-[10px] font-bold uppercase',
+                        o.proceso === 'inyectado' ? 'bg-sky-600 text-white' : 'bg-amber-400 text-amber-950',
+                      )}
+                    >
+                      {o.proceso}
+                    </span>
                     <span className="ml-3 text-sm font-normal text-muted-foreground">
                       Proceso: {o.processDate.slice(0, 10).split('-').reverse().join('/')}
                     </span>
@@ -193,6 +207,7 @@ export function RotuladoAcondicionamientoPage() {
             clienteId={orden.cliente.id}
             seleccionado={producto}
             grupoInicial={null}
+            soloProductos={productosInyectado}
             onSelect={(p) => {
               setProducto(p);
               irA(tienda ? 'rotulado' : 'tiendas');

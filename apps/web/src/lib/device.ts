@@ -1,5 +1,3 @@
-import { api } from './api';
-
 const AGENT_URL =
   (import.meta.env.VITE_AGENT_URL as string | undefined) ??
   'http://127.0.0.1:47615';
@@ -291,24 +289,4 @@ export function setSavedPrinterName(name: string | null): void {
   } catch {
     /* almacenamiento no disponible */
   }
-}
-
-export interface DeviceValidation {
-  authorized: boolean;
-  bootstrap: boolean;
-  mac: string | null;
-  reason: 'inactive' | 'unregistered' | null;
-  deviceName?: string;
-}
-
-/** Valida la(s) MAC del equipo contra el registro (endpoint público). */
-export async function validateDevice(
-  macs: string[],
-  hostname?: string,
-): Promise<DeviceValidation> {
-  const res = await api.post<DeviceValidation>('/devices/validate', {
-    macs,
-    hostname,
-  });
-  return res.data;
 }

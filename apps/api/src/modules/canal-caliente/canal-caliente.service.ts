@@ -101,6 +101,7 @@ export class CanalCalienteService {
         plantId: ctx.plantId,
         deletedAt: null,
         ...(todayView ? {} : { date: dateOnly(dateStr) }),
+        canalCalienteCerradaAt: null,
         OR: [
           { status: OrdenBeneficioStatus.procesado },
           { status: OrdenBeneficioStatus.activo, eventos: { some: {} } },
@@ -114,8 +115,8 @@ export class CanalCalienteService {
     );
     const bases = await this.consecutivoBases(ctx.plantId, fechas);
     const nits = await this.nitsPorCliente(ordenes.map((o) => o.cliente));
-    // Las órdenes cumplidas siguen visibles en la bandeja (antes se ocultaban
-    // 5 minutos después de pesar su última canal); falta definir cómo cerrarlas.
+    // Las órdenes siguen visibles en la bandeja hasta que el operario las
+    // cierra explícitamente (`cerrar`).
     return ordenes.map((o) => {
       let esperadas = 0;
       let pesadas = 0;
@@ -141,6 +142,7 @@ export class CanalCalienteService {
         animalesPesados,
         piezasEsperadas: esperadas,
         piezasPesadas: pesadas,
+        cerrada: false,
       };
     });
   }
@@ -184,6 +186,7 @@ export class CanalCalienteService {
       date: o.date.toISOString().slice(0, 10),
       consecutivoBase: base,
       animalCount: o.animalCount,
+      cerrada: o.canalCalienteCerradaAt != null,
       animales: o.eventos.map((e) => {
         const esperadas = piezasEsperadas(e.canalTipo);
         const byPieza = new Map(e.canalPiezas.map((p) => [p.pieza, p]));
@@ -229,9 +232,13 @@ export class CanalCalienteService {
         canalTipo: true,
         ordenBeneficioId: true,
         canalPiezas: { select: { id: true }, take: 1 },
+        ordenBeneficio: { select: { canalCalienteCerradaAt: true } },
       },
     });
     if (!evt) throw new NotFoundException('Animal no encontrado.');
+    if (evt.ordenBeneficio.canalCalienteCerradaAt) {
+      throw new BadRequestException('La orden ya está cerrada en Canal Caliente.');
+    }
     if (evt.canalTipo && evt.canalTipo !== tipo && evt.canalPiezas.length) {
       throw new BadRequestException(
         'No se puede cambiar el tipo: este animal ya tiene piezas pesadas.',
@@ -358,10 +365,13 @@ export class CanalCalienteService {
         canalTipo: true,
         sequence: true,
         ordenBeneficioId: true,
-        ordenBeneficio: { select: { date: true } },
+        ordenBeneficio: { select: { date: true, canalCalienteCerradaAt: true } },
       },
     });
     if (!evt) throw new NotFoundException('Animal no encontrado.');
+    if (evt.ordenBeneficio.canalCalienteCerradaAt) {
+      throw new BadRequestException('La orden ya está cerrada en Canal Caliente.');
+    }
     const tipo = evt.canalTipo;
     if (!tipo) {
       throw new BadRequestException(
@@ -432,16 +442,65 @@ export class CanalCalienteService {
           ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
         },
       },
-      select: { id: true, eventoId: true, despacho: { select: { id: true } } },
+      select: {
+        id: true,
+        eventoId: true,
+        despacho: { select: { id: true } },
+        evento: { select: { ordenBeneficio: { select: { canalCalienteCerradaAt: true } } } },
+      },
     });
     if (!pieza) throw new NotFoundException('Pieza no encontrada.');
     if (pieza.despacho) {
       throw new BadRequestException('Esta pieza ya fue despachada: no se puede deshacer.');
     }
+    if (pieza.evento.ordenBeneficio.canalCalienteCerradaAt) {
+      throw new BadRequestException('La orden ya está cerrada en Canal Caliente.');
+    }
     await this.prisma.canalPieza.delete({ where: { id: pieza.id } });
     // La orden deja de estar completa: se quita su fila del histórico.
     await this.historico.sincronizarPorEvento(ctx.plantId, pieza.eventoId);
     return { ok: true };
+  }
+
+  /**
+   * Cierra la orden en Canal Caliente: deja de aparecer en ÓRDENES/ANIMALES y
+   * ya no se pesan, deshacen ni reclasifican piezas. Exige que todos los
+   * animales de la orden tengan sus piezas pesadas.
+   */
+  async cerrar(ctx: AuthContext, ordenBeneficioId: string) {
+    const o = await this.prisma.ordenBeneficio.findFirst({
+      where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+      select: {
+        id: true,
+        animalCount: true,
+        canalCalienteCerradaAt: true,
+        eventos: { select: { canalTipo: true, canalPiezas: { select: { pieza: true } } } },
+      },
+    });
+    if (!o) throw new NotFoundException('Orden no encontrada.');
+    if (o.canalCalienteCerradaAt) {
+      throw new BadRequestException('La orden ya está cerrada en Canal Caliente.');
+    }
+    const sinCaer = o.animalCount - o.eventos.length;
+    if (sinCaer > 0) {
+      throw new BadRequestException(
+        `Faltan ${sinCaer} ${sinCaer === 1 ? 'animal' : 'animales'} por sacrificar; no se puede cerrar la orden.`,
+      );
+    }
+    const sinPesar = o.eventos.filter((e) => {
+      const req = piezasEsperadas(e.canalTipo);
+      return !req.length || !req.every((pz) => e.canalPiezas.some((p) => p.pieza === pz));
+    }).length;
+    if (sinPesar > 0) {
+      throw new BadRequestException(
+        `Faltan ${sinPesar} ${sinPesar === 1 ? 'animal' : 'animales'} por pesar en canal; no se puede cerrar la orden.`,
+      );
+    }
+    await this.prisma.ordenBeneficio.update({
+      where: { id: o.id },
+      data: { canalCalienteCerradaAt: new Date(), canalCalienteCerradaById: ctx.userId },
+    });
+    return this.loteDetail(ctx, o.id);
   }
 
   /** ANIMALES: todos los animales de las órdenes con insensibilización iniciada del día. */
@@ -452,6 +511,7 @@ export class CanalCalienteService {
         plantId: ctx.plantId,
         deletedAt: null,
         ...(todayView ? {} : { date: dateOnly(dateStr) }),
+        canalCalienteCerradaAt: null,
         OR: [
           { status: OrdenBeneficioStatus.procesado },
           { status: OrdenBeneficioStatus.activo, eventos: { some: {} } },

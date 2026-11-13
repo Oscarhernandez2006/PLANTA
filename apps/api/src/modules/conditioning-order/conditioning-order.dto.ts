@@ -1,4 +1,4 @@
-import { DispatchOrderStatus } from '@prisma/client';
+import { ConditioningProceso, DispatchOrderStatus } from '@prisma/client';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -28,6 +28,10 @@ export class CreateConditioningOrderDto {
 
   @IsDateString()
   processDate!: string;
+
+  // Proceso de la orden: inyectado (mismos productos con más peso) o porcionado.
+  @IsEnum(ConditioningProceso)
+  proceso!: ConditioningProceso;
 
   @IsOptional()
   @IsEnum(DispatchOrderStatus)

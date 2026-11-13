@@ -35,12 +35,12 @@ export interface CreatePostaReceiptInput {
   status: DispatchOrderStatus;
 }
 
-// Consecutivo de producción de Recibo en Posta: RP + 6 dígitos (RP000001).
+// Consecutivo de producción de Recibo en Posta: RP + número sin ceros (RP1, RP2…).
 export function formatRP(n: number) {
-  return `RP${String(n).padStart(6, '0')}`;
+  return `RP${n}`;
 }
 
-// Identificador de pieza/animal dentro de su orden: RP000001-01 (igual patrón que formatRC/formatPieza).
+// Identificador de pieza/animal dentro de su orden: RP1-01 (igual patrón que formatRC/formatPieza).
 export function formatPiezaPosta(receiptNumber: number, codigo: number) {
   return `${formatRP(receiptNumber)}-${String(codigo).padStart(2, '0')}`;
 }

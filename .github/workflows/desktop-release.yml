@@ -31,7 +31,7 @@ jobs:
       # API a la que se conectan las estaciones. Se puede cambiar sin tocar el
       # código creando la variable DESKTOP_API_URL en Settings → Secrets and
       # variables → Actions → Variables.
-      VITE_API_URL: ${{ vars.DESKTOP_API_URL || 'http://192.168.1.249/api' }}
+      VITE_API_URL: ${{ vars.DESKTOP_API_URL || 'http://192.168.1.139/api' }}
       # Versión = 1.0.<número de ejecución>: siempre crece, así cada publicación
       # es "más nueva" que la anterior para el actualizador.
       APP_VERSION: 1.0.${{ github.run_number }}

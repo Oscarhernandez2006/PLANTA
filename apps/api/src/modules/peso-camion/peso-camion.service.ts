@@ -10,6 +10,42 @@ function dateOnly(s?: string) {
   return { str, date: new Date(`${str}T00:00:00.000Z`) };
 }
 
+/** Filtro Prisma: guía cerrada en camión y con entrada, salida y cantidad. */
+export const GUIA_COMPLETA_WHERE = {
+  status: PesoCamionStatus.cerrada,
+  guia: { not: null },
+  cantidad: { gt: 0 },
+  entrada: { gt: 0 },
+  salida: { gt: 0 },
+} as const;
+
+/**
+ * Qué le falta a una guía para considerarse completa (lista para Peso en Pie).
+ * Devuelve `null` si no le falta nada.
+ */
+export function faltantesGuia(c: {
+  guia: string | null;
+  cantidad: number | null;
+  entrada: unknown;
+  salida: unknown;
+}): string | null {
+  const faltan: string[] = [];
+  if (!c.guia?.trim()) faltan.push('número de guía');
+  if (!c.cantidad || c.cantidad <= 0) faltan.push('cantidad de animales');
+  if (c.entrada == null || Number(c.entrada) <= 0) faltan.push('peso de entrada');
+  if (c.salida == null || Number(c.salida) <= 0) faltan.push('peso de salida');
+  return faltan.length ? faltan.join(', ') : null;
+}
+
+function assertGuiaCompleta(c: Parameters<typeof faltantesGuia>[0]) {
+  const faltan = faltantesGuia(c);
+  if (faltan) {
+    throw new BadRequestException(
+      `No se puede cerrar la guía: falta ${faltan}. Registra la información completa antes de cerrarla.`,
+    );
+  }
+}
+
 @Injectable()
 export class PesoCamionService {
   constructor(private readonly prisma: PrismaService) {}
@@ -46,7 +82,7 @@ export class PesoCamionService {
     return { next: (agg._max.reference ?? 0) + 1 };
   }
 
-  /** Próximo consecutivo de guía temporal (TEMP-000001) para la planta. */
+  /** Próximo consecutivo de guía temporal (TEMP-1, TEMP-2…) para la planta. */
   async nextTempGuia(ctx: AuthContext) {
     const rows = await this.prisma.pesoCamion.findMany({
       where: {
@@ -60,7 +96,7 @@ export class PesoCamionService {
       const n = parseInt((r.guia ?? '').replace('TEMP-', ''), 10);
       if (Number.isFinite(n) && n > max) max = n;
     }
-    return { next: `TEMP-${String(max + 1).padStart(6, '0')}` };
+    return { next: `TEMP-${max + 1}` };
   }
 
   private fields(dto: SavePesoCamionDto) {
@@ -181,6 +217,7 @@ export class PesoCamionService {
       where: { id, plantId: ctx.plantId, deletedAt: null },
     });
     if (!existing) throw new NotFoundException('Guía no encontrada.');
+    assertGuiaCompleta(existing);
 
     // El total pesado uno a uno en Peso en Pie debe coincidir (±25%) con el
     // neto pesado en camión; solo se valida si Peso en Pie ya cerró la guía.
@@ -284,7 +321,13 @@ export class PesoCamionService {
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        ...(pieStatus ? { pieStatus } : { status: status ?? PesoCamionStatus.abierta }),
+        ...(pieStatus
+          ? pieStatus === PesoCamionStatus.abierta
+            ? // Peso en Pie solo recibe guías ya cerradas en camión y con toda su
+              // información (entrada, salida y cantidad); si no, el promedio sale mal.
+              { pieStatus, ...GUIA_COMPLETA_WHERE }
+            : { pieStatus }
+          : { status: status ?? PesoCamionStatus.abierta }),
       },
       orderBy: [{ date: 'desc' }, { reference: 'desc' }],
       take: 1000,

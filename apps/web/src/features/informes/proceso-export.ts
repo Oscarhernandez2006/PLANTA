@@ -21,7 +21,7 @@ export const fechaHora = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }) : '—';
 export const hora = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' }) : '—';
-const formatBP = (n: number) => `BP${String(n).padStart(6, '0')}`;
+const formatBP = (n: number) => `BP${n}`;
 const unicos = (xs: (string | null | undefined)[]) =>
   [...new Set(xs.map((x) => x?.trim()).filter(Boolean))].join(', ') || '—';
 

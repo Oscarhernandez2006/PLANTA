@@ -77,17 +77,27 @@ export interface DetalleProduccion extends InformeProduccionRow {
   fechaSacrificio: string | null;
   fechaIngreso: string | null;
   detalle: { codigo: string; producto: string; piezas: number; kg: number }[];
-  /** Canastillas etiquetadas en Rotulado Desposte (una fila por canastilla). */
+  /** Productos etiquetados en Rotulado Desposte, consolidados por producto y tienda. */
   etiquetado: {
     codigo: string;
     producto: string;
     tiendaCodigo: string;
     tienda: string;
-    canastilla: number | null;
+    canastillas: number;
     unds: number;
     sobrantes: number;
     kg: number;
     rendimiento: number;
+    /** Detalle empaque por empaque, para desplegar la fila consolidada. */
+    detalle: {
+      pieza: number;
+      codigo: string | null;
+      canastilla: number | null;
+      empaque: string;
+      sobrante: boolean;
+      kg: number;
+      rendimiento: number;
+    }[];
   }[];
 }
 
@@ -137,9 +147,15 @@ export interface SacrificioAnimal {
   pepKg: number | null;
   /** Peso en caliente (kg). */
   pecKg: number | null;
+  /** Peso en frío (kg) = peso de despacho de la canal. */
+  pecfKg: number | null;
   pielKg: number | null;
   /** PEC ÷ PEP × 100. */
   rendimiento: number | null;
+  /** Gancho = lote de la orden + turno del día (p. ej. 3-29). */
+  gancho: string;
+  /** Merma de frío = PEC − peso en frío (kg). */
+  mermaFrioKg: number | null;
   observacion: string | null;
   /** Cava de Canal Caliente. */
   ubicacion: string | null;
@@ -163,6 +179,7 @@ export interface DetalleSacrificio {
     animales: number;
     pepKg: number;
     pecKg: number;
+    pecfKg: number;
     pielKg: number;
     seboKg: number;
     promedioKg: number | null;

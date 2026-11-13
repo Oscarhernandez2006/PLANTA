@@ -1,21 +1,31 @@
 import { useEffect, useState } from 'react';
 import { Inbox } from 'lucide-react';
-import { listPrinters } from '@/lib/device';
+import { getSavedPrinterName, listPrinters } from '@/lib/device';
 import { cn } from '@/lib/utils';
 
+// Clave antigua propia de Rotulado; ahora se usa la impresora de Parámetros estación.
 const PRINTER_KEY = 'frigo.rotulado.printer.name';
 export const SIN_IMPRESORA = 'No se encontró la impresora de etiquetas (Zebra) en este equipo.';
 
-/** Impresora de etiquetas: la guardada si sigue instalada, si no la Zebra o la predeterminada. */
+/**
+ * Impresora de etiquetas. Prioridad:
+ * 1. La configurada en Configuración → Parámetros estación (vale para todos los módulos).
+ * 2. La guardada antes por el propio Rotulado (compatibilidad).
+ * 3. La predeterminada del equipo; si no hay, una Zebra/ZDesigner por el nombre.
+ */
 export function useImpresoraEtiquetas() {
-  const [impresora, setImpresora] = useState(() => localStorage.getItem(PRINTER_KEY) ?? '');
+  const [impresora, setImpresora] = useState(
+    () => getSavedPrinterName() ?? localStorage.getItem(PRINTER_KEY) ?? '',
+  );
   useEffect(() => {
     void listPrinters().then((lista) => {
-      const guardada = localStorage.getItem(PRINTER_KEY);
+      const estacion = getSavedPrinterName();
+      const propia = localStorage.getItem(PRINTER_KEY);
       const elegida =
-        lista.find((p) => p.name === guardada) ??
-        lista.find((p) => /zebra|zdesigner/i.test(p.name)) ??
-        lista.find((p) => p.isDefault);
+        lista.find((p) => p.name === estacion) ??
+        lista.find((p) => p.name === propia) ??
+        lista.find((p) => p.isDefault) ??
+        lista.find((p) => /zebra|zdesigner|zpl|\bz[td]\d/i.test(p.name));
       if (elegida) setImpresora(elegida.name);
     });
   }, []);

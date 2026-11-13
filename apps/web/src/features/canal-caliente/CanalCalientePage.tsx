@@ -22,6 +22,7 @@ import { cn, formatFechaDia, plantToday as today, soloDecimal } from '@/lib/util
 import { formatOB } from '../registrar/orden-beneficio-api';
 import { useBodegas } from '../clientes/api';
 import {
+  useCerrarCanalLote,
   useCanalLotes,
   useCanalLoteDetail,
   useCanalPiezas,
@@ -150,6 +151,8 @@ export function CanalCalientePage() {
 
   const lotes = useCanalLotes(date);
   const detail = useCanalLoteDetail(selectedId);
+  const cerrar = useCerrarCanalLote();
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Puente para que el botón de etiqueta del pie (compartido entre pestañas)
   // dispare "guardar clasificación + imprimir presinto" cuando se está en
@@ -301,6 +304,29 @@ export function CanalCalientePage() {
     scrollRef.current?.scrollBy({ top: dir * 220, behavior: 'smooth' });
   }
 
+  function cerrarOrden() {
+    if (!selectedId || !detail.data) return;
+    const ref = formatOB(detail.data.reference);
+    cerrar.mutate(selectedId, {
+      onSuccess: () => {
+        setConfirmarCierre(false);
+        setSelectedId(null);
+        setAnimalElegidoId(null);
+        setUltimoPesadoId(null);
+        setTab('ordenes');
+        mostrarAlerta(`Orden ${ref} cerrada en Canal Caliente.`);
+      },
+      onError: (err) => {
+        setConfirmarCierre(false);
+        mostrarAlerta(
+          isAxiosError(err) && typeof err.response?.data?.message === 'string'
+            ? err.response.data.message
+            : 'No se pudo cerrar la orden.',
+        );
+      },
+    });
+  }
+
   return (
     <div className="mx-auto flex h-[calc(100vh-2rem)] max-w-5xl flex-col gap-2 p-2">
       {/* Encabezado: icono, fecha y cliente */}
@@ -411,6 +437,9 @@ export function CanalCalientePage() {
               <ReporteTab
                 date={date}
                 orden={selectedLote ? { reference: selectedLote.reference, date: selectedLote.date } : null}
+                lote={selectedLote ?? null}
+                onCerrar={() => setConfirmarCierre(true)}
+                cerrando={cerrar.isPending}
               />
             )}
           </div>
@@ -432,6 +461,41 @@ export function CanalCalientePage() {
           leerBasculaRef.current = fn;
         }}
       />
+
+      {confirmarCierre && detail.data && (
+        <Dialog open onClose={() => !cerrar.isPending && setConfirmarCierre(false)} title="Cerrar orden" className="max-w-lg">
+          <div className="space-y-4">
+            <p className="text-base">
+              ¿Está seguro de cerrar en Canal Caliente la orden con consecutivo{' '}
+              <b>{formatOB(detail.data.reference)}</b>?
+            </p>
+            <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+              Los {detail.data.animalCount} animales ya tienen sus canales pesadas. La orden deja de
+              aparecer en Órdenes y Animales de Canal Caliente y ya no se podrán pesar ni deshacer
+              piezas. El reporte y los demás módulos siguen disponibles.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmarCierre(false)}
+                disabled={cerrar.isPending}
+                className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
+              >
+                No
+              </button>
+              <button
+                type="button"
+                onClick={cerrarOrden}
+                disabled={cerrar.isPending}
+                className="flex items-center gap-2 rounded-sm border-2 border-foreground/70 bg-foreground px-4 py-2 text-sm font-semibold uppercase text-background hover:opacity-90 disabled:opacity-50"
+              >
+                <Lock className="size-4" />
+                {cerrar.isPending ? 'Cerrando…' : 'Sí, cerrar'}
+              </button>
+            </div>
+          </div>
+        </Dialog>
+      )}
 
       {alerta && (
         <div
@@ -602,13 +666,12 @@ function OrdenesTab({
   if (loading) return <Loading />;
   if (!lotes.length)
     return (
-      <Empty text="No hay órdenes sacrificadas en esta fecha. Cuando una orden termine en Sacrificio aparecerá aquí." />
+      <Empty text="No hay órdenes abiertas en esta fecha. Cuando una orden empiece en Sacrificio aparecerá aquí." />
     );
   return (
     <ul className="flex flex-col gap-2 p-2">
       {lotes.map((l) => {
         const activo = l.ordenBeneficioId === selectedId;
-        const completo = l.animalCount > 0 && l.animalesPesados >= l.animalCount;
         return (
           <li key={l.ordenBeneficioId}>
             <button
@@ -639,9 +702,6 @@ function OrdenesTab({
                 >
                   {l.animalesPesados}/{l.animalCount} {l.animalCount === 1 ? 'animal' : 'animales'}
                 </span>
-                {completo && (
-                  <span className="font-semibold text-emerald-600">✓</span>
-                )}
               </span>
             </button>
           </li>
@@ -1297,25 +1357,37 @@ function TipoButton({
 function ReporteTab({
   date,
   orden,
+  lote,
+  onCerrar,
+  cerrando,
 }: {
   date: string;
   /** Orden seleccionada: el reporte y la reimpresión se limitan a ella. */
   orden: { reference: number; date: string } | null;
+  /** Lote seleccionado (de la bandeja de abiertas), para habilitar el cierre. */
+  lote: CanalLote | null;
+  onCerrar: () => void;
+  cerrando: boolean;
 }) {
-  const piezas = useCanalPiezas(date);
-  // Precinto seleccionado (azul) para reimprimir solo ese; sin selección se reimprimen todos los de la lista.
+  const faltanPesar = lote ? Math.max(0, lote.animalCount - lote.animalesPesados) : 0;
+  const puedeCerrar = !!lote && lote.animalCount > 0 && faltanPesar === 0;
+  // El reporte es SIEMPRE por orden: sin orden seleccionada no se consulta ni se lista nada.
+  const piezas = useCanalPiezas(date, !!orden);
+  // Precinto seleccionado (azul) para reimprimir solo ese; sin selección se reimprimen todos los de la orden.
   const [seleccion, setSeleccion] = useState<string | null>(null);
   const [reimprimiendo, setReimprimiendo] = useState<string | null>(null);
   const [resultado, setResultado] = useState<{ ok: boolean; texto: string } | null>(null);
   // El reporte va en orden consecutivo (A01, A02…); en media canal, CIZQ antes que CDER.
   const ordenPieza: Record<string, number> = { canal: 0, cizq: 1, cder: 2 };
-  const rows = [...(piezas.data ?? [])]
-    .filter((p) => !orden || (p.reference === orden.reference && p.date === orden.date))
-    .sort(
-      (a, b) =>
-        a.consecutivo - b.consecutivo ||
-        (ordenPieza[a.pieza] ?? 9) - (ordenPieza[b.pieza] ?? 9),
-    );
+  const rows = (
+    orden
+      ? (piezas.data ?? []).filter((p) => p.reference === orden.reference && p.date === orden.date)
+      : []
+  ).sort(
+    (a, b) =>
+      a.consecutivo - b.consecutivo ||
+      (ordenPieza[a.pieza] ?? 9) - (ordenPieza[b.pieza] ?? 9),
+  );
 
   // Al cambiar de orden se limpia la selección y el último resultado.
   useEffect(() => {
@@ -1378,13 +1450,19 @@ function ReporteTab({
     });
   }
 
-  if (piezas.isLoading) return <Loading />;
+  if (orden && piezas.isLoading) return <Loading />;
   const hayDatos = rows.length > 0;
   return (
     <div className="flex h-full flex-col p-2">
       <div className="flex-1 overflow-auto">
         {!hayDatos ? (
-          <Empty text={orden ? 'Esta orden aún no tiene canales pesadas.' : 'Sin datos para el reporte de esta fecha.'} />
+          <Empty
+            text={
+              orden
+                ? 'Esta orden aún no tiene canales pesadas.'
+                : 'Seleccione una orden en ÓRDENES para ver su reporte.'
+            }
+          />
         ) : (
           <table className="w-full text-sm">
               <thead className="sticky top-0 bg-muted/60 text-left">
@@ -1435,7 +1513,24 @@ function ReporteTab({
         )}
       </div>
 
-      <div className="mt-2 flex items-center justify-end gap-2 self-end">
+      <div className="mt-2 flex w-full flex-wrap items-center justify-between gap-2">
+        <button
+          type="button"
+          onClick={onCerrar}
+          disabled={!puedeCerrar || cerrando}
+          title={
+            !lote
+              ? 'Seleccione una orden en ÓRDENES para poder cerrarla'
+              : faltanPesar > 0
+                ? `Faltan ${faltanPesar} ${faltanPesar === 1 ? 'animal' : 'animales'} por pesar para poder cerrar`
+                : 'Cerrar la orden: desaparece de Canal Caliente'
+          }
+          className="flex items-center gap-3 rounded-md border-2 border-foreground/70 bg-card px-5 py-3 text-base font-bold uppercase hover:bg-muted disabled:opacity-40"
+        >
+          {cerrando ? <LoaderCircle className="size-7 animate-spin" /> : <Lock className="size-7" />}
+          Cerrar orden
+        </button>
+        <div className="flex items-center gap-2">
         {(reimprimiendo || resultado) && (
           <span
             className={cn(
@@ -1456,9 +1551,7 @@ function ReporteTab({
           title={
             seleccion
               ? 'Reimprimir el precinto seleccionado'
-              : orden
-                ? 'Reimprimir todos los precintos de esta orden'
-                : 'Reimprimir todos los precintos de la lista'
+              : 'Reimprimir todos los precintos de esta orden'
           }
           className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
         >
@@ -1471,14 +1564,13 @@ function ReporteTab({
           title={
             seleccion
               ? 'Reimprimir el precinto de vísceras del animal seleccionado'
-              : orden
-                ? 'Reimprimir los precintos de vísceras de todos los animales de esta orden'
-                : 'Reimprimir los precintos de vísceras de todos los animales de la lista'
+              : 'Reimprimir los precintos de vísceras de todos los animales de esta orden'
           }
           className="rounded-sm border-2 border-border bg-card px-4 py-2 text-sm font-semibold uppercase hover:bg-muted disabled:opacity-50"
         >
           Vísceras
         </button>
+        </div>
       </div>
     </div>
   );

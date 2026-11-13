@@ -8,6 +8,7 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   Min,
 } from 'class-validator';
@@ -34,6 +35,14 @@ export class CreateOrdenBeneficioDto {
   @Min(1)
   animalCount?: number;
 
+  // Animales (ids de Peso en Pie) que van en la orden. Si no se envía, se
+  // asignan los disponibles de la guía en orden de pesaje.
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  @IsUUID('4', { each: true })
+  animalIds?: string[];
+
   @IsOptional()
   @IsString()
   @MaxLength(500)
@@ -56,14 +65,15 @@ export class CreateOrdenBeneficioDto {
 }
 
 /**
- * Divide una guía en varias órdenes: una cantidad de animales por orden.
- * `animalCount` no aplica aquí (se ignora).
+ * Divide una guía en varias órdenes. Se indica qué animales (ids de Peso en
+ * Pie) van en cada orden: `animales[i]` son los de la orden i. Todos los
+ * animales disponibles de la guía deben quedar repartidos.
+ * `animalCount`/`animalIds` no aplican aquí (se ignoran).
  */
 export class DividirOrdenBeneficioDto extends CreateOrdenBeneficioDto {
   @IsArray()
-  @ArrayMinSize(1)
+  @ArrayMinSize(2)
   @ArrayMaxSize(100)
-  @IsInt({ each: true })
-  @Min(1, { each: true })
-  cantidades!: number[];
+  @IsArray({ each: true })
+  animales!: string[][];
 }

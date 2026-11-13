@@ -34,12 +34,12 @@ export interface PesoEnPie {
   status: PesoEnPieStatus;
 }
 
-// Consecutivo de producción de Báscula en Pie: BP + 6 dígitos (BP000001).
+// Consecutivo de producción de Báscula en Pie: BP + número sin ceros (BP1, BP2…).
 export function formatBP(n: number) {
-  return `BP${String(n).padStart(6, '0')}`;
+  return `BP${n}`;
 }
 
-// Identificador de animal dentro de su BP: BP000001-1 (solo el número).
+// Identificador de animal dentro de su BP: BP1-1 (solo el número).
 export function formatAnimal(bpReference: number, reference: number) {
   return `${formatBP(bpReference)}-${reference}`;
 }

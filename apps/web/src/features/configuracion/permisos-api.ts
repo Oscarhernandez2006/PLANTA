@@ -9,6 +9,8 @@ export interface UsuarioPermisos {
   active: boolean;
   accesoTotal: boolean;
   modulos: string[];
+  /** Autorizador de operaciones: valida acciones sensibles con cédula + PIN. */
+  autorizador: boolean;
 }
 
 export function useUsuariosPermisos() {
@@ -21,8 +23,18 @@ export function useUsuariosPermisos() {
 export function useGuardarPermisos() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, accesoTotal, modulos }: { id: string; accesoTotal: boolean; modulos: string[] }) =>
-      (await api.patch<UsuarioPermisos>(`/permisos/usuarios/${id}`, { accesoTotal, modulos })).data,
+    mutationFn: async ({
+      id,
+      accesoTotal,
+      modulos,
+      autorizador,
+    }: {
+      id: string;
+      accesoTotal: boolean;
+      modulos: string[];
+      autorizador: boolean;
+    }) =>
+      (await api.patch<UsuarioPermisos>(`/permisos/usuarios/${id}`, { accesoTotal, modulos, autorizador })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['permisos'] }),
   });
 }

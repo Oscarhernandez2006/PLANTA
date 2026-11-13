@@ -1,4 +1,4 @@
-import { MonitorSmartphone, Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, SlidersHorizontal, ShieldCheck, UserCog, LayoutDashboard, History, RotateCcw, Layers, Repeat2, BadgeDollarSign, Database } from 'lucide-react';
+import { Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, SlidersHorizontal, ShieldCheck, UserCog, LayoutDashboard, History, RotateCcw, Layers, Repeat2, BadgeDollarSign, Database, ChartColumnBig, ChartNoAxesCombined, Tags, Calculator, HandCoins, TrendingUp, ScrollText } from 'lucide-react';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
 import { PostaReciboIcon } from '@/components/icons/PostaReciboIcon';
@@ -106,13 +106,24 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
+    title: 'Talleres desposte',
+    items: [
+      { to: '/talleres/desposte', label: 'Taller de Desposte', icon: ChartColumnBig },
+      { to: '/talleres/acondicionamiento', label: 'Taller de Acondicionamiento', icon: ChartNoAxesCombined },
+      { to: '/talleres/resultados', label: 'Resultados', icon: TrendingUp },
+      { to: '/talleres/precios', label: 'Productos y precios', icon: Tags },
+      { to: '/talleres/tarifas', label: 'Tarifas de proceso', icon: Calculator },
+      { to: '/talleres/costo-ganado', label: 'Costo de ganado', icon: HandCoins },
+      { to: '/talleres/historial', label: 'Historial de talleres', icon: ScrollText },
+    ],
+  },
+  {
     title: 'Histórico Sacrificio',
     items: historicoSacrificioItems,
   },
   {
     title: 'Configuración',
     items: [
-      { to: '/configuracion/estaciones', label: 'Estaciones', icon: MonitorSmartphone },
       { to: '/configuracion/parametros-estacion', label: 'Parámetros estación', icon: SlidersHorizontal },
       { to: '/configuracion/usuarios', label: 'Usuarios', icon: UserCog },
       { to: '/configuracion/permisos', label: 'Permisos', icon: ShieldCheck },

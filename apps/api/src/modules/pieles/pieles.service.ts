@@ -148,9 +148,12 @@ export class PielesService {
         id: dto.eventoId,
         ordenBeneficio: { plantId: ctx.plantId, deletedAt: null },
       },
-      select: { id: true, pesoPielKg: true },
+      select: { id: true, pesoPielKg: true, ordenBeneficio: { select: { pielesCerradaAt: true } } },
     });
     if (!evt) throw new NotFoundException('Animal no encontrado.');
+    if (evt.ordenBeneficio.pielesCerradaAt) {
+      throw new BadRequestException('La orden ya está cerrada en Pieles.');
+    }
     if (evt.pesoPielKg != null) {
       throw new BadRequestException('Este animal ya tiene peso registrado.');
     }
@@ -168,16 +171,9 @@ export class PielesService {
   }
 
   /**
-   * Lotes (órdenes) con animales caídos pendientes de pesar la piel. Sin
-   * `dateStr` no filtra por fecha: un lote debe seguir apareciendo hasta que
-   * todas sus pieles queden pesadas, sin importar el día calendario guardado
-   * en la orden. Los lotes con todas sus pieles pesadas siguen apareciendo
-   * el día de hoy (como completados).
-   */
-  /**
-   * Sin fecha: lotes con pieles pendientes (de cualquier día) y los completos
-   * de hoy. Con fecha (solo los últimos 30 días): todos los lotes de ese día
-   * que ya tengan animales caídos, pendientes o completos.
+   * Sin fecha: lotes abiertos con animales caídos (de cualquier día). Con
+   * fecha (solo los últimos 30 días): lotes abiertos de ese día con animales
+   * caídos. Los lotes cerrados en Pieles no aparecen.
    */
   async lotes(ctx: AuthContext, dateStr?: string) {
     const hoy = dateOnly();
@@ -198,20 +194,9 @@ export class PielesService {
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        ...(date
-          ? { date, eventos: { some: {} } }
-          : {
-              OR: [
-                { eventos: { some: { pesoPielKg: null } } },
-                {
-                  date: hoy,
-                  AND: [
-                    { eventos: { some: {} } },
-                    { eventos: { every: { pesoPielKg: { not: null } } } },
-                  ],
-                },
-              ],
-            }),
+        pielesCerradaAt: null,
+        eventos: { some: {} },
+        ...(date ? { date } : {}),
       },
       orderBy: [{ date: 'desc' }, { reference: 'asc' }],
       include: { eventos: { select: { pesoPielKg: true } } },
@@ -267,6 +252,7 @@ export class PielesService {
       animalCount: o.animalCount,
       caidos: o.eventos.length,
       pesados: o.eventos.filter((e) => e.pesoPielKg != null).length,
+      cerrada: o.pielesCerradaAt != null,
       animales: o.eventos.map((e) => ({
         eventoId: e.id,
         sequence: e.sequence,
@@ -293,9 +279,12 @@ export class PielesService {
         plantId: ctx.plantId,
         deletedAt: null,
       },
-      select: { id: true },
+      select: { id: true, pielesCerradaAt: true },
     });
     if (!o) throw new NotFoundException('Lote no encontrado.');
+    if (o.pielesCerradaAt) {
+      throw new BadRequestException('La orden ya está cerrada en Pieles.');
+    }
 
     const evts = await this.prisma.ordenBeneficioEvento.findMany({
       where: { ordenBeneficioId: o.id, pesoPielKg: null },
@@ -329,5 +318,43 @@ export class PielesService {
     );
     await this.historico.sincronizarSeguro(ctx.plantId, o.id);
     return { ok: true, count: n };
+  }
+
+  /**
+   * Cierra el lote en Pieles: deja de aparecer en la bandeja y ya no se
+   * registran pesos. Exige que todos los animales de la orden hayan caído y
+   * tengan su piel pesada.
+   */
+  async cerrar(ctx: AuthContext, ordenBeneficioId: string) {
+    const o = await this.prisma.ordenBeneficio.findFirst({
+      where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+      select: {
+        id: true,
+        animalCount: true,
+        pielesCerradaAt: true,
+        eventos: { select: { pesoPielKg: true } },
+      },
+    });
+    if (!o) throw new NotFoundException('Lote no encontrado.');
+    if (o.pielesCerradaAt) {
+      throw new BadRequestException('La orden ya está cerrada en Pieles.');
+    }
+    const sinCaer = o.animalCount - o.eventos.length;
+    if (sinCaer > 0) {
+      throw new BadRequestException(
+        `Faltan ${sinCaer} ${sinCaer === 1 ? 'animal' : 'animales'} por sacrificar; no se puede cerrar el lote en Pieles.`,
+      );
+    }
+    const sinPesar = o.eventos.filter((e) => e.pesoPielKg == null).length;
+    if (sinPesar > 0) {
+      throw new BadRequestException(
+        `Faltan ${sinPesar} ${sinPesar === 1 ? 'piel' : 'pieles'} por pesar; no se puede cerrar el lote.`,
+      );
+    }
+    await this.prisma.ordenBeneficio.update({
+      where: { id: o.id },
+      data: { pielesCerradaAt: new Date(), pielesCerradaById: ctx.userId },
+    });
+    return this.loteDetail(ctx, o.id);
   }
 }

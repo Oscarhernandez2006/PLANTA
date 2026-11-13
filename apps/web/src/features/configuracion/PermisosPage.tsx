@@ -31,6 +31,7 @@ export function PermisosPage() {
   const [params] = useSearchParams();
   const [seleccionId, setSeleccionId] = useState<string | null>(params.get('usuario'));
   const [accesoTotal, setAccesoTotal] = useState(false);
+  const [autorizador, setAutorizador] = useState(false);
   const [modulos, setModulos] = useState<Set<string>>(new Set());
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
 
@@ -49,6 +50,7 @@ export function PermisosPage() {
   useEffect(() => {
     if (!seleccionado) return;
     setAccesoTotal(seleccionado.accesoTotal);
+    setAutorizador(seleccionado.autorizador);
     setModulos(new Set(seleccionado.modulos));
     setAviso(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -57,6 +59,7 @@ export function PermisosPage() {
   const cambios =
     !!seleccionado &&
     (accesoTotal !== seleccionado.accesoTotal ||
+      autorizador !== seleccionado.autorizador ||
       modulos.size !== seleccionado.modulos.length ||
       seleccionado.modulos.some((m) => !modulos.has(m)));
 
@@ -82,7 +85,7 @@ export function PermisosPage() {
     if (!seleccionado) return;
     setAviso(null);
     try {
-      await guardar.mutateAsync({ id: seleccionado.id, accesoTotal, modulos: [...modulos] });
+      await guardar.mutateAsync({ id: seleccionado.id, accesoTotal, modulos: [...modulos], autorizador });
       setAviso({ ok: true, texto: `Permisos de ${seleccionado.fullName} guardados.` });
       // Si son los propios permisos, el menú se actualiza de inmediato.
       if (seleccionado.id === user?.id) await refreshUser();
@@ -202,6 +205,22 @@ export function PermisosPage() {
                   <span className="block text-sm font-semibold">Acceso total</span>
                   <span className="block text-xs text-muted-foreground">
                     Ve todos los módulos, incluidos los que se agreguen en el futuro.
+                  </span>
+                </span>
+              </label>
+
+              <label className="flex cursor-pointer items-start gap-3 rounded-md border border-amber-200 bg-amber-50/60 p-3">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 size-5 accent-amber-600"
+                  checked={autorizador}
+                  onChange={(e) => setAutorizador(e.target.checked)}
+                />
+                <span>
+                  <span className="block text-sm font-semibold">Autorizador de operaciones</span>
+                  <span className="block text-xs text-muted-foreground">
+                    Puede autorizar acciones sensibles (cerrar órdenes, deshacer registros) ingresando su cédula y PIN
+                    como código de autorización, sin importar su rol.
                   </span>
                 </span>
               </label>

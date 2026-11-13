@@ -6,6 +6,15 @@ export type OrdenBeneficioStatus = 'activo' | 'inactivo' | 'procesado';
 
 export type SubproductoDestino = 'empresa' | 'firmante';
 
+/** Animal de Peso en Pie aún sin orden de beneficio. */
+export interface AnimalDisponible {
+  id: string;
+  reference: number;
+  tipoAnimal: string | null;
+  corral: string | null;
+  pesoKg: number | null;
+}
+
 export interface OrdenBeneficioGuiaDetalle {
   guia: string;
   corrales: string[];
@@ -14,6 +23,17 @@ export interface OrdenBeneficioGuiaDetalle {
   disponibles: number;
   pcReference: number | null;
   bpReference: number | null;
+  animales: AnimalDisponible[];
+}
+
+/** Animal asignado a una orden (solo en el detalle `GET /orden-beneficio/:id`). */
+export interface OrdenBeneficioAnimal {
+  id: string;
+  sequence: number;
+  reference: number;
+  tipoAnimal: string | null;
+  corral: string | null;
+  pesoKg: number | null;
 }
 
 export interface OrdenBeneficioCandidate {
@@ -43,7 +63,7 @@ export interface OrdenBeneficio {
 
 // Consecutivo de Orden de Beneficio: OB + 7 dígitos (OB0000001).
 export function formatOB(n: number) {
-  return `OB${String(n).padStart(7, '0')}`;
+  return `OB${n}`;
 }
 
 export function useOrdenBeneficioCandidates(date: string = today()) {
@@ -89,6 +109,7 @@ export function useCreateOrdenBeneficio() {
       cliente: string;
       guia: string;
       animalCount?: number;
+      animalIds?: string[];
       date?: string;
       status?: OrdenBeneficioStatus;
       subproductoDestino?: SubproductoDestino;
@@ -101,14 +122,17 @@ export function useCreateOrdenBeneficio() {
   });
 }
 
-/** Divide la guía en varias órdenes consecutivas (todas o ninguna). */
+/**
+ * Divide la guía en varias órdenes consecutivas (todas o ninguna):
+ * `animales[i]` son los ids de Peso en Pie que van en la orden i.
+ */
 export function useDividirOrdenBeneficio() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (input: {
       cliente: string;
       guia: string;
-      cantidades: number[];
+      animales: string[][];
       date?: string;
       status?: OrdenBeneficioStatus;
     }) => (await api.post<OrdenBeneficio[]>('/orden-beneficio/dividir', input)).data,

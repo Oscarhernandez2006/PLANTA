@@ -7,12 +7,12 @@ import {
 
 describe('goods-receipt.numbering', () => {
   describe('buildReceiptNumber', () => {
-    it('formatea el consecutivo con padding a 6 dígitos', () => {
-      expect(buildReceiptNumber(2026, 1)).toBe('ING-2026-000001');
-      expect(buildReceiptNumber(2026, 123)).toBe('ING-2026-000123');
+    it('formatea el consecutivo sin ceros a la izquierda', () => {
+      expect(buildReceiptNumber(2026, 1)).toBe('ING-2026-1');
+      expect(buildReceiptNumber(2026, 123)).toBe('ING-2026-123');
     });
 
-    it('no trunca consecutivos de más de 6 dígitos', () => {
+    it('no trunca consecutivos largos', () => {
       expect(buildReceiptNumber(2026, 1234567)).toBe('ING-2026-1234567');
     });
   });

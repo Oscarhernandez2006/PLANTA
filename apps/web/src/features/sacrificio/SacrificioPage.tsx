@@ -1,13 +1,13 @@
 import { useRef, useState } from 'react';
 import {
   CalendarDays,
-  Check,
   CheckCircle2,
   ChevronDown,
   ChevronUp,
   Clock,
   Inbox,
   LoaderCircle,
+  Lock,
   RefreshCw,
   Undo2,
 } from 'lucide-react';
@@ -25,6 +25,7 @@ import {
   useSacrificioDetail,
   useStunNext,
   useUndoLast,
+  useCerrarOrden,
   type SacrificioDetail,
   type SacrificioOrder,
 } from './api';
@@ -64,6 +65,9 @@ export function SacrificioPage() {
   // Devolver el último animal caído: pide el PIN de quien lo tumbó.
   const [undoOpen, setUndoOpen] = useState(false);
   const undo = useUndoLast();
+  // Cerrar la orden cuando ya cayeron todos sus animales.
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  const cerrar = useCerrarOrden();
   // Animal marcado en el Registro (para devolverlo); sin selección, el ↶
   // devuelve el último caído.
   const [animalSelSeq, setAnimalSelSeq] = useState<number | null>(null);
@@ -96,6 +100,28 @@ export function SacrificioPage() {
     ? `${ordenSel.clienteNit ? `${ordenSel.clienteNit} - ` : ''}${ordenSel.cliente}`
     : '';
   const refrescando = pendientes.isFetching || detail.isFetching;
+  const completo = !!d && d.insensibilizados >= d.animalCount;
+
+  function cerrarOrden() {
+    if (!selectedId || !d) return;
+    const ref = formatOB(d.reference);
+    cerrar.mutate(selectedId, {
+      onSuccess: () => {
+        setConfirmarCierre(false);
+        setSelectedId(null);
+        setAnimalSelSeq(null);
+        setCardSelSeq(null);
+        setTab('ordenes');
+        flashNotice('success', `Orden ${ref} cerrada.`);
+      },
+      onError: (error) => {
+        setConfirmarCierre(false);
+        const msg = (error as { response?: { data?: { message?: string | string[] } } })
+          .response?.data?.message;
+        flashNotice('error', Array.isArray(msg) ? msg.join(' ') : msg || 'No se pudo cerrar la orden.');
+      },
+    });
+  }
 
   function seleccionarOrden(id: string) {
     setSelectedId(id);
@@ -140,11 +166,8 @@ export function SacrificioPage() {
             });
           }
         }
-        // Lote completado: vuelve a la lista, donde queda marcado como completado.
-        if (data.insensibilizados >= data.animalCount) {
-          setSelectedId(null);
-          setTab('ordenes');
-        }
+        // Con el último animal la orden sigue abierta hasta que el operario
+        // la cierre con "Cerrar orden".
       },
       onError: (error) => {
         const detalle = (error as { response?: { data?: { message?: string } } }).response?.data?.message;
@@ -201,6 +224,7 @@ export function SacrificioPage() {
             selectedId={selectedId}
             onSelect={seleccionarOrden}
             fechaFiltro={fechaFiltro}
+            notice={notice}
           />
         )}
         {tab === 'animales' && (
@@ -214,9 +238,36 @@ export function SacrificioPage() {
             onSelectCard={(seq) => setCardSelSeq((actual) => (actual === seq ? null : seq))}
             selectedSeq={animalSelSeq}
             onSelectSeq={(seq) => setAnimalSelSeq((actual) => (actual === seq ? null : seq))}
+            puedeCerrar={completo && !stun.isPending && !undo.isPending}
+            cerrando={cerrar.isPending}
+            onCerrar={() => setConfirmarCierre(true)}
           />
         )}
       </div>
+
+      {confirmarCierre && d && (
+        <Dialog open onClose={() => !cerrar.isPending && setConfirmarCierre(false)} title="Cerrar orden" className="max-w-lg">
+          <div className="space-y-4">
+            <p className="text-base">
+              ¿Está seguro de cerrar la orden con consecutivo <b>{formatOB(d.reference)}</b>?
+            </p>
+            <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+              Los {d.animalCount} animales ya están sacrificados. La orden deja de aparecer en
+              Sacrificio y ya no se podrán tumbar ni devolver animales. Pieles, Subproductos y
+              Canal Caliente siguen funcionando con esta orden.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmarCierre(false)} disabled={cerrar.isPending}>
+                No
+              </Button>
+              <Button disabled={cerrar.isPending} onClick={cerrarOrden}>
+                <Lock className="size-4" />
+                {cerrar.isPending ? 'Cerrando…' : 'Sí, cerrar'}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
 
       {/* Botones de desplazamiento */}
       <div className="grid grid-cols-2 gap-2">
@@ -407,13 +458,26 @@ function OrdenesTab({
   selectedId,
   onSelect,
   fechaFiltro,
+  notice,
 }: {
   loading: boolean;
   ordenes: SacrificioOrder[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   fechaFiltro: string | null;
+  notice: { type: 'success' | 'error'; text: string } | null;
 }) {
+  const aviso = notice && (
+    <div
+      className={cn(
+        'mx-2 mt-2 flex items-center gap-2 rounded-sm px-4 py-2 text-sm font-medium',
+        notice.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-destructive/10 text-destructive',
+      )}
+    >
+      {notice.type === 'success' ? <CheckCircle2 className="size-4" /> : <Clock className="size-4" />}
+      {notice.text}
+    </div>
+  );
   if (loading) {
     return (
       <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
@@ -423,30 +487,30 @@ function OrdenesTab({
   }
   if (!ordenes.length) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-        <Inbox className="size-6" />
-        {fechaFiltro
-          ? `No hay órdenes del ${fechaFiltro}.`
-          : 'No hay órdenes activas. Crea una en Orden de Beneficio.'}
-      </div>
+      <>
+        {aviso}
+        <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
+          <Inbox className="size-6" />
+          {fechaFiltro
+            ? `No hay órdenes abiertas del ${fechaFiltro}.`
+            : 'No hay órdenes abiertas. Crea una en Orden de Beneficio.'}
+        </div>
+      </>
     );
   }
   return (
-    <ul className="flex flex-col gap-2 p-2">
+    <>
+      {aviso}
+      <ul className="flex flex-col gap-2 p-2">
       {ordenes.map((o) => {
         const activo = o.id === selectedId;
-        const completada = o.status === 'procesado' || o.insensibilizados >= o.animalCount;
         return (
           <li key={o.id}>
             <button
               onClick={() => onSelect(o.id)}
               className={cn(
                 'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
-                activo
-                  ? 'border-emerald-500 bg-emerald-50'
-                  : completada
-                    ? 'border-border bg-muted/40 text-muted-foreground hover:bg-muted/60'
-                    : 'border-border bg-card hover:bg-muted/50',
+                activo ? 'border-emerald-500 bg-emerald-50' : 'border-border bg-card hover:bg-muted/50',
               )}
             >
               <span className="min-w-0">
@@ -463,18 +527,13 @@ function OrdenesTab({
               </span>
               <span className="flex shrink-0 items-center gap-2 tabular-nums text-sm text-muted-foreground">
                 {o.insensibilizados}/{o.animalCount}
-                {completada && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold uppercase text-emerald-700">
-                    <Check className="size-3.5" />
-                    Completada
-                  </span>
-                )}
               </span>
             </button>
           </li>
         );
       })}
-    </ul>
+      </ul>
+    </>
   );
 }
 
@@ -488,6 +547,9 @@ function AnimalesTab({
   onSelectCard,
   selectedSeq,
   onSelectSeq,
+  puedeCerrar,
+  cerrando,
+  onCerrar,
 }: {
   detail: ReturnType<typeof useSacrificioDetail>['data'];
   loading: boolean;
@@ -498,6 +560,10 @@ function AnimalesTab({
   onSelectCard: (sequence: number) => void;
   selectedSeq: number | null;
   onSelectSeq: (sequence: number) => void;
+  /** Todos los animales sacrificados: se habilita "Cerrar orden". */
+  puedeCerrar: boolean;
+  cerrando: boolean;
+  onCerrar: () => void;
 }) {
   if (loading) {
     return (
@@ -518,6 +584,7 @@ function AnimalesTab({
   const done = detail.insensibilizados;
   const total = detail.animalCount;
   const sacrificados = new Set(detail.eventos.map((e) => e.sequence));
+  const animalPorSeq = new Map((detail.animales ?? []).map((a) => [a.sequence, a]));
   // Registro en el orden en que se tumbaron (el más reciente arriba).
   const registro = [...detail.eventos].sort(
     (a, b) => new Date(b.stunnedAt).getTime() - new Date(a.stunnedAt).getTime(),
@@ -548,12 +615,35 @@ function AnimalesTab({
         </div>
       )}
 
-      <div className="text-sm text-muted-foreground">
-        <span className="text-2xl font-bold tabular-nums text-foreground">
-          {done}
-        </span>{' '}
-        / {total} sacrificados
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-muted-foreground">
+          <span className="text-2xl font-bold tabular-nums text-foreground">
+            {done}
+          </span>{' '}
+          / {total} sacrificados
+        </div>
+        <button
+          type="button"
+          onClick={onCerrar}
+          disabled={!puedeCerrar || cerrando}
+          title={
+            done < total
+              ? `Faltan ${total - done} ${total - done === 1 ? 'animal' : 'animales'} por sacrificar para poder cerrar`
+              : 'Cerrar la orden: desaparece de Sacrificio'
+          }
+          className="flex items-center gap-3 rounded-md border-2 border-foreground/70 bg-card px-5 py-3 text-base font-bold uppercase hover:bg-muted disabled:opacity-40"
+        >
+          {cerrando ? <LoaderCircle className="size-7 animate-spin" /> : <Lock className="size-7" />}
+          Cerrar orden
+        </button>
       </div>
+
+      {done >= total && (
+        <div className="flex items-center gap-2 rounded-sm border-2 border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          <CheckCircle2 className="size-5" />
+          Todos los animales de la orden están sacrificados. Revisá el registro y cerrá la orden.
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
         {Array.from({ length: total }).map((_, i) => {
@@ -563,15 +653,21 @@ function AnimalesTab({
           if (sacrificados.has(sequence)) return null;
           const enCurso = stunPending && stunSeq === sequence;
           const seleccionada = cardSelSeq === sequence;
+          const animal = animalPorSeq.get(sequence);
+          const detalleAnimal = animal
+            ? [animal.tipoAnimal, animal.pesoKg != null ? `${Math.round(animal.pesoKg)} kg` : null]
+                .filter(Boolean)
+                .join(' · ')
+            : null;
           return (
             <button
               key={i}
               disabled={stunPending}
               onClick={() => onSelectCard(sequence)}
               aria-pressed={seleccionada}
-              title={`Tocá para seleccionar el animal ${turnoAnimal(detail.consecutivoBase, sequence)}; luego usá el botón de sacrificar`}
+              title={`Tocá para seleccionar el animal ${turnoAnimal(detail.consecutivoBase, sequence)}${detalleAnimal ? ` (${detalleAnimal})` : ''}; luego usá el botón de sacrificar`}
               className={cn(
-                'relative flex aspect-square items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
+                'relative flex aspect-square flex-col items-center justify-center rounded-lg border-2 text-2xl font-bold tabular-nums transition-all',
                 seleccionada
                   ? 'border-emerald-600 bg-emerald-500 text-white ring-2 ring-emerald-300'
                   : 'border-border bg-card text-foreground hover:bg-muted',
@@ -582,7 +678,19 @@ function AnimalesTab({
               {enCurso ? (
                 <LoaderCircle className={cn('size-6 animate-spin', seleccionada ? 'text-white' : 'text-emerald-700')} />
               ) : (
-                turnoAnimal(detail.consecutivoBase, sequence)
+                <>
+                  {turnoAnimal(detail.consecutivoBase, sequence)}
+                  {detalleAnimal && (
+                    <span
+                      className={cn(
+                        'mt-0.5 px-1 text-center text-[10px] font-medium leading-tight',
+                        seleccionada ? 'text-white/90' : 'text-muted-foreground',
+                      )}
+                    >
+                      {detalleAnimal}
+                    </span>
+                  )}
+                </>
               )}
             </button>
           );

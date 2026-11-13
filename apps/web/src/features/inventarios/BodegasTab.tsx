@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { ChevronRight, LoaderCircle, Search, Warehouse } from 'lucide-react';
+import { Fragment, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, LoaderCircle, Search, Warehouse } from 'lucide-react';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -11,6 +11,7 @@ import { formatOC } from '../registrar/orden-acondicionamiento-api';
 import { formatDC } from '../registrar/despacho-canales-api';
 import { useBodegaInventario, useBodegasInventario, type BodegaDetalle, type BodegaResumen } from './api';
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
+import { TrazabilidadEtiquetaDialog } from './TrazabilidadEtiquetaDialog';
 
 export const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -229,6 +230,27 @@ function Canales({ d }: { d: BodegaDetalle }) {
 }
 
 export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
+  // Despliegue del detalle (etiquetas) por producto al hacer clic en su fila.
+  const [abierto, setAbierto] = useState<Set<string>>(new Set());
+  const [trazaId, setTrazaId] = useState<string | null>(null);
+  const toggle = (codigo: string) =>
+    setAbierto((prev) => {
+      const next = new Set(prev);
+      if (next.has(codigo)) next.delete(codigo);
+      else next.add(codigo);
+      return next;
+    });
+
+  const porProducto = useMemo(() => {
+    const m = new Map<string, BodegaDetalle['productos']>();
+    for (const p of d.productos) {
+      const lista = m.get(p.productoCodigo) ?? [];
+      lista.push(p);
+      m.set(p.productoCodigo, lista);
+    }
+    return m;
+  }, [d.productos]);
+
   const resumen = useMemo(() => {
     const m = new Map<string, { codigo: string; producto: string; piezas: number; kg: number; enProceso: number; transformados: number }>();
     for (const p of d.productos) {
@@ -242,95 +264,126 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
     return [...m.values()].sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   }, [d.productos]);
 
+  const sub = 'whitespace-nowrap border-b border-border px-2 py-1 text-xs';
+
   return (
     <section className="space-y-2">
+      {trazaId && <TrazabilidadEtiquetaDialog id={trazaId} onClose={() => setTrazaId(null)} />}
       <h3 className="text-base font-semibold">Productos rotulados ({d.productos.length})</h3>
       {!d.productos.length ? (
         <p className="text-sm text-muted-foreground">No hay productos rotulados en esta bodega.</p>
       ) : (
-        <>
-          <div className="scrollbar-app overflow-auto rounded-md border border-border">
-            <table className="w-full border-collapse text-sm tabular-nums">
-              <thead className="bg-muted">
-                <tr>
-                  {['Código', 'Producto', 'Piezas', 'Neto (kg)', 'En proceso', 'Transformados', 'Disponibles'].map((c) => (
-                    <th key={c} className={th}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {resumen.map((r) => (
-                  <tr key={r.codigo} className="odd:bg-muted/30">
-                    <td className={td}>{r.codigo}</td>
-                    <td className={cn(td, 'font-medium uppercase')}>{r.producto}</td>
-                    <td className={td}>{r.piezas}</td>
-                    <td className={cn(td, 'text-right font-semibold text-emerald-700')}>{kg(r.kg)}</td>
-                    <td className={cn(td, 'text-amber-700')}>{r.enProceso}</td>
-                    <td className={cn(td, 'text-violet-700')}>{r.transformados}</td>
-                    <td className={cn(td, 'text-emerald-700')}>{r.piezas - r.enProceso - r.transformados}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="scrollbar-app max-h-[55vh] overflow-auto rounded-md border border-border">
-            <table className="w-full border-collapse text-sm tabular-nums">
-              <thead className="sticky top-0 bg-muted">
-                <tr>
-                  {['Código de barras', 'Producto', 'Pieza', 'Tienda', 'N.º canast.', 'Neto (kg)', 'Conservación', 'Empaque', 'Vence', 'Lote', 'Estado'].map((c) => (
-                    <th key={c} className={th}>{c}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {d.productos.map((p) => (
-                  <tr key={p.id} className="odd:bg-muted/30">
-                    <td className={cn(td, 'font-semibold')}>{p.codigo ?? '—'}</td>
-                    <td className={cn(td, 'uppercase')}>
-                      {p.productoCodigo} · {p.productoNombre}
-                      {p.sobrante && <span className={cn(enProceso, 'ml-1.5')}>SOBRANTE</span>}
-                    </td>
-                    <td className={td}>#{p.pieza}</td>
-                    <td className={cn(td, 'uppercase')}>{p.tiendaCodigo} - {p.tienda}</td>
-                    <td className={cn(td, 'text-center')}>{p.canastilla ?? '—'}</td>
-                    <td className={cn(td, 'text-right font-semibold text-emerald-700')}>{kg(p.netoKg)}</td>
-                    <td className={cn(td, 'uppercase')}>{p.conservacion}</td>
-                    <td className={td}>{fecha(p.fechaEmpaque)}</td>
-                    <td className={td}>{fecha(p.fechaVencimiento)}</td>
-                    <td className={td}>
-                      {p.ocNumber ? (
-                        <span title={p.origenOt ? `Viene de ${formatOT(p.origenOt)}` : undefined}>
-                          {formatOC(p.ocNumber)}
-                          {p.origenOt && <span className="text-muted-foreground"> ← {formatOT(p.origenOt)}</span>}
-                        </span>
-                      ) : p.opNumber ? (
-                        formatOP(p.opNumber)
-                      ) : (
-                        '—'
-                      )}
-                    </td>
-                    <td className={td}>
-                      {p.despachoDc ? (
-                        <span className="rounded-sm bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                          EN DESPACHO · {formatDC(p.despachoDc)}
-                        </span>
-                      ) : p.transformadoOc ? (
-                        <span className="rounded-sm bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                          TRANSFORMADO · {formatOC(p.transformadoOc)}
-                        </span>
-                      ) : p.trasladoOt ? (
-                        <span className={enProceso}>EN PROCESO · {formatOT(p.trasladoOt)}</span>
-                      ) : (
-                        <span className={disponible}>DISPONIBLE</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
+        <div className="scrollbar-app max-h-[60vh] overflow-auto rounded-md border border-border">
+          <table className="w-full border-collapse text-sm tabular-nums">
+            <thead className="sticky top-0 z-10 bg-muted">
+              <tr>
+                {['', 'Código', 'Producto', 'Piezas', 'Neto (kg)', 'En proceso', 'Transformados', 'Disponibles'].map(
+                  (c, i) => (
+                    <th key={i} className={th}>{c}</th>
+                  ),
+                )}
+              </tr>
+            </thead>
+            <tbody>
+              {resumen.map((r) => {
+                const expandido = abierto.has(r.codigo);
+                const etiquetas = porProducto.get(r.codigo) ?? [];
+                return (
+                  <Fragment key={r.codigo}>
+                    <tr
+                      className="cursor-pointer odd:bg-muted/30 hover:bg-muted/60"
+                      onClick={() => toggle(r.codigo)}
+                      title="Ver el detalle de las etiquetas"
+                    >
+                      <td className={cn(td, 'text-center text-muted-foreground')}>
+                        {expandido ? <ChevronDown className="inline size-4" /> : <ChevronRight className="inline size-4" />}
+                      </td>
+                      <td className={cn(td, 'font-semibold')}>{r.codigo}</td>
+                      <td className={cn(td, 'font-medium uppercase')}>{r.producto}</td>
+                      <td className={td}>{r.piezas}</td>
+                      <td className={cn(td, 'text-right font-semibold text-emerald-700')}>{kg(r.kg)}</td>
+                      <td className={cn(td, 'text-amber-700')}>{r.enProceso}</td>
+                      <td className={cn(td, 'text-violet-700')}>{r.transformados}</td>
+                      <td className={cn(td, 'text-emerald-700')}>{r.piezas - r.enProceso - r.transformados}</td>
+                    </tr>
+                    {expandido && (
+                      <tr>
+                        <td className="bg-muted/10 p-0" colSpan={8}>
+                          <div className="scrollbar-app max-h-[40vh] overflow-auto">
+                            <table className="w-full border-collapse text-sm tabular-nums">
+                              <thead className="sticky top-0 bg-muted/80 text-left">
+                                <tr>
+                                  {['Código de barras', 'Pieza', 'Tienda', 'N.º canast.', 'Neto (kg)', 'Conservación', 'Empaque', 'Vence', 'Lote', 'Estado'].map(
+                                    (c) => (
+                                      <th key={c} className={cn(th, 'text-[11px]')}>{c}</th>
+                                    ),
+                                  )}
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {etiquetas.map((p) => (
+                                  <tr
+                                    key={p.id}
+                                    onClick={() => setTrazaId(p.id)}
+                                    title="Ver trazabilidad de la etiqueta"
+                                    className="cursor-pointer odd:bg-background hover:bg-emerald-50"
+                                  >
+                                    <td className={cn(sub, 'font-semibold text-emerald-700 underline-offset-2 hover:underline')}>
+                                      {p.codigo ?? '—'}
+                                    </td>
+                                    <td className={sub}>#{p.pieza}</td>
+                                    <td className={cn(sub, 'uppercase')}>{p.tiendaCodigo} - {p.tienda}</td>
+                                    <td className={cn(sub, 'text-center')}>{p.canastilla ?? '—'}</td>
+                                    <td className={cn(sub, 'text-right font-semibold text-emerald-700')}>{kg(p.netoKg)}</td>
+                                    <td className={cn(sub, 'uppercase')}>{p.conservacion}</td>
+                                    <td className={cn(sub, p.sobrante ? 'font-semibold text-amber-700' : '')}>
+                                      {fecha(p.fechaEmpaque)}
+                                      {p.sobrante && <span className={cn(enProceso, 'ml-1.5')}>SOBRANTE</span>}
+                                    </td>
+                                    <td className={sub}>{fecha(p.fechaVencimiento)}</td>
+                                    <td className={sub}>
+                                      {p.ocNumber ? (
+                                        <span title={p.origenOt ? `Viene de ${formatOT(p.origenOt)}` : undefined}>
+                                          {formatOC(p.ocNumber)}
+                                          {p.origenOt && <span className="text-muted-foreground"> ← {formatOT(p.origenOt)}</span>}
+                                        </span>
+                                      ) : p.opNumber ? (
+                                        formatOP(p.opNumber)
+                                      ) : (
+                                        '—'
+                                      )}
+                                    </td>
+                                    <td className={sub}>
+                                      {p.despachoDc ? (
+                                        <span className="rounded-sm bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                          EN DESPACHO · {formatDC(p.despachoDc)}
+                                        </span>
+                                      ) : p.transformadoOc ? (
+                                        <span className="rounded-sm bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                          TRANSFORMADO · {formatOC(p.transformadoOc)}
+                                        </span>
+                                      ) : p.trasladoOt ? (
+                                        <span className={enProceso}>EN PROCESO · {formatOT(p.trasladoOt)}</span>
+                                      ) : (
+                                        <span className={disponible}>DISPONIBLE</span>
+                                      )}
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
     </section>
   );
 }
+

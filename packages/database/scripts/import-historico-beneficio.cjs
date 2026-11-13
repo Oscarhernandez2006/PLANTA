@@ -45,7 +45,8 @@ async function main() {
   if (plants.length !== 1) throw new Error(`Se esperaba 1 planta y hay ${plants.length}.`);
   const plantId = plants[0].id;
 
-  const existentes = await prisma.historicoBeneficio.count({ where: { plantId } });
+  // Las filas generadas desde órdenes de beneficio no se tocan.
+  const existentes = await prisma.historicoBeneficio.count({ where: { plantId, ordenBeneficioId: null } });
   if (existentes && !reemplazar) {
     throw new Error(`El histórico ya tiene ${existentes} filas. Usa --reemplazar para cargarlo de nuevo.`);
   }
@@ -96,7 +97,7 @@ async function main() {
   await prisma.$transaction(
     async (tx) => {
       if (reemplazar) {
-        await tx.historicoBeneficio.deleteMany({ where: { plantId } });
+        await tx.historicoBeneficio.deleteMany({ where: { plantId, ordenBeneficioId: null } });
         await tx.historicoTarifa.deleteMany({ where: { plantId } });
       }
       await tx.historicoTarifa.createMany({

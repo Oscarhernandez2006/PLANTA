@@ -425,11 +425,11 @@ export async function imprimirPresintoDirecto(
 
   let printerName = getSavedPrinterName();
   if (!printerName) {
-    // Sin configuración guardada: toma la Zebra instalada o la predeterminada de Windows.
+    // Sin configuración guardada: toma la predeterminada del equipo o, si no hay, una Zebra.
     const impresoras = await listPrinters();
     const elegida =
-      impresoras.find((p) => /zebra|zdesigner|zpl|\bz[td]\d/i.test(p.name)) ??
-      impresoras.find((p) => p.isDefault);
+      impresoras.find((p) => p.isDefault) ??
+      impresoras.find((p) => /zebra|zdesigner|zpl|\bz[td]\d/i.test(p.name));
     if (elegida) {
       printerName = elegida.name;
       setSavedPrinterName(elegida.name);

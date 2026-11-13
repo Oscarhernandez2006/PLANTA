@@ -13,7 +13,8 @@ import {
   Min,
 } from 'class-validator';
 
-const CODIGO = /^\d{7}\d+(\d{4}|C\d{3})$/;
+// Código de barras de 8 dígitos (pieza o canastilla de Rotulado).
+const CODIGO = /^[1-9]\d{7}$/;
 
 export class BuscarEtiquetaTrasladoDto {
   @IsString()

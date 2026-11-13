@@ -90,14 +90,14 @@ export type ElementoEtiqueta =
 export const TAMANO_ETIQUETA = dots(60);
 
 export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): ElementoEtiqueta[] {
-  const loteCodigo = datos.lote.replace(/\D/g, '');
-  const productoCodigo = datos.productoCodigo.replace(/\D/g, '');
+  // El código de barras (8 dígitos únicos por planta) siempre lo entrega la API.
   const canastilla = datos.canastilla;
-  const piezaCodigo = canastilla
-    ? `C${String(canastilla.numero).padStart(3, '0')}`
-    : String(datos.pieza).padStart(6, '0');
   const piezaTexto = canastilla ? String(datos.pieza).padStart(2, '0') : formatPieza(datos.pieza);
-  const codigo = datos.codigo || `${loteCodigo}${productoCodigo}${piezaCodigo}`;
+  const codigo = datos.codigo ?? '';
+  // Desglose legible junto al QR: OP, código de producto y pieza o canastilla.
+  const loteTexto = datos.lote.trim().toUpperCase();
+  const productoCodigo = datos.productoCodigo.replace(/\D/g, '');
+  const piezaCodigo = canastilla ? `C${canastilla.numero}` : formatPieza(datos.pieza);
   const nombreProducto = datos.productoNombre.trim().toUpperCase();
   const nombre = nombreProducto.endsWith(datos.empaque.toUpperCase())
     ? nombreProducto
@@ -128,7 +128,7 @@ export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): Element
   });
 
   return [
-    { t: 'logo' },
+    // El logo ya viene preimpreso en la etiqueta física: no se imprime desde el software.
     texto(95, 19, 25, 25, 'AGROPECUARIA SANTACRUZ'),
     texto(100, 44, 30, 20, nombre),
     caja(15, 78, 76, 50, 3),
@@ -178,7 +178,7 @@ export function elementosEtiquetaDesposte(datos: EtiquetaDesposteDatos): Element
     texto(196, 338, 18, 16, 'Tel. 3766701 - frigorificosantacruz.com'),
     caja(15, 364, 84, 84, 3),
     texto(22, 367, 24, 17, 'BARCODE'),
-    texto(36, 387, 24, 17, loteCodigo),
+    texto(36, 387, 24, 17, loteTexto),
     texto(36, 407, 24, 17, productoCodigo),
     texto(piezaCodigo.length > 4 ? 36 : 42, 427, 24, 17, piezaCodigo),
     { t: 'qr', x: 104, y: 346, aumento: 4, valor: codigo },

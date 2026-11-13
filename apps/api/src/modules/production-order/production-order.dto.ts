@@ -112,11 +112,10 @@ export class GuardarEtiquetaDto {
   @Max(999999)
   pieza!: number;
 
-  /** Lo calcula el servidor (lote + producto + pieza); se acepta solo por compatibilidad. */
-  @IsOptional()
+  /** Código de barras de 8 dígitos entregado por `etiquetas/reservar`. */
   @IsString()
-  @MaxLength(40)
-  codigo?: string;
+  @Matches(/^[1-9]\d{7}$/, { message: 'El código de barras debe tener 8 dígitos.' })
+  codigo!: string;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })

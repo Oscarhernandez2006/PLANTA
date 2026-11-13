@@ -149,9 +149,9 @@ export function formatProcedenciaCode(code: number) {
   return String(code).padStart(6, '0');
 }
 
-// Referencia de producción: BC (Báscula Camión) + consecutivo global (6 dígitos).
+// Referencia de producción: BC (Báscula Camión) + consecutivo global sin ceros (BC1, BC2…).
 export function formatReferencia(n: number) {
-  return `BC${String(n).padStart(6, '0')}`;
+  return `BC${n}`;
 }
 
 // ======================= GUÍA DE PESO EN CAMIÓN ==========================
@@ -208,7 +208,7 @@ export function usePesoCamionAbiertas() {
   });
 }
 
-/** Guías abiertas en Peso en Pie (se abren solas al crear la guía en camión). */
+/** Guías listas para Peso en Pie: cerradas en camión, con entrada/salida/cantidad y aún abiertas en pie. */
 export function usePesoCamionPieAbiertas() {
   return useQuery({
     queryKey: ['peso-camion', 'pie-abiertas'],
@@ -234,7 +234,7 @@ export function usePesoCamionNextReference(date: string, enabled: boolean) {
   });
 }
 
-/** Obtiene el próximo consecutivo de guía temporal (TEMP-000001). */
+/** Obtiene el próximo consecutivo de guía temporal (TEMP-1, TEMP-2…). */
 export async function getNextTempGuia() {
   return (await api.get<{ next: string }>('/peso-camion/next-temp')).data.next;
 }

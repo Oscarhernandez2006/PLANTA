@@ -52,6 +52,14 @@ export class CanalCalienteController {
     return this.service.loteDetail(user, id);
   }
 
+  @Patch('lotes/:id/cerrar')
+  cerrar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.cerrar(user, id);
+  }
+
   @Patch('animales/:eventoId/tipo')
   setTipo(
     @CurrentUser() user: AuthContext,

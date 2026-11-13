@@ -88,17 +88,15 @@ export class AuthService {
   async verifyAdmin(dto: LoginDto) {
     const user = await this.prisma.appUser.findUnique({
       where: { documentId: dto.documentId },
-      select: { active: true, pinHash: true, role: true, fullName: true },
+      select: { active: true, pinHash: true, autorizador: true, fullName: true },
     });
 
-    const isAdmin =
-      !!user &&
-      user.active &&
-      !!user.pinHash &&
-      (user.role === 'admin' || user.role === 'desarrollador');
+    // Solo usuarios marcados como "Autorizador de operaciones" (Configuración → Permisos),
+    // sin importar su rol.
+    const puedeAutorizar = !!user && user.active && !!user.pinHash && user.autorizador;
 
-    if (!isAdmin || !(await bcrypt.compare(dto.pin, user!.pinHash!))) {
-      throw new UnauthorizedException('Credenciales de administrador inválidas.');
+    if (!puedeAutorizar || !(await bcrypt.compare(dto.pin, user!.pinHash!))) {
+      throw new UnauthorizedException('Código de autorización inválido: la cédula no es de un autorizador o el PIN no coincide.');
     }
 
     return { ok: true, fullName: user!.fullName };

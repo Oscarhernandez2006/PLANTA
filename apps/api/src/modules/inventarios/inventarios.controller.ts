@@ -48,6 +48,11 @@ export class InventariosController {
     return this.service.trazabilidadCanal(user, piezaId);
   }
 
+  @Get('etiquetas/:id/trazabilidad')
+  trazabilidadEtiqueta(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.trazabilidadEtiqueta(user, id);
+  }
+
   @Get('cavas-subproducto/:cava')
   cavaSubproducto(
     @CurrentUser() user: AuthContext,

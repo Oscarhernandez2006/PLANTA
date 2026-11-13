@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DispatchOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizarCodigoBarras, siguienteCodigoBarras } from '../../common/codigo-barras';
 import type { AuthContext } from '../../common/auth/auth-context';
 import {
   CreateConditioningOrderDto,
@@ -66,6 +67,7 @@ export class ConditioningOrderService {
           processDate: new Date(dto.processDate),
           clienteId: dto.clienteId,
           transferOrderId: dto.transferOrderId,
+          proceso: dto.proceso,
           status: dto.status ?? DispatchOrderStatus.activo,
           createdById: ctx.userId,
         },
@@ -110,6 +112,7 @@ export class ConditioningOrderService {
         id: true,
         ocNumber: true,
         clienteId: true,
+        proceso: true,
         status: true,
         transferOrderId: true,
         transferOrder: { select: { otNumber: true } },
@@ -174,10 +177,11 @@ export class ConditioningOrderService {
     ]);
     const recibido = new Map<
       string,
-      { productoCodigo: string; productoNombre: string; empaques: number; unds: number; netoKg: number }
+      { productId: string; productoCodigo: string; productoNombre: string; empaques: number; unds: number; netoKg: number }
     >();
     for (const i of origen) {
       const g = recibido.get(i.productId) ?? {
+        productId: i.productId,
         productoCodigo: i.productoCodigo,
         productoNombre: i.productoNombre,
         empaques: 0,
@@ -205,6 +209,7 @@ export class ConditioningOrderService {
     return {
       ocNumber: oc.ocNumber,
       otNumber: oc.transferOrder.otNumber,
+      proceso: oc.proceso,
       activa: oc.status === DispatchOrderStatus.activo,
       sacrificio,
       recibido: [...recibido.values()]
@@ -289,7 +294,7 @@ export class ConditioningOrderService {
             tiendaId: dto.tiendaId,
             bodegaId: dto.bodegaId ?? null,
             pieza,
-            codigo: codigoAcond(oc.ocNumber, product.codigo, pieza),
+            codigo: await siguienteCodigoBarras(tx, ctx.plantId),
             taraKg: dto.taraKg,
             brutoKg: dto.brutoKg,
             netoKg: dto.netoKg,
@@ -352,8 +357,7 @@ export class ConditioningOrderService {
 
   /** Reimpresión y trazabilidad: la etiqueta con la OC, su OT y los productos de origen. */
   async buscarEtiqueta(ctx: AuthContext, codigo: string) {
-    const valor = codigo.trim().toUpperCase();
-    if (!/^A\d{7}\d+\d{4}$/.test(valor)) throw new BadRequestException('Código de barras no válido.');
+    const valor = normalizarCodigoBarras(codigo);
     const e = await this.prisma.acondicionamientoEtiqueta.findFirst({
       where: { codigo: valor, plantId: ctx.plantId, deletedAt: null },
       select: {
@@ -385,12 +389,9 @@ export class ConditioningOrderService {
 }
 
 const round = (n: number) => Number(n.toFixed(2));
-const formatOT = (n: number) => `OT${String(n).padStart(7, '0')}`;
+const formatOT = (n: number) => `OT${n}`;
 const dia = (d: Date) => d.toISOString().slice(0, 10);
 
-/** Código de barras: A + lote (OC, 7 dígitos) + código de producto + pieza (4 dígitos). */
-const codigoAcond = (ocNumber: number, productoCodigo: string, pieza: number) =>
-  `A${String(ocNumber).padStart(7, '0')}${productoCodigo.replace(/\D/g, '')}${String(pieza).padStart(4, '0')}`;
 
 const etiquetaSelect = {
   id: true,

@@ -652,6 +652,7 @@ export class InventariosService {
                   where: { deletedAt: null },
                   orderBy: { opNumber: 'asc' },
                   select: {
+                    id: true,
                     opNumber: true,
                     status: true,
                     processDate: true,
@@ -670,8 +671,12 @@ export class InventariosService {
                 tipo: true,
                 status: true,
                 processDate: true,
+                registrationDate: true,
+                createdAt: true,
+                createdById: true,
                 updatedAt: true,
-                cliente: { select: { concepto: true } },
+                cliente: { select: { concepto: true, nit: true } },
+                items: { select: { pesoCalienteKg: true, despachoKg: true } },
               },
             },
           },
@@ -682,6 +687,14 @@ export class InventariosService {
     const e = p.evento;
     const orden = e.ordenBeneficio;
     const guia = orden.guias.length === 1 ? orden.guias[0].trim() : null;
+    const destinoProceso = p.despacho
+      ? await this.productosDeOps(
+          ctx,
+          p.despacho.dispatchOrderId,
+          p.despacho.dispatchOrder.productionOrders.map((o) => o.id),
+          p.eventoId,
+        )
+      : null;
 
     const [camion, animalesPie, previas] = await Promise.all([
       guia
@@ -709,7 +722,11 @@ export class InventariosService {
           })
         : null,
     ]);
-    const pie = animalesPie.find((a) => a.reference === (previas?._sum.animalCount ?? 0) + e.sequence);
+    // Asignación explícita a la orden; si no existe (órdenes antiguas), por posición en la guía.
+    const explicitos = animalesPie.filter((a) => a.ordenBeneficioId === orden.id);
+    const pie = explicitos.length
+      ? explicitos.find((a) => a.ordenSequence === e.sequence)
+      : animalesPie.find((a) => a.reference === (previas?._sum.animalCount ?? 0) + e.sequence);
 
     const ids = new Set<string>([orden.createdById, e.operatorId, p.operatorId]);
     if (e.pielOperatorId) ids.add(e.pielOperatorId);
@@ -722,7 +739,10 @@ export class InventariosService {
     p.trasladosCava.forEach((t) => ids.add(t.operatorId));
     e.subproductos.forEach((s) => s.operatorId && ids.add(s.operatorId));
     if (p.despacho) ids.add(p.despacho.createdById);
-    if (p.despachoCanal) ids.add(p.despachoCanal.createdById);
+    if (p.despachoCanal) {
+      ids.add(p.despachoCanal.createdById);
+      ids.add(p.despachoCanal.canalDispatchOrder.createdById);
+    }
     const usuarios = await this.prisma.appUser.findMany({
       where: { id: { in: [...ids] } },
       select: { id: true, fullName: true },
@@ -883,6 +903,7 @@ export class InventariosService {
               processDate: dia(op.processDate),
               etiquetas: op._count.etiquetas,
             })),
+            ...destinoProceso,
           }
         : null,
       despachoCanal: dc
@@ -897,12 +918,585 @@ export class InventariosService {
             despachoKg: num(dc.despachoKg),
             pistoleadaAt: dc.createdAt.toISOString(),
             operario: quien(dc.createdById),
+            clienteNit: dc.canalDispatchOrder.cliente.nit,
+            registrationDate: dia(dc.canalDispatchOrder.registrationDate),
+            creadaAt: dc.canalDispatchOrder.createdAt.toISOString(),
+            creadaPor: quien(dc.canalDispatchOrder.createdById),
+            canalesOrden: dc.canalDispatchOrder.items.length,
+            kgCalienteOrden: dc.canalDispatchOrder.items.reduce((s, i) => s + Number(i.pesoCalienteKg), 0),
+            kgDespachoOrden: dc.canalDispatchOrder.items.reduce((s, i) => s + Number(i.despachoKg ?? 0), 0),
             cerradaAt:
               dc.canalDispatchOrder.status === DispatchOrderStatus.facturado
                 ? dc.canalDispatchOrder.updatedAt.toISOString()
                 : null,
           }
         : null,
+    };
+  }
+
+  /**
+   * Trazabilidad hacia adelante de una OD a proceso: lo que produjo el desposte conjunto de sus
+   * canales (etiquetas de sus OP) y lo que luego se transformó en acondicionamiento.
+   */
+  private async productosDeOps(ctx: AuthContext, dispatchOrderId: string, opIds: string[], eventoId: string) {
+    const [items, etiquetas, ots] = await Promise.all([
+      this.prisma.dispatchOrderItem.findMany({
+        where: { dispatchOrderId },
+        select: { pesoCalienteKg: true, despachoKg: true },
+      }),
+      this.prisma.rotuladoEtiqueta.findMany({
+        where: { plantId: ctx.plantId, productionOrderId: { in: opIds }, deletedAt: null },
+        orderBy: [{ product: { codigo: 'asc' } }, { pieza: 'asc' }],
+        select: {
+          id: true,
+          codigo: true,
+          pieza: true,
+          netoKg: true,
+          canastillaId: true,
+          product: { select: { codigo: true, nombre: true } },
+          tienda: { select: { codigo: true, nombre: true } },
+          productionOrder: { select: { opNumber: true } },
+          traslado: { select: { transferOrder: { select: { otNumber: true } } } },
+          despacho: { select: { canalDispatchOrder: { select: { dcNumber: true, status: true } } } },
+          canastilla: {
+            select: {
+              traslado: { select: { transferOrder: { select: { otNumber: true } } } },
+              despacho: { select: { canalDispatchOrder: { select: { dcNumber: true, status: true } } } },
+            },
+          },
+        },
+      }),
+      this.prisma.transferOrder.findMany({
+        where: {
+          plantId: ctx.plantId,
+          deletedAt: null,
+          items: {
+            some: {
+              OR: [
+                { etiqueta: { productionOrderId: { in: opIds } } },
+                { canastilla: { productionOrderId: { in: opIds } } },
+              ],
+            },
+          },
+        },
+        orderBy: { otNumber: 'asc' },
+        select: {
+          otNumber: true,
+          processDate: true,
+          items: {
+            select: {
+              unds: true,
+              netoKg: true,
+              etiquetaId: true,
+              canastillaId: true,
+              product: { select: { codigo: true, nombre: true } },
+              etiqueta: { select: { productionOrderId: true } },
+              canastilla: { select: { productionOrderId: true } },
+            },
+          },
+          conditioningOrders: {
+            where: { deletedAt: null },
+            orderBy: { ocNumber: 'asc' },
+            select: {
+              id: true,
+              ocNumber: true,
+              proceso: true,
+              status: true,
+              processDate: true,
+              etiquetas: {
+                where: { deletedAt: null },
+                orderBy: [{ product: { codigo: 'asc' } }, { pieza: 'asc' }],
+                select: {
+                  id: true,
+                  codigo: true,
+                  pieza: true,
+                  netoKg: true,
+                  product: { select: { codigo: true, nombre: true } },
+                  despacho: { select: { canalDispatchOrder: { select: { dcNumber: true, status: true } } } },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+
+    const ocIds = ots.flatMap((ot) => ot.conditioningOrders.map((oc) => oc.id));
+    const despachados = await this.prisma.dispatchProductItem.findMany({
+      where: {
+        OR: [
+          { etiqueta: { productionOrderId: { in: opIds } } },
+          { canastilla: { productionOrderId: { in: opIds } } },
+          ...(ocIds.length ? [{ acondEtiqueta: { conditioningOrderId: { in: ocIds } } }] : []),
+        ],
+        canalDispatchOrder: { deletedAt: null },
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        codigo: true,
+        unds: true,
+        netoKg: true,
+        createdAt: true,
+        createdById: true,
+        acondEtiquetaId: true,
+        etiquetaId: true,
+        canastillaId: true,
+        acondEtiqueta: { select: { conditioningOrderId: true } },
+        product: { select: { codigo: true, nombre: true } },
+        canalDispatchOrder: {
+          select: {
+            dcNumber: true,
+            status: true,
+            processDate: true,
+            updatedAt: true,
+            cliente: { select: { concepto: true } },
+          },
+        },
+      },
+    });
+
+    type Fila = { netoKg: Prisma.Decimal; unds?: number; product: { codigo: string; nombre: string } };
+    const resumir = (filas: Fila[]) => {
+      const m = new Map<string, { codigo: string; nombre: string; piezas: number; kg: number }>();
+      for (const f of filas) {
+        const g = m.get(f.product.codigo) ?? { codigo: f.product.codigo, nombre: f.product.nombre, piezas: 0, kg: 0 };
+        g.piezas += f.unds ?? 1;
+        g.kg += Number(f.netoKg);
+        m.set(f.product.codigo, g);
+      }
+      return [...m.values()]
+        .map((g) => ({ ...g, kg: Math.round(g.kg * 100) / 100 }))
+        .sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
+    };
+    const deEstaOrden = (i: (typeof ots)[number]['items'][number]) =>
+      opIds.includes(i.etiqueta?.productionOrderId ?? i.canastilla?.productionOrderId ?? '');
+
+    const canalDe = await this.canalDeEtiquetas(etiquetas.map((x) => x.id));
+    const asignado = canalDe.size > 0;
+    const etqCanal = new Set(etiquetas.filter((x) => canalDe.get(x.id)?.eventoId === eventoId).map((x) => x.id));
+    const canastillasPropias = new Set(
+      etiquetas.filter((x) => etqCanal.has(x.id) && x.canastillaId).map((x) => x.canastillaId!),
+    );
+    const itemDeCanal = (i: { etiquetaId: string | null; canastillaId: string | null }) =>
+      (!!i.etiquetaId && etqCanal.has(i.etiquetaId)) || (!!i.canastillaId && canastillasPropias.has(i.canastillaId));
+    const ocsDeCanal = new Set(
+      ots.filter((ot) => ot.items.some(itemDeCanal)).flatMap((ot) => ot.conditioningOrders.map((oc) => oc.id)),
+    );
+
+    const operarios = await this.prisma.appUser.findMany({
+      where: { id: { in: [...new Set(despachados.map((d) => d.createdById))] } },
+      select: { id: true, fullName: true },
+    });
+    const porDc = new Map<number, typeof despachados>();
+    for (const d of despachados) {
+      const lista = porDc.get(d.canalDispatchOrder.dcNumber) ?? [];
+      lista.push(d);
+      porDc.set(d.canalDispatchOrder.dcNumber, lista);
+    }
+
+    return {
+      canalesOrden: items.length,
+      kgCalienteOrden: items.reduce((s, i) => s + Number(i.pesoCalienteKg), 0),
+      kgFrioOrden: items.reduce((s, i) => s + Number(i.despachoKg ?? 0), 0),
+      asignacionPorCanal: asignado,
+      productos: resumir(etiquetas),
+      productosCanal: resumir(etiquetas.filter((x) => etqCanal.has(x.id))),
+      etiquetas: etiquetas.map((x) => {
+        const dc = x.despacho ?? x.canastilla?.despacho ?? null;
+        const ot = x.traslado ?? x.canastilla?.traslado ?? null;
+        return {
+          id: x.id,
+          codigo: x.codigo,
+          pieza: x.pieza,
+          productoCodigo: x.product.codigo,
+          productoNombre: x.product.nombre,
+          netoKg: Number(x.netoKg),
+          tienda: `${x.tienda.codigo} - ${x.tienda.nombre}`,
+          opNumber: x.productionOrder.opNumber,
+          dcNumber: dc?.canalDispatchOrder.dcNumber ?? null,
+          dcCerrada: dc?.canalDispatchOrder.status === DispatchOrderStatus.facturado,
+          otNumber: ot?.transferOrder.otNumber ?? null,
+          deEstaCanal: etqCanal.has(x.id),
+          piezaEnCanal: canalDe.get(x.id)?.piezaEnCanal ?? null,
+        };
+      }),
+      transformaciones: ots.flatMap((ot) => {
+        const propias = ot.items.filter(deEstaOrden);
+        const otras = ot.items.filter((i) => !deEstaOrden(i));
+        return ot.conditioningOrders.map((oc) => ({
+          otNumber: ot.otNumber,
+          otProcessDate: ot.processDate.toISOString().slice(0, 10),
+          ocNumber: oc.ocNumber,
+          proceso: oc.proceso,
+          cerrada: oc.status !== DispatchOrderStatus.activo,
+          processDate: oc.processDate.toISOString().slice(0, 10),
+          entradas: resumir(propias),
+          entradasCanal: resumir(ot.items.filter(itemDeCanal)),
+          deEstaCanal: ocsDeCanal.has(oc.id),
+          // La OT puede mezclar productos de otras órdenes: lo que resultó es del conjunto.
+          otrasEntradasKg: Math.round(otras.reduce((s, i) => s + Number(i.netoKg), 0) * 100) / 100,
+          productos: resumir(oc.etiquetas),
+          etiquetas: oc.etiquetas.map((x) => ({
+            id: x.id,
+            codigo: x.codigo,
+            pieza: x.pieza,
+            productoCodigo: x.product.codigo,
+            productoNombre: x.product.nombre,
+            netoKg: Number(x.netoKg),
+            dcNumber: x.despacho?.canalDispatchOrder.dcNumber ?? null,
+            dcCerrada: x.despacho?.canalDispatchOrder.status === DispatchOrderStatus.facturado,
+          })),
+        }));
+      }),
+      despachos: [...porDc.entries()].map(([dcNumber, lista]) => {
+        const dc = lista[0].canalDispatchOrder;
+        const cerrada = dc.status === DispatchOrderStatus.facturado;
+        return {
+          dcNumber,
+          cliente: dc.cliente.concepto,
+          processDate: dc.processDate.toISOString().slice(0, 10),
+          cerrada,
+          cerradaAt: cerrada ? dc.updatedAt.toISOString() : null,
+          productos: resumir(lista),
+          items: lista.map((d) => ({
+            codigo: d.codigo,
+            productoCodigo: d.product.codigo,
+            productoNombre: d.product.nombre,
+            unds: d.unds,
+            netoKg: Number(d.netoKg),
+            origen: d.acondEtiquetaId ? ('acondicionamiento' as const) : ('desposte' as const),
+            deEstaCanal: d.acondEtiqueta
+              ? ocsDeCanal.has(d.acondEtiqueta.conditioningOrderId)
+              : itemDeCanal(d),
+            at: d.createdAt.toISOString(),
+            operario: operarios.find((u) => u.id === d.createdById)?.fullName ?? '—',
+          })),
+        };
+      }),
+    };
+  }
+
+  /**
+   * Canal de la que salió cada etiqueta de desposte. Las canales se despostan en el mismo orden en
+   * que se pistolearon en la OD, y de cada canal salen `piezasPorCanal` piezas del producto
+   * (Piezas Desposte del cliente): la etiqueta N del producto en la OP es de la canal ⌊(N-1)/piezas⌋+1.
+   */
+  private async canalDeEtiquetas(ids: string[]) {
+    const res = new Map<
+      string,
+      {
+        piezaId: string;
+        eventoId: string;
+        posicion: number;
+        piezaEnCanal: number;
+        piezasPorCanal: number;
+        totalCanales: number;
+      }
+    >();
+    if (!ids.length) return res;
+    const etqs = await this.prisma.rotuladoEtiqueta.findMany({
+      where: { id: { in: ids } },
+      select: {
+        id: true,
+        productionOrderId: true,
+        productId: true,
+        productionOrder: { select: { clienteId: true, dispatchOrderId: true } },
+      },
+    });
+    const animalesPorOd = new Map<string, { piezaId: string; eventoId: string }[]>();
+    const grupos = new Map<string, typeof etqs>();
+    for (const x of etqs) {
+      const k = `${x.productionOrderId}|${x.productId}`;
+      grupos.set(k, [...(grupos.get(k) ?? []), x]);
+    }
+    for (const lista of grupos.values()) {
+      const { productionOrderId, productId, productionOrder } = lista[0];
+      const odId = productionOrder.dispatchOrderId;
+      if (!animalesPorOd.has(odId)) {
+        const items = await this.prisma.dispatchOrderItem.findMany({
+          where: { dispatchOrderId: odId },
+          orderBy: { createdAt: 'asc' },
+          select: { canalPiezaId: true, canalPieza: { select: { eventoId: true } } },
+        });
+        // Media canal: las dos piezas del mismo animal cuentan como una sola canal.
+        const vistos = new Set<string>();
+        const animales: { piezaId: string; eventoId: string }[] = [];
+        for (const i of items) {
+          if (vistos.has(i.canalPieza.eventoId)) continue;
+          vistos.add(i.canalPieza.eventoId);
+          animales.push({ piezaId: i.canalPiezaId, eventoId: i.canalPieza.eventoId });
+        }
+        animalesPorOd.set(odId, animales);
+      }
+      const animales = animalesPorOd.get(odId)!;
+      const [cp, orden] = await Promise.all([
+        this.prisma.clienteProducto.findUnique({
+          where: { clienteId_productId: { clienteId: productionOrder.clienteId, productId } },
+          select: { piezasPorCanal: true },
+        }),
+        this.prisma.rotuladoEtiqueta.findMany({
+          where: { productionOrderId, productId, deletedAt: null },
+          orderBy: [{ createdAt: 'asc' }, { pieza: 'asc' }],
+          select: { id: true },
+        }),
+      ]);
+      const ppc = cp?.piezasPorCanal ?? 0;
+      if (ppc <= 0) continue;
+      for (const x of lista) {
+        const n = orden.findIndex((o) => o.id === x.id);
+        const idx = Math.floor(n / ppc);
+        if (n < 0 || idx >= animales.length) continue;
+        res.set(x.id, {
+          ...animales[idx],
+          posicion: idx + 1,
+          piezaEnCanal: (n % ppc) + 1,
+          piezasPorCanal: ppc,
+          totalCanales: animales.length,
+        });
+      }
+    }
+    return res;
+  }
+
+  /**
+   * Hoja de vida de una etiqueta (desposte o acondicionamiento) hacia atrás: etiqueta → OC → OT
+   * → etiquetas de origen → OP → OD → canales despostadas (cada una con su propia trazabilidad).
+   */
+  async trazabilidadEtiqueta(ctx: AuthContext, id: string) {
+    const dcInclude = {
+      include: { canalDispatchOrder: { select: { dcNumber: true, status: true, updatedAt: true } } },
+    } as const;
+    const [des, acond] = await Promise.all([
+      this.prisma.rotuladoEtiqueta.findFirst({
+        where: { id, plantId: ctx.plantId },
+        include: {
+          product: { select: { codigo: true, nombre: true } },
+          tienda: { select: { codigo: true, nombre: true } },
+          canastilla: {
+            select: {
+              numero: true,
+              codigo: true,
+              netoKg: true,
+              traslado: { include: { transferOrder: { select: { otNumber: true } } } },
+              despacho: dcInclude,
+            },
+          },
+          traslado: { include: { transferOrder: { select: { otNumber: true } } } },
+          despacho: dcInclude,
+        },
+      }),
+      this.prisma.acondicionamientoEtiqueta.findFirst({
+        where: { id, plantId: ctx.plantId },
+        include: {
+          product: { select: { codigo: true, nombre: true } },
+          tienda: { select: { codigo: true, nombre: true } },
+          despacho: dcInclude,
+          conditioningOrder: {
+            include: {
+              transferOrder: {
+                include: {
+                  items: {
+                    orderBy: { createdAt: 'asc' },
+                    include: {
+                      product: { select: { codigo: true, nombre: true } },
+                      etiqueta: { select: { productionOrderId: true, productionOrder: { select: { opNumber: true } } } },
+                      canastilla: {
+                        select: {
+                          productionOrderId: true,
+                          productionOrder: { select: { opNumber: true } },
+                          etiquetas: { where: { deletedAt: null }, select: { id: true, codigo: true } },
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      }),
+    ]);
+    const e = des ?? acond;
+    if (!e) throw new NotFoundException('Etiqueta no encontrada.');
+
+    const oc = acond?.conditioningOrder ?? null;
+    const etiquetasOrigen: { id: string; codigo: string | null }[] = des
+      ? [{ id: des.id, codigo: des.codigo }]
+      : (oc?.transferOrder.items ?? []).flatMap((i) =>
+          i.etiquetaId ? [{ id: i.etiquetaId, codigo: i.codigo }] : (i.canastilla?.etiquetas ?? []),
+        );
+    const canalDe = await this.canalDeEtiquetas(etiquetasOrigen.map((x) => x.id));
+    const opIds = des
+      ? [des.productionOrderId]
+      : [
+          ...new Set(
+            (oc?.transferOrder.items ?? [])
+              .map((i) => i.etiqueta?.productionOrderId ?? i.canastilla?.productionOrderId)
+              .filter((x): x is string => !!x),
+          ),
+        ];
+    const ops = await this.prisma.productionOrder.findMany({
+      where: { id: { in: opIds } },
+      orderBy: { opNumber: 'asc' },
+      include: {
+        dispatchOrder: {
+          include: {
+            items: {
+              orderBy: { createdAt: 'asc' },
+              include: {
+                canalPieza: {
+                  include: {
+                    evento: {
+                      select: {
+                        sequence: true,
+                        canalTipo: true,
+                        canalAnimalTipo: true,
+                        ordenBeneficio: { select: { reference: true, date: true, cliente: true, guias: true } },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Proveedor de cada orden de beneficio por su guía en Peso en Camión.
+    const obs = ops.flatMap((op) => op.dispatchOrder.items.map((i) => i.canalPieza.evento.ordenBeneficio));
+    const guias = [...new Set(obs.flatMap((o) => o.guias.map((g) => g.trim())).filter(Boolean))];
+    const camiones = guias.length
+      ? await this.prisma.pesoCamion.findMany({
+          where: { plantId: ctx.plantId, deletedAt: null, guia: { in: guias } },
+          select: { guia: true, date: true, proveedor: true, procedencia: true },
+        })
+      : [];
+    const dia = (d: Date) => d.toISOString().slice(0, 10);
+    const camionDe = (o: (typeof obs)[number]) =>
+      camiones.find((c) => dia(c.date) === dia(o.date) && o.guias.some((g) => g.trim() === c.guia));
+
+    const despacho = des ? (des.despacho ?? des.canastilla?.despacho ?? null) : acond!.despacho;
+    const traslado = des ? (des.traslado ?? des.canastilla?.traslado ?? null) : null;
+    const otNumber = traslado?.transferOrder.otNumber ?? null;
+    const transformada = otNumber
+      ? await this.prisma.conditioningOrder.findFirst({
+          where: { plantId: ctx.plantId, deletedAt: null, transferOrder: { otNumber, plantId: ctx.plantId } },
+          orderBy: { ocNumber: 'asc' },
+          select: { ocNumber: true, status: true },
+        })
+      : null;
+
+    const ids = new Set<string>([e.createdById]);
+    ops.forEach((op) => ids.add(op.createdById));
+    if (oc) ids.add(oc.createdById);
+    if (traslado) ids.add(traslado.createdById);
+    if (despacho) ids.add(despacho.createdById);
+    const usuarios = await this.prisma.appUser.findMany({
+      where: { id: { in: [...ids] } },
+      select: { id: true, fullName: true },
+    });
+    const nombre = new Map(usuarios.map((u) => [u.id, u.fullName]));
+    const quien = (uid: string) => nombre.get(uid) ?? '—';
+    const num = (d: { toString(): string } | null | undefined) => (d == null ? null : Number(d));
+
+    return {
+      tipo: des ? ('desposte' as const) : ('acondicionamiento' as const),
+      origenes: etiquetasOrigen.flatMap((x) => {
+        const c = canalDe.get(x.id);
+        return c ? [{ etiquetaId: x.id, etiquetaCodigo: x.codigo, ...c }] : [];
+      }),
+      origenesSinCanal: etiquetasOrigen.filter((x) => !canalDe.has(x.id)).length,
+      etiqueta: {
+        id: e.id,
+        codigo: e.codigo,
+        productoCodigo: e.product.codigo,
+        productoNombre: e.product.nombre,
+        pieza: e.pieza,
+        netoKg: Number(e.netoKg),
+        brutoKg: Number(e.brutoKg),
+        taraKg: Number(e.taraKg),
+        tienda: `${e.tienda.codigo} - ${e.tienda.nombre}`,
+        empaque: e.empaque,
+        conservacion: e.conservacion,
+        temperatura: e.temperatura,
+        fechaSacrificio: dia(e.fechaSacrificio),
+        fechaEmpaque: dia(e.fechaEmpaque),
+        fechaVencimiento: e.fechaVencimiento ? dia(e.fechaVencimiento) : null,
+        ref: e.ref,
+        estacion: e.estacion,
+        sobrante: des?.sobrante ?? false,
+        anulada: !!e.deletedAt,
+        canastilla: des?.canastilla
+          ? { numero: des.canastilla.numero, codigo: des.canastilla.codigo, netoKg: num(des.canastilla.netoKg) }
+          : null,
+        operario: quien(e.createdById),
+        createdAt: e.createdAt.toISOString(),
+      },
+      traslado: traslado
+        ? {
+            otNumber: traslado.transferOrder.otNumber,
+            netoKg: Number(traslado.netoKg),
+            at: traslado.createdAt.toISOString(),
+            operario: quien(traslado.createdById),
+            transformadoOc: transformada?.status === DispatchOrderStatus.facturado ? transformada.ocNumber : null,
+          }
+        : null,
+      despacho: despacho
+        ? {
+            dcNumber: despacho.canalDispatchOrder.dcNumber,
+            cerrada: despacho.canalDispatchOrder.status === DispatchOrderStatus.facturado,
+            netoKg: Number(despacho.netoKg),
+            at: despacho.createdAt.toISOString(),
+            operario: quien(despacho.createdById),
+          }
+        : null,
+      acondicionamiento: oc
+        ? {
+            ocNumber: oc.ocNumber,
+            proceso: oc.proceso,
+            processDate: dia(oc.processDate),
+            status: oc.status,
+            creadaPor: quien(oc.createdById),
+            otNumber: oc.transferOrder.otNumber,
+            otProcessDate: dia(oc.transferOrder.processDate),
+            entradas: oc.transferOrder.items.map((i) => ({
+              codigo: i.codigo,
+              productoCodigo: i.product.codigo,
+              productoNombre: i.product.nombre,
+              unds: i.unds,
+              netoKg: Number(i.netoKg),
+              opNumber: i.etiqueta?.productionOrder.opNumber ?? i.canastilla?.productionOrder.opNumber ?? null,
+            })),
+          }
+        : null,
+      ordenesProduccion: ops.map((op) => ({
+        opNumber: op.opNumber,
+        processDate: dia(op.processDate),
+        status: op.status,
+        creadaPor: quien(op.createdById),
+        odNumber: op.dispatchOrder.odNumber,
+        odProcessDate: dia(op.dispatchOrder.processDate),
+        canales: op.dispatchOrder.items.map((i) => {
+          const ev = i.canalPieza.evento;
+          const cam = camionDe(ev.ordenBeneficio);
+          return {
+            piezaId: i.canalPiezaId,
+            reference: ev.ordenBeneficio.reference,
+            obDate: dia(ev.ordenBeneficio.date),
+            cliente: ev.ordenBeneficio.cliente,
+            sequence: ev.sequence,
+            turno: i.canalPieza.turno,
+            canalTipo: ev.canalTipo,
+            canalAnimalTipo: ev.canalAnimalTipo,
+            pieza: i.canalPieza.pieza,
+            pesoCalienteKg: Number(i.pesoCalienteKg),
+            pesoFrioKg: num(i.despachoKg),
+            proveedor: cam?.proveedor ?? null,
+            procedencia: cam?.procedencia ?? null,
+          };
+        }),
+      })),
     };
   }
 }

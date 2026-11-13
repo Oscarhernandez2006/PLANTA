@@ -75,6 +75,7 @@ export function ProductosLista({
   seleccionado,
   onSelect,
   grupoInicial = 'MATERIA PRIMA',
+  soloProductos,
 }: {
   /** Orden de producción para colorear el avance; null = sin avance. */
   ordenId: string | null;
@@ -82,6 +83,8 @@ export function ProductosLista({
   seleccionado: ProductoAsignado | null;
   onSelect: (p: ProductoAsignado) => void;
   grupoInicial?: Grupo | null;
+  /** Si viene, solo se muestran estos productos (acondicionamiento inyectado: los del traslado). */
+  soloProductos?: string[];
 }) {
   const productos = useProductosCliente(clienteId);
   const equipo = useDevice();
@@ -90,10 +93,12 @@ export function ProductosLista({
   const keyboard = useKeyboard();
   const [busqueda, setBusqueda] = useState('');
   const [grupo, setGrupo] = useState<Grupo | null>(grupoInicial);
+  const permitidos = soloProductos ? new Set(soloProductos) : null;
 
   const q = normalizar(busqueda.trim());
   const rows = (productos.data ?? [])
     .filter((p) => p.active)
+    .filter((p) => !permitidos || permitidos.has(p.id))
     .filter((p) => !grupo || p.tipo === grupo)
     .filter(
       (p) =>
@@ -105,6 +110,9 @@ export function ProductosLista({
     .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
 
   if (productos.isLoading) return <Cargando />;
+  if (permitidos && !(productos.data ?? []).some((p) => p.active && permitidos.has(p.id))) {
+    return <Mensaje text="El traslado de esta orden no tiene productos para inyectar." />;
+  }
   if (!productos.data?.some((p) => p.active)) {
     return <Mensaje text="Este cliente no tiene productos en conservación. Asígnalos en Administrativo → Conservación." />;
   }
@@ -340,7 +348,15 @@ export function RotuladoDespostePage() {
             <Mensaje text="Selecciona un producto en la pestaña PRODUCTOS." />
           )
         ) : tab === 'reporte' ? (
-          <ReporteDesposte orden={orden} prefijo={prefijo} />
+          <ReporteDesposte
+            orden={orden}
+            prefijo={prefijo}
+            onCerrada={() => {
+              setOrden(null);
+              setProducto(null);
+              irA('ordenes');
+            }}
+          />
         ) : (
           <Mensaje text="Pestaña en construcción." />
         )}

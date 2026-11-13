@@ -25,6 +25,7 @@ export class PermisosService {
         active: true,
         accesoTotal: true,
         modulos: true,
+        autorizador: true,
       },
     });
   }
@@ -47,7 +48,11 @@ export class PermisosService {
 
     return this.prisma.appUser.update({
       where: { id: userId },
-      data: { accesoTotal: dto.accesoTotal, modulos },
+      data: {
+        accesoTotal: dto.accesoTotal,
+        modulos,
+        ...(dto.autorizador !== undefined && { autorizador: dto.autorizador }),
+      },
       select: {
         id: true,
         fullName: true,
@@ -56,6 +61,7 @@ export class PermisosService {
         active: true,
         accesoTotal: true,
         modulos: true,
+        autorizador: true,
       },
     });
   }

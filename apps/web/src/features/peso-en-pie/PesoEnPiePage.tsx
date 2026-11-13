@@ -227,9 +227,10 @@ export function PesoEnPiePage() {
 
   const pesoNum = num(peso);
   const reportes = lista.data ?? [];
-  const reportesGuia = reportes.filter(
-    (reporte) => reporte.guia === guia && reporte.date === fecha,
-  );
+  // Animales de la guía en orden de registro (1, 2, 3…); la API los devuelve del más reciente al más antiguo.
+  const reportesGuia = reportes
+    .filter((reporte) => reporte.guia === guia && reporte.date === fecha)
+    .sort((a, b) => a.reference - b.reference);
   const animalesRegistrados = reportesGuia.reduce(
     (total, reporte) => total + reporte.animalCount,
     0,
@@ -1771,9 +1772,10 @@ function GuiasCamionList({
               <TD colSpan={10} className="py-16">
                 <div className="flex flex-col items-center gap-2 text-center text-muted-foreground">
                   <Inbox className="size-8" />
-                  <p className="text-sm font-medium">No hay guías abiertas</p>
+                  <p className="text-sm font-medium">No hay guías listas para pesar</p>
                   <p className="text-sm">
-                    Registra una guía en Peso en Camión para asignarle animales.
+                    Solo aparecen las guías cerradas en Peso en Camión con entrada, salida y
+                    cantidad registradas.
                   </p>
                 </div>
               </TD>

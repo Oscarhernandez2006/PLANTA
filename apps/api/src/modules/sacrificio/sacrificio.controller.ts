@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -50,5 +51,13 @@ export class SacrificioController {
     @Body() dto: UndoDto,
   ) {
     return this.service.undo(user, id, dto.pin, dto.sequence);
+  }
+
+  @Patch(':id/cerrar')
+  cerrar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.service.cerrar(user, id);
   }
 }

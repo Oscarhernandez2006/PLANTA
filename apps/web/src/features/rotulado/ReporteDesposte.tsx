@@ -1,7 +1,9 @@
 import { useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, LoaderCircle, Store } from 'lucide-react';
+import { ChevronDown, ChevronRight, LoaderCircle, Lock, Store } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { AdminAuthDialog } from '@/components/ui/AdminAuthDialog';
 import {
+  useCerrarOrdenProduccion,
   usePreparacion,
   useReporteRotulado,
   type EtiquetaReporte,
@@ -44,10 +46,34 @@ const COLUMNAS = [
 ];
 
 /** Reporte de Rotulado Desposte: etiquetas de la orden agrupadas por tienda. */
-export function ReporteDesposte({ orden, prefijo }: { orden: OrdenProduccion; prefijo: string }) {
+export function ReporteDesposte({
+  orden,
+  prefijo,
+  onCerrada,
+}: {
+  orden: OrdenProduccion;
+  prefijo: string;
+  /** Se invoca tras cerrar la orden para salir de ella en la página. */
+  onCerrada?: () => void;
+}) {
   const reporte = useReporteRotulado(orden.id);
   const prep = usePreparacion(orden.id);
+  const cerrar = useCerrarOrdenProduccion();
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
+  const [pidiendoAuth, setPidiendoAuth] = useState(false);
+  const [errorCierre, setErrorCierre] = useState<string | null>(null);
+
+  async function cerrarOrden() {
+    setPidiendoAuth(false);
+    setErrorCierre(null);
+    try {
+      await cerrar.mutateAsync(orden.id);
+      onCerrada?.();
+    } catch (error) {
+      const msg = (error as { response?: { data?: { message?: string | string[] } } }).response?.data?.message;
+      setErrorCierre((Array.isArray(msg) ? msg.join(' ') : msg) || 'No se pudo cerrar la orden.');
+    }
+  }
 
   const grupos = useMemo(() => {
     const porTienda = new Map<string, { codigo: string; nombre: string; filas: EtiquetaReporte[] }>();
@@ -83,7 +109,10 @@ export function ReporteDesposte({ orden, prefijo }: { orden: OrdenProduccion; pr
     });
   }
 
+  const totalEtiquetas = reporte.data?.length ?? 0;
+
   return (
+    <div className="flex flex-col">
     <ul className="flex flex-col gap-2 p-2">
       {grupos.map((g) => {
         const abierta = abiertas.has(g.tiendaId);
@@ -180,5 +209,39 @@ export function ReporteDesposte({ orden, prefijo }: { orden: OrdenProduccion; pr
         );
       })}
     </ul>
+
+    {/* Cierre explícito de la orden: requiere código de autorización. */}
+    <div className="mx-2 mb-2 flex flex-col gap-2 rounded-sm border-2 border-border bg-card p-3">
+      {errorCierre && (
+        <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700">
+          {errorCierre}
+        </p>
+      )}
+      <button
+        type="button"
+        disabled={cerrar.isPending || !totalEtiquetas}
+        onClick={() => setPidiendoAuth(true)}
+        className={cn(
+          'flex h-14 w-full items-center justify-center gap-3 rounded-sm text-lg font-semibold text-white transition-colors',
+          'bg-red-700 hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50',
+        )}
+      >
+        {cerrar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Lock className="size-5" />}
+        Cerrar orden
+      </button>
+      <p className="text-center text-xs text-muted-foreground">
+        La orden deja de aceptar etiquetas y sale de Rotulado. Pide el código de autorización de un autorizador de
+        operaciones.
+      </p>
+    </div>
+
+    <AdminAuthDialog
+      open={pidiendoAuth}
+      onClose={() => setPidiendoAuth(false)}
+      onAuthorized={() => void cerrarOrden()}
+      title="Cerrar orden de producción"
+      description={`Se cerrará la orden con ${totalEtiquetas} etiqueta(s). Ingresa la cédula y PIN de un autorizador de operaciones.`}
+    />
+    </div>
   );
 }

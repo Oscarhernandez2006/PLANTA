@@ -117,10 +117,11 @@ export function PesoEnCamionPage() {
   const closeGuia = useClosePesoCamion();
   const deleteGuia = useDeletePesoCamion();
 
-  // Totales derivados.
-  const neto = num(entrada) - num(salida);
+  // Totales derivados (solo tienen sentido cuando ya hay peso de salida).
+  const haySalida = salida.trim() !== '';
+  const neto = haySalida ? num(entrada) - num(salida) : 0;
   const cantNum = num(cantidad);
-  const prom = cantNum > 0 ? neto / cantNum : 0;
+  const prom = haySalida && cantNum > 0 ? neto / cantNum : 0;
 
   useEffect(() => {
     const payload = {
@@ -240,7 +241,8 @@ export function PesoEnCamionPage() {
   async function guardar() {
     setSaveError(null);
 
-    // Todos los campos son obligatorios salvo Observaciones/Detalles.
+    // Todos los campos son obligatorios salvo Observaciones/Detalles y Salida:
+    // la salida se registra después (al retornar el camión) y se exige al cerrar.
     const faltantes: string[] = [];
     if (!guia.trim()) faltantes.push('Guía de movilización');
     if (!referenciaLote.trim()) faltantes.push('Referencia');
@@ -251,7 +253,6 @@ export function PesoEnCamionPage() {
     if (!conductor.trim()) faltantes.push('Conductor');
     if (!cantidad.trim()) faltantes.push('Cant.');
     if (!entrada.trim()) faltantes.push('Entrada');
-    if (!salida.trim()) faltantes.push('Salida');
     if (faltantes.length > 0) {
       setSaveError(`Faltan campos obligatorios: ${faltantes.join(', ')}.`);
       return;
@@ -309,7 +310,7 @@ export function PesoEnCamionPage() {
     if (selectedGuia) loadGuia(selectedGuia);
   }
 
-  // Genera un consecutivo de guía temporal (TEMP-000001) para camiones sin guía.
+  // Genera un consecutivo de guía temporal (TEMP-1, TEMP-2…) para camiones sin guía.
   async function guiaTemporal() {
     try {
       setGuia(await getNextTempGuia());
@@ -718,9 +719,9 @@ export function PesoEnCamionPage() {
           icon={Scale}
           label="Neto (kg)"
           tone="text-emerald-600"
-          value={fmt(neto)}
+          value={haySalida ? fmt(neto) : '—'}
         />
-        <StatValue icon={Sigma} label="Prom. (kg)" value={fmt(prom)} />
+        <StatValue icon={Sigma} label="Prom. (kg)" value={haySalida ? fmt(prom) : '—'} />
       </div>
 
       {/* Guías abiertas / Observaciones */}

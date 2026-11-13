@@ -9,8 +9,11 @@ import {
   Gauge,
   Inbox,
   LoaderCircle,
+  Lock,
   RefreshCw,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Dialog } from '@/components/ui/dialog';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { PielesIcon } from '@/components/icons/PielesIcon';
 import { useBascula } from '@/components/bascula/Bascula';
@@ -18,6 +21,7 @@ import { FechaFiltro } from '@/components/ui/fecha-filtro';
 import { cn, formatFechaDia, soloDecimal } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
 import {
+  useCerrarPielesLote,
   usePielesLotes,
   usePielLoteDetail,
   useRegistrarPiel,
@@ -46,13 +50,23 @@ export function PielesPage() {
   const [tab, setTab] = useState<Tab>('ordenes');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedEventoId, setSelectedEventoId] = useState<string | null>(null);
-  // Filtro de fecha: null = lotes con pieles pendientes (comportamiento normal).
+  // Filtro de fecha: null = lotes abiertos (comportamiento normal).
   const [fechaFiltro, setFechaFiltro] = useState<string | null>(null);
+  const [confirmarCierre, setConfirmarCierre] = useState(false);
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const noticeTimer = useRef<number | undefined>(undefined);
   const lotes = usePielesLotes(fechaFiltro);
   const detail = usePielLoteDetail(selectedId);
   const registrar = useRegistrarPiel();
+  const cerrar = useCerrarPielesLote();
   const scrollRef = useRef<HTMLDivElement>(null);
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
+
+  function flashNotice(type: 'success' | 'error', text: string) {
+    setNotice({ type, text });
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 3500);
+  }
 
   const lista = lotes.data ?? [];
   const d = detail.data;
@@ -79,6 +93,26 @@ export function PielesPage() {
 
   function scrollList(dir: 1 | -1) {
     scrollRef.current?.scrollBy({ top: dir * 220, behavior: 'smooth' });
+  }
+
+  function cerrarLote() {
+    if (!selectedId || !d) return;
+    const ref = formatOB(d.reference);
+    cerrar.mutate(selectedId, {
+      onSuccess: () => {
+        setConfirmarCierre(false);
+        setSelectedId(null);
+        setSelectedEventoId(null);
+        setTab('ordenes');
+        flashNotice('success', `Orden ${ref} cerrada en Pieles.`);
+      },
+      onError: (err) => {
+        setConfirmarCierre(false);
+        const msg = (err as { response?: { data?: { message?: string | string[] } } })
+          .response?.data?.message;
+        flashNotice('error', Array.isArray(msg) ? msg.join(' ') : msg || 'No se pudo cerrar la orden.');
+      },
+    });
   }
 
   function guardar() {
@@ -126,6 +160,20 @@ export function PielesPage() {
         ))}
       </div>
 
+      {notice && (
+        <div
+          className={cn(
+            'flex items-center gap-2 rounded-sm border-2 px-4 py-2 text-sm font-semibold',
+            notice.type === 'success'
+              ? 'border-emerald-300 bg-emerald-50 text-emerald-800'
+              : 'border-red-300 bg-red-50 text-red-800',
+          )}
+        >
+          <CheckCircle2 className="size-5 shrink-0" />
+          {notice.text}
+        </div>
+      )}
+
       {/* Contenido */}
       <div ref={scrollRef} className="flex-1 overflow-auto rounded-sm border-2 border-border bg-card">
         {tab === 'ordenes' && (
@@ -143,9 +191,35 @@ export function PielesPage() {
             loading={!!selectedId && detail.isLoading}
             selectedEventoId={selectedEventoId}
             onSelectAnimal={(id) => setSelectedEventoId((actual) => (actual === id ? null : id))}
+            onCerrar={() => setConfirmarCierre(true)}
+            cerrando={cerrar.isPending}
           />
         )}
       </div>
+
+      {confirmarCierre && d && (
+        <Dialog open onClose={() => !cerrar.isPending && setConfirmarCierre(false)} title="Cerrar orden" className="max-w-lg">
+          <div className="space-y-4">
+            <p className="text-base">
+              ¿Está seguro de cerrar en Pieles la orden con consecutivo <b>{formatOB(d.reference)}</b>?
+            </p>
+            <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+              Las {d.pesados} pieles de la orden ya están pesadas. La orden deja de aparecer en
+              Pieles y ya no se podrán registrar pesos. Los demás módulos siguen funcionando con
+              esta orden.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setConfirmarCierre(false)} disabled={cerrar.isPending}>
+                No
+              </Button>
+              <Button disabled={cerrar.isPending} onClick={cerrarLote}>
+                <Lock className="size-4" />
+                {cerrar.isPending ? 'Cerrando…' : 'Sí, cerrar'}
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
 
       {/* Botones de desplazamiento */}
       <div className="grid grid-cols-2 gap-2">
@@ -211,8 +285,8 @@ function OrdenesTab({
       <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
         <Inbox className="size-6" />
         {fechaFiltro
-          ? `No hay lotes con animales caídos del ${fechaFiltro}.`
-          : 'Aún no hay animales caídos. En cuanto se insensibilice un animal, su lote aparecerá aquí.'}
+          ? `No hay órdenes abiertas con animales caídos del ${fechaFiltro}.`
+          : 'No hay órdenes abiertas. En cuanto se insensibilice un animal, su lote aparecerá aquí.'}
       </div>
     );
   }
@@ -221,7 +295,6 @@ function OrdenesTab({
     <ul className="flex flex-col gap-2 p-3">
       {lotes.map((l) => {
         const activo = l.ordenBeneficioId === selectedId;
-        const completada = l.caidos >= l.animalCount && l.pesados >= l.caidos;
         return (
           <li key={l.ordenBeneficioId}>
             <button
@@ -230,9 +303,7 @@ function OrdenesTab({
                 'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
                 activo
                   ? 'border-emerald-500 bg-emerald-50'
-                  : completada
-                    ? 'border-border bg-muted/40 text-muted-foreground hover:bg-muted/60'
-                    : 'border-border bg-card hover:bg-muted/50',
+                  : 'border-border bg-card hover:bg-muted/50',
               )}
             >
               <span className="min-w-0">
@@ -247,12 +318,6 @@ function OrdenesTab({
               </span>
               <span className="flex shrink-0 items-center gap-2 tabular-nums text-sm text-muted-foreground">
                 {l.pesados}/{l.caidos} pesados
-                {completada && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-bold uppercase text-emerald-700">
-                    <Check className="size-3.5" />
-                    Completada
-                  </span>
-                )}
               </span>
             </button>
           </li>
@@ -267,11 +332,15 @@ function PielesTab({
   loading,
   selectedEventoId,
   onSelectAnimal,
+  onCerrar,
+  cerrando,
 }: {
   detail: PielLoteDetail | undefined;
   loading: boolean;
   selectedEventoId: string | null;
   onSelectAnimal: (eventoId: string) => void;
+  onCerrar: () => void;
+  cerrando: boolean;
 }) {
   if (loading) {
     return (
@@ -289,6 +358,10 @@ function PielesTab({
     );
   }
 
+  const faltanCaer = Math.max(0, detail.animalCount - detail.caidos);
+  const faltanPesar = Math.max(0, detail.caidos - detail.pesados);
+  const puedeCerrar = faltanCaer === 0 && faltanPesar === 0;
+
   return (
     <div className="flex flex-col gap-4 p-4">
       <div className="text-sm text-muted-foreground">
@@ -296,10 +369,35 @@ function PielesTab({
         {detail.guias.length ? ` · ${detail.guias.join(', ')}` : ''}
       </div>
 
-      <div className="text-sm text-muted-foreground">
-        <span className="text-2xl font-bold tabular-nums text-foreground">{detail.pesados}</span>{' '}
-        / {detail.caidos} pesados
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="text-sm text-muted-foreground">
+          <span className="text-2xl font-bold tabular-nums text-foreground">{detail.pesados}</span>{' '}
+          / {detail.caidos} pesados
+        </div>
+        <button
+          type="button"
+          onClick={onCerrar}
+          disabled={!puedeCerrar || cerrando || detail.cerrada}
+          title={
+            faltanCaer > 0
+              ? `Faltan ${faltanCaer} ${faltanCaer === 1 ? 'animal' : 'animales'} por sacrificar para poder cerrar`
+              : faltanPesar > 0
+                ? `Faltan ${faltanPesar} ${faltanPesar === 1 ? 'piel' : 'pieles'} por pesar para poder cerrar`
+                : 'Cerrar la orden: desaparece de Pieles'
+          }
+          className="flex items-center gap-3 rounded-md border-2 border-foreground/70 bg-card px-5 py-3 text-base font-bold uppercase hover:bg-muted disabled:opacity-40"
+        >
+          {cerrando ? <LoaderCircle className="size-7 animate-spin" /> : <Lock className="size-7" />}
+          Cerrar orden
+        </button>
       </div>
+
+      {puedeCerrar && !detail.cerrada && (
+        <div className="flex items-center gap-2 rounded-sm border-2 border-emerald-300 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800">
+          <CheckCircle2 className="size-5" />
+          Todas las pieles de la orden están pesadas. Revisá el registro y cerrá la orden.
+        </div>
+      )}
 
       <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
         {detail.animales

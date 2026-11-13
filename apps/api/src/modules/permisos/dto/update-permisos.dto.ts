@@ -1,8 +1,13 @@
-import { ArrayMaxSize, IsArray, IsBoolean, IsString, Matches, MaxLength } from 'class-validator';
+import { ArrayMaxSize, IsArray, IsBoolean, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 
 export class UpdatePermisosDto {
   @IsBoolean()
   accesoTotal!: boolean;
+
+  /** Autorizador de operaciones: valida acciones sensibles con su cédula + PIN. */
+  @IsOptional()
+  @IsBoolean()
+  autorizador?: boolean;
 
   // Rutas del menú a las que tiene acceso (ej. "/peso-en-pie").
   @IsArray()

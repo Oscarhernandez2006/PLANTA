@@ -3,11 +3,14 @@ import { api } from '@/lib/api';
 import type { OrdenDespachoStatus } from './orden-despacho-api';
 import type { OrdenTraslado } from './orden-traslado-api';
 
+export type ConditioningProceso = 'inyectado' | 'porcionado';
+
 export interface OrdenAcondicionamiento {
   id: string;
   ocNumber: number;
   registrationDate: string;
   processDate: string;
+  proceso: ConditioningProceso;
   status: OrdenDespachoStatus;
   cliente: { id: string; nit: string | null; concepto: string };
   transferOrder: { id: string; otNumber: number };
@@ -15,7 +18,7 @@ export interface OrdenAcondicionamiento {
 
 // Consecutivo de Orden de Acondicionamiento: OC + 7 dígitos (OC0000001).
 export function formatOC(n: number) {
-  return `OC${String(n).padStart(7, '0')}`;
+  return `OC${n}`;
 }
 
 export function useOrdenAcondicionamientoNextNumber() {
@@ -47,6 +50,7 @@ export function useCreateOrdenAcondicionamiento() {
       transferOrderId: string;
       registrationDate: string;
       processDate: string;
+      proceso: ConditioningProceso;
       status: OrdenDespachoStatus;
     }) => (await api.post<OrdenAcondicionamiento>('/conditioning-orders', input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['conditioning-orders'] }),
@@ -71,9 +75,17 @@ export function useOrdenesAcondicionamientoActivas() {
 export interface ResumenAcondicionamiento {
   ocNumber: number;
   otNumber: number;
+  proceso: ConditioningProceso;
   activa: boolean;
   sacrificio: string | null;
-  recibido: { productoCodigo: string; productoNombre: string; empaques: number; unds: number; netoKg: number }[];
+  recibido: {
+    productId: string;
+    productoCodigo: string;
+    productoNombre: string;
+    empaques: number;
+    unds: number;
+    netoKg: number;
+  }[];
   productos: { productoCodigo: string; productoNombre: string; unds: number; netoKg: number }[];
   recibidoKg: number;
   procesadoKg: number;

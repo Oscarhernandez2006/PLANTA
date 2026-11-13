@@ -314,6 +314,69 @@ export interface TrazabilidadCanal {
       processDate: string;
       etiquetas: number;
     }[];
+    canalesOrden: number;
+    kgCalienteOrden: number;
+    kgFrioOrden: number;
+    asignacionPorCanal: boolean;
+    productos: ProductoResumen[];
+    productosCanal: ProductoResumen[];
+    etiquetas: {
+      id: string;
+      codigo: string | null;
+      pieza: number;
+      productoCodigo: string;
+      productoNombre: string;
+      netoKg: number;
+      tienda: string;
+      opNumber: number;
+      dcNumber: number | null;
+      dcCerrada: boolean;
+      otNumber: number | null;
+      deEstaCanal: boolean;
+      piezaEnCanal: number | null;
+    }[];
+    transformaciones: {
+      otNumber: number;
+      otProcessDate: string;
+      ocNumber: number;
+      proceso: string;
+      cerrada: boolean;
+      processDate: string;
+      entradas: ProductoResumen[];
+      entradasCanal: ProductoResumen[];
+      deEstaCanal: boolean;
+      otrasEntradasKg: number;
+      productos: ProductoResumen[];
+      etiquetas: {
+        id: string;
+        codigo: string;
+        pieza: number;
+        productoCodigo: string;
+        productoNombre: string;
+        netoKg: number;
+        dcNumber: number | null;
+        dcCerrada: boolean;
+      }[];
+    }[];
+    despachos: {
+      dcNumber: number;
+      cliente: string;
+      processDate: string;
+      cerrada: boolean;
+      cerradaAt: string | null;
+      productos: ProductoResumen[];
+      items: {
+        codigo: string;
+        productoCodigo: string;
+        productoNombre: string;
+        unds: number;
+        netoKg: number;
+        origen: 'desposte' | 'acondicionamiento';
+        deEstaCanal: boolean;
+        at: string;
+        operario: string;
+      }[];
+    }[];
   } | null;
   despachoCanal: {
     dcNumber: number;
@@ -327,6 +390,13 @@ export interface TrazabilidadCanal {
     pistoleadaAt: string;
     operario: string | null;
     cerradaAt: string | null;
+    clienteNit: string | null;
+    registrationDate: string;
+    creadaAt: string;
+    creadaPor: string | null;
+    canalesOrden: number;
+    kgCalienteOrden: number;
+    kgDespachoOrden: number;
   } | null;
 }
 
@@ -336,5 +406,108 @@ export function useTrazabilidadCanal(piezaId: string | null) {
     queryFn: async () =>
       (await api.get<TrazabilidadCanal>(`/inventarios/canales/${piezaId}/trazabilidad`)).data,
     enabled: !!piezaId,
+  });
+}
+
+export interface ProductoResumen {
+  codigo: string;
+  nombre: string;
+  piezas: number;
+  kg: number;
+}
+
+export interface TrazabilidadEtiqueta {
+  tipo: 'desposte' | 'acondicionamiento';
+  origenes: {
+    etiquetaId: string;
+    etiquetaCodigo: string | null;
+    piezaId: string;
+    eventoId: string;
+    posicion: number;
+    piezaEnCanal: number;
+    piezasPorCanal: number;
+    totalCanales: number;
+  }[];
+  origenesSinCanal: number;
+  etiqueta: {
+    id: string;
+    codigo: string | null;
+    productoCodigo: string;
+    productoNombre: string;
+    pieza: number;
+    netoKg: number;
+    brutoKg: number;
+    taraKg: number;
+    tienda: string;
+    empaque: string;
+    conservacion: string;
+    temperatura: string;
+    fechaSacrificio: string;
+    fechaEmpaque: string;
+    fechaVencimiento: string | null;
+    ref: string | null;
+    estacion: string | null;
+    sobrante: boolean;
+    anulada: boolean;
+    canastilla: { numero: number; codigo: string | null; netoKg: number | null } | null;
+    operario: string;
+    createdAt: string;
+  };
+  traslado: {
+    otNumber: number;
+    netoKg: number;
+    at: string;
+    operario: string;
+    transformadoOc: number | null;
+  } | null;
+  despacho: { dcNumber: number; cerrada: boolean; netoKg: number; at: string; operario: string } | null;
+  acondicionamiento: {
+    ocNumber: number;
+    proceso: string;
+    processDate: string;
+    status: string;
+    creadaPor: string;
+    otNumber: number;
+    otProcessDate: string;
+    entradas: {
+      codigo: string;
+      productoCodigo: string;
+      productoNombre: string;
+      unds: number;
+      netoKg: number;
+      opNumber: number | null;
+    }[];
+  } | null;
+  ordenesProduccion: {
+    opNumber: number;
+    processDate: string;
+    status: string;
+    creadaPor: string;
+    odNumber: number;
+    odProcessDate: string;
+    canales: {
+      piezaId: string;
+      reference: number;
+      obDate: string;
+      cliente: string;
+      sequence: number;
+      turno: number | null;
+      canalTipo: TrazabilidadCanal['canalTipo'];
+      canalAnimalTipo: string | null;
+      pieza: TrazabilidadCanal['pieza'];
+      pesoCalienteKg: number;
+      pesoFrioKg: number | null;
+      proveedor: string | null;
+      procedencia: string | null;
+    }[];
+  }[];
+}
+
+export function useTrazabilidadEtiqueta(id: string | null) {
+  return useQuery({
+    queryKey: ['inventarios', 'trazabilidad-etiqueta', id],
+    queryFn: async () =>
+      (await api.get<TrazabilidadEtiqueta>(`/inventarios/etiquetas/${id}/trazabilidad`)).data,
+    enabled: !!id,
   });
 }

@@ -252,7 +252,7 @@ export class CanalDispatchOrderService {
   }
 }
 
-const numero = (prefijo: string) => (n: number) => `${prefijo}${String(n).padStart(7, '0')}`;
+const numero = (prefijo: string) => (n: number) => `${prefijo}${n}`;
 const formatOD = numero('OD');
 const formatOP = numero('OP');
 const formatDC = numero('DC');

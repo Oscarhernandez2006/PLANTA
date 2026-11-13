@@ -12,10 +12,35 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { SavePesoEnPieDto } from './dto/save-peso-en-pie.dto';
 import { PromediarGuiaDto } from './dto/promediar-guia.dto';
 import { plantToday } from '../../common/plant-date';
+import { faltantesGuia } from '../peso-camion/peso-camion.service';
 
 function dateOnly(s?: string) {
   const str = s ?? plantToday();
   return { str, date: new Date(`${str}T00:00:00.000Z`) };
+}
+
+/**
+ * Solo se pesa en pie una guía ya cerrada en báscula camión y con toda su
+ * información (entrada, salida, cantidad); de lo contrario el promedio sería erróneo.
+ */
+function assertGuiaListaParaPie(c: {
+  status: PesoCamionStatus;
+  guia: string | null;
+  cantidad: number | null;
+  entrada: unknown;
+  salida: unknown;
+}) {
+  if (c.status !== PesoCamionStatus.cerrada) {
+    throw new BadRequestException(
+      'La guía sigue abierta en Peso en Camión. Registra el peso de salida y ciérrala antes de pesar en pie.',
+    );
+  }
+  const faltan = faltantesGuia(c);
+  if (faltan) {
+    throw new BadRequestException(
+      `La guía está incompleta en Peso en Camión (falta ${faltan}); complétala antes de pesar en pie.`,
+    );
+  }
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -231,6 +256,7 @@ export class PesoEnPieService {
     if (camion.pieStatus !== PesoCamionStatus.abierta) {
       throw new BadRequestException('La guía ya está cerrada en Peso en Pie.');
     }
+    assertGuiaListaParaPie(camion);
     const guia = camion.guia?.trim();
     if (!guia) throw new BadRequestException('La guía no tiene número.');
     const neto = camion.netoKg == null ? null : Number(camion.netoKg);
@@ -372,9 +398,11 @@ export class PesoEnPieService {
         deletedAt: null,
         ...(p.bcReference != null ? { reference: p.bcReference } : { date: p.date, guia }),
       },
-      select: { netoKg: true },
+      select: { netoKg: true, status: true, guia: true, cantidad: true, entrada: true, salida: true },
     });
-    if (camion?.netoKg == null) return;
+    if (!camion) return;
+    assertGuiaListaParaPie(camion);
+    if (camion.netoKg == null) return;
     const neto = Number(camion.netoKg);
 
     const agg = await db.pesoEnPie.aggregate({

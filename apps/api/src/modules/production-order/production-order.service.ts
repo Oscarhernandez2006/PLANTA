@@ -9,6 +9,13 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { agruparCanales } from '../../common/canales-traslado';
 import {
+  normalizarCodigoBarras,
+  secuenciaDesdeCodigo,
+  siguienteCodigoBarras,
+  tipoCodigoBarras,
+  ultimoCodigoBarras,
+} from '../../common/codigo-barras';
+import {
   AsignarTiendaDto,
   CreateProductionOrderDto,
   GuardarEtiquetaDto,
@@ -136,15 +143,13 @@ type Db = Prisma.TransactionClient;
 type EstadoRotulado = Awaited<ReturnType<ProductionOrderService['estadoProducto']>>;
 
 /**
- * Código de barras: lote (OP, 7 dígitos) + código de producto + estación (2) y pieza (4), o
- * C + canastilla (3). La pieza se guarda como estación × 10000 + consecutivo de la estación.
+ * El código de barras de piezas y canastillas es un consecutivo único por planta de
+ * 8 dígitos (ver common/codigo-barras.ts). La pieza se numera aparte, por estación:
+ * estación × 10000 + consecutivo de la estación.
  */
-const codigoBarras = (opNumber: number, productoCodigo: string, sufijo: string) =>
-  `${String(opNumber).padStart(7, '0')}${productoCodigo.replace(/\D/g, '')}${sufijo}`;
-const sufijoPieza = (pieza: number) => String(pieza).padStart(6, '0');
-const sufijoCanastilla = (numero: number) => `C${String(numero).padStart(3, '0')}`;
 
 const PIEZAS_POR_ESTACION = 10000;
+const formatOP = (n: number) => `OP${n}`;
 const MAX_ESTACION = 99;
 
 /** Número de la estación: los dígitos al final de su nombre (DBOVINO3 → 3, LOGISTICA 2 → 2); sin número = 0. */
@@ -471,25 +476,13 @@ export class ProductionOrderService {
       throw new BadRequestException('Se agotó el consecutivo de etiquetas de esta estación para este producto.');
     }
     const pieza = estacion * PIEZAS_POR_ESTACION + counter.ultimo;
-    const { opNumber, productoCodigo } = await this.datosCodigo(productionOrderId, dto.productId);
     return {
       pieza,
-      codigo: codigoBarras(opNumber, productoCodigo, sufijoPieza(pieza)),
+      codigo: await siguienteCodigoBarras(this.prisma, ctx.plantId),
     };
   }
 
-  private async datosCodigo(productionOrderId: string, productId: string) {
-    const [op, product] = await Promise.all([
-      this.prisma.productionOrder.findUniqueOrThrow({
-        where: { id: productionOrderId },
-        select: { opNumber: true },
-      }),
-      this.prisma.product.findUniqueOrThrow({ where: { id: productId }, select: { codigo: true } }),
-    ]);
-    return { opNumber: op.opNumber, productoCodigo: product.codigo };
-  }
-
-  /** Registra una etiqueta impresa; la pieza debe haber sido reservada antes. */
+  /** Registra una etiqueta impresa; la pieza y el código deben haber sido reservados antes. */
   async guardarEtiqueta(ctx: AuthContext, productionOrderId: string, dto: GuardarEtiquetaDto) {
     const order = await this.prisma.productionOrder.findFirst({
       where: { id: productionOrderId, plantId: ctx.plantId, deletedAt: null },
@@ -497,10 +490,12 @@ export class ProductionOrderService {
     });
     if (!order) throw new BadRequestException('La orden de producción no existe.');
 
+    if (!dto.codigo) throw new BadRequestException('Falta el código de barras reservado de la etiqueta.');
+    const codigo = normalizarCodigoBarras(dto.codigo);
     const estacion = Math.floor(dto.pieza / PIEZAS_POR_ESTACION);
     const consecutivoEstacion = dto.pieza % PIEZAS_POR_ESTACION;
     const llave = { plantId: ctx.plantId, productionOrderId, productId: dto.productId };
-    const [bodega, consecutivo, { opNumber, productoCodigo }] = await Promise.all([
+    const [bodega, consecutivo, ultimoCodigo] = await Promise.all([
       dto.bodegaId
         ? this.prisma.bodega.findFirst({
             where: { id: dto.bodegaId, clienteId: order.clienteId },
@@ -516,13 +511,16 @@ export class ProductionOrderService {
             where: { plantId_productionOrderId_productId_estacion: { ...llave, estacion } },
             select: { ultimo: true },
           }),
-      this.datosCodigo(productionOrderId, dto.productId),
+      ultimoCodigoBarras(this.prisma, ctx.plantId),
     ]);
     if (dto.bodegaId && !bodega) throw new BadRequestException('La bodega no pertenece al cliente de la orden.');
     if (!consecutivo || consecutivoEstacion < 1 || consecutivoEstacion > consecutivo.ultimo) {
       throw new BadRequestException(`La pieza #${dto.pieza} no fue reservada para este producto.`);
     }
-    const codigo = codigoBarras(opNumber, productoCodigo, sufijoPieza(dto.pieza));
+    const secuencia = secuenciaDesdeCodigo(codigo);
+    if (secuencia < 1 || secuencia > ultimoCodigo) {
+      throw new BadRequestException(`El código de barras ${codigo} no fue reservado.`);
+    }
 
     try {
       const creada = await this.prisma.$transaction(async (tx) => {
@@ -551,7 +549,7 @@ export class ProductionOrderService {
               productId: dto.productId,
               tiendaId: dto.tiendaId,
               numero,
-              codigo: codigoBarras(opNumber, productoCodigo, sufijoCanastilla(numero)),
+              codigo: await siguienteCodigoBarras(tx, ctx.plantId),
               createdById: ctx.userId,
             },
             select: { id: true },
@@ -635,21 +633,17 @@ export class ProductionOrderService {
     });
   }
 
-  /**
-   * Reimpresión: busca la etiqueta por su código de barras
-   * (lote + producto + estación y pieza, o + C + canastilla de 3 dígitos).
-   */
+  /** Reimpresión: busca la etiqueta (pieza o canastilla) por su código de barras de 8 dígitos. */
   async buscarEtiqueta(ctx: AuthContext, codigoBarras: string) {
-    const valor = codigoBarras.trim().toUpperCase();
-    if (!/^\d{7}\d+(\d{4}|C\d{3})$/.test(valor)) {
-      throw new BadRequestException('Código de barras no válido.');
+    const valor = normalizarCodigoBarras(codigoBarras);
+    const tipo = await tipoCodigoBarras(this.prisma, ctx.plantId, valor);
+    if (tipo === 'acondicionamiento') {
+      throw new BadRequestException('Ese código es de una etiqueta de Acondicionamiento.');
     }
-    const wherePieza: Prisma.RotuladoEtiquetaWhereInput | null = valor.includes('C')
-      ? null
-      : { codigo: valor };
-    const whereCanastilla: Prisma.RotuladoCanastillaWhereInput | null = valor.includes('C')
-      ? { codigo: valor }
-      : null;
+    const wherePieza: Prisma.RotuladoEtiquetaWhereInput | null =
+      tipo === 'canastilla' ? null : { codigo: valor };
+    const whereCanastilla: Prisma.RotuladoCanastillaWhereInput | null =
+      tipo === 'canastilla' ? { codigo: valor } : null;
     const ordenSelect = {
       select: { opNumber: true, cliente: { select: { concepto: true, nit: true } } },
     } as const;
@@ -956,6 +950,52 @@ export class ProductionOrderService {
         totalPages: Math.ceil(total / query.pageSize),
       },
     };
+  }
+
+  /**
+   * Cierre explícito de la orden de producción: deja de aceptar etiquetas y sale de
+   * Rotulado. Exige al menos una etiqueta y ninguna canastilla abierta con piezas.
+   */
+  async cerrar(ctx: AuthContext, id: string) {
+    const order = await this.prisma.productionOrder.findFirst({
+      where: { id, plantId: ctx.plantId, deletedAt: null },
+      select: { id: true, opNumber: true, status: true },
+    });
+    if (!order) throw new NotFoundException('Orden de producción no encontrada.');
+    if (order.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException(`La orden ${formatOP(order.opNumber)} ya está cerrada.`);
+    }
+    const [etiquetas, abiertas] = await Promise.all([
+      this.prisma.rotuladoEtiqueta.count({ where: { productionOrderId: id, deletedAt: null } }),
+      this.prisma.rotuladoCanastilla.findMany({
+        where: {
+          productionOrderId: id,
+          cerradaAt: null,
+          etiquetas: { some: { deletedAt: null } },
+        },
+        select: { numero: true, productId: true },
+        take: 3,
+      }),
+    ]);
+    if (!etiquetas) throw new BadRequestException('La orden no tiene etiquetas; no hay nada que cerrar.');
+    if (abiertas.length) {
+      const productos = await this.prisma.product.findMany({
+        where: { id: { in: abiertas.map((c) => c.productId) } },
+        select: { id: true, codigo: true },
+      });
+      const codigoDe = new Map(productos.map((p) => [p.id, p.codigo]));
+      const lista = abiertas
+        .map((c) => `N.º ${c.numero} (${codigoDe.get(c.productId) ?? '?'})`)
+        .join(', ');
+      throw new BadRequestException(
+        `Hay canastillas abiertas con piezas: ${lista}${abiertas.length === 3 ? ' y más' : ''}. Ciérralas antes de cerrar la orden.`,
+      );
+    }
+    await this.prisma.productionOrder.update({
+      where: { id },
+      data: { status: DispatchOrderStatus.facturado },
+    });
+    return { ok: true };
   }
 
   async findOne(ctx: AuthContext, id: string) {

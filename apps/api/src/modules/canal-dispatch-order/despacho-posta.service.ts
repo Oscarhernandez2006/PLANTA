@@ -6,13 +6,14 @@ import {
 } from '@nestjs/common';
 import { DispatchOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizarCodigoBarras, tipoCodigoBarras } from '../../common/codigo-barras';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { parseCanalBarcode } from '../../common/canal-barcode';
 
 type Db = Prisma.TransactionClient;
 type OrdenPosta = { id: string; clienteId: string; status: DispatchOrderStatus };
 
-const numero = (prefijo: string) => (n: number) => `${prefijo}${String(n).padStart(7, '0')}`;
+const numero = (prefijo: string) => (n: number) => `${prefijo}${n}`;
 const formatOT = numero('OT');
 const formatDC = numero('DC');
 
@@ -73,8 +74,11 @@ export class DespachoPostaService {
     const ya = (n: number) => `ya está en la orden de despacho ${formatDC(n)}`;
     const enProceso = (n: number) => `está en proceso en la orden de traslado ${formatOT(n)}`;
 
-    // Etiqueta de Rotulado Acondicionamiento: A + OC + producto + pieza.
-    if (/^A\d+$/.test(valor)) {
+    const codigoNormalizado = normalizarCodigoBarras(valor);
+    const tipo = await tipoCodigoBarras(db, ctx.plantId, codigoNormalizado);
+
+    // Etiqueta de Rotulado Acondicionamiento.
+    if (tipo === 'acondicionamiento') {
       const e = await db.acondicionamientoEtiqueta.findFirst({
         where: { codigo: valor, plantId: ctx.plantId, deletedAt: null },
         select: {
@@ -108,11 +112,7 @@ export class DespachoPostaService {
       };
     }
 
-    if (!/^\d{7}\d+(\d{4}|C\d{3})$/.test(valor)) {
-      throw new BadRequestException('Código de barras no válido.');
-    }
-
-    if (valor.includes('C')) {
+    if (tipo === 'canastilla') {
       const c = await db.rotuladoCanastilla.findFirst({
         where: { codigo: valor, plantId: ctx.plantId },
         select: {

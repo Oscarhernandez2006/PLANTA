@@ -10,13 +10,14 @@ const INK: [number, number, number] = [31, 41, 55];
 const GRAY: [number, number, number] = [243, 244, 246];
 const TEXT: [number, number, number] = [17, 17, 17];
 
-export const LEYENDA_SACRIFICIO = 'PEP(Peso En Pie), PEC(Peso En Caliente), RND(Rendimiento) PROM(Promedio).';
+export const LEYENDA_SACRIFICIO =
+  'PEP(Peso En Pie), PEC(Peso En Caliente), PECF(Peso En Frío), RND(Rendimiento) PROM(Promedio). Gancho = lote-turno.';
 
 /** Columnas del detalle por animal, agrupadas como en el reporte de beneficio. */
 export const GRUPOS_SACRIFICIO = [
   { titulo: 'SACRIFICIO', columnas: ['GUÍA', 'REF.'] },
-  { titulo: 'ANIMAL', columnas: ['TIPO', 'CÓDIGO', 'TURNO'] },
-  { titulo: 'PESAJE', columnas: ['PEP(kg)', 'PEC(kg)', 'PIEL(kg)'] },
+  { titulo: 'ANIMAL', columnas: ['TIPO', 'CÓDIGO', 'TURNO', 'GANCHO'] },
+  { titulo: 'PESAJE', columnas: ['PEP(kg)', 'PEC(kg)', 'PECF(kg)', 'PIEL(kg)'] },
   { titulo: 'LOGÍSTICA', columnas: ['OBSERVACIÓN', 'UBICACIÓN', 'DESTINO'] },
 ] as const;
 
@@ -27,8 +28,10 @@ export const COLUMNAS_SACRIFICIO = [
   'TIPO',
   'CÓDIGO',
   'TURNO',
+  'GANCHO',
   'PEP(kg)',
   'PEC(kg)',
+  'PECF(kg)',
   'PIEL(kg)',
   'RND(%)',
   'OBSERVACIÓN',
@@ -58,8 +61,10 @@ export function filasSacrificio(d: DetalleSacrificio) {
             .join(' / ')
         : '—',
     turno: a.turno,
+    gancho: a.gancho,
     pep: a.pepKg,
     pec: a.pecKg,
+    pecf: a.pecfKg,
     piel: a.pielKg,
     rnd: a.rendimiento,
     observacion: a.observacion ?? '',
@@ -218,10 +223,11 @@ export async function descargarSacrificioPdf(d: DetalleSacrificio, operario: str
     headStyles: { fillColor: GRAY, textColor: TEXT, fontStyle: 'bold', lineColor: INK, lineWidth: 0.2, halign: 'center' },
     head,
     columnStyles: {
-      6: { halign: 'right' },
-      7: { halign: 'right', fontStyle: 'bold' },
-      8: { halign: 'right' },
+      7: { halign: 'right' },
+      8: { halign: 'right', fontStyle: 'bold' },
       9: { halign: 'right' },
+      10: { halign: 'right' },
+      11: { halign: 'right' },
     },
     body: filasSacrificio(d).map((f) => [
       f.no,
@@ -230,8 +236,10 @@ export async function descargarSacrificioPdf(d: DetalleSacrificio, operario: str
       f.tipo,
       f.codigo,
       f.turno,
+      f.gancho,
       num(f.pep),
       num(f.pec),
+      num(f.pecf),
       num(f.piel),
       num(f.rnd),
       f.observacion,
@@ -270,18 +278,19 @@ export async function descargarSacrificioPdf(d: DetalleSacrificio, operario: str
     ...base,
     startY: finalY(doc) + 4,
     body: [
-      [{ content: 'TOTALES', colSpan: 7, styles: lbl }],
-      ['ANIMALES', 'PEP(kg)', 'PIEL(kg)', 'SEBO(kg)', 'PEC(kg)', 'PROM(kg)', 'RND(%)'].map((h) => ({ content: h, styles: lbl })),
+      [{ content: 'TOTALES', colSpan: 8, styles: lbl }],
+      ['ANIMALES', 'PEP(kg)', 'PIEL(kg)', 'SEBO(kg)', 'PEC(kg)', 'PECF(kg)', 'PROM(kg)', 'RND(%)'].map((h) => ({ content: h, styles: lbl })),
       [
         String(t.animales),
         num(t.pepKg),
         num(t.pielKg),
         num(t.seboKg),
         num(t.pecKg),
+        num(t.pecfKg),
         num(t.promedioKg),
         num(t.rendimiento),
       ].map((v) => ({ content: v, styles: { fontStyle: 'bold' as const } })),
-      [{ content: LEYENDA_SACRIFICIO, colSpan: 7, styles: { halign: 'left' as const, fontStyle: 'bold' as const } }],
+      [{ content: LEYENDA_SACRIFICIO, colSpan: 8, styles: { halign: 'left' as const, fontStyle: 'bold' as const } }],
     ],
   });
 
@@ -302,9 +311,9 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
   const ws = wb.addWorksheet('Reporte beneficio', {
     pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0 },
   });
-  [5, 22, 9, 10, 12, 7, 9, 9, 9, 8, 18, 11, 10].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [5, 22, 9, 10, 12, 7, 9, 9, 9, 9, 9, 8, 18, 11, 10].forEach((w, i) => (ws.getColumn(i + 1).width = w));
 
-  const cols = 'ABCDEFGHIJKLM';
+  const cols = 'ABCDEFGHIJKLMNO';
   const borde = { style: 'thin' as const };
   const gris = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFF3F4F6' } };
 
@@ -339,26 +348,26 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
     const id = wb.addImage({ buffer: logo, extension: 'png' });
     ws.addImage(id, { tl: { col: 0.4, row: 0.2 }, ext: { width: 110, height: 66 } });
   }
-  celda('D1:J1', 'AGROPECUARIA SANTA CRUZ LTDA', { bold: true });
-  celda('D2:J2', 'NIT. 830.505.537-2', { bold: true });
-  celda('D3:J3', 'KM 3 VÍA ORIENTAL TEL. 3766701', { bold: true });
-  celda('D4:J4', 'MALAMBO - ATLÁNTICO', { bold: true });
-  celda('K1:M4', '');
-  celda('A5:M5', tituloSacrificio(d), { size: 12, label: true });
+  celda('D1:L1', 'AGROPECUARIA SANTA CRUZ LTDA', { bold: true });
+  celda('D2:L2', 'NIT. 830.505.537-2', { bold: true });
+  celda('D3:L3', 'KM 3 VÍA ORIENTAL TEL. 3766701', { bold: true });
+  celda('D4:L4', 'MALAMBO - ATLÁNTICO', { bold: true });
+  celda('M1:O4', '');
+  celda('A5:O5', tituloSacrificio(d), { size: 12, label: true });
 
   celda('A6:C6', 'FECHA DE PROCESO', { label: true });
-  celda('D6:M6', 'CLIENTE', { label: true });
+  celda('D6:O6', 'CLIENTE', { label: true });
   celda('A7:C7', d.date);
-  celda('D7:M7', clienteTexto(d));
-  celda('A8:M8', 'GUÍAS DE MOVILIZACIÓN DE ANIMALES EN PIE', { label: true });
+  celda('D7:O7', clienteTexto(d));
+  celda('A8:O8', 'GUÍAS DE MOVILIZACIÓN DE ANIMALES EN PIE', { label: true });
   celda('A9:C9', 'No.', { label: true });
-  celda('D9:J9', 'PROVEEDOR', { label: true });
-  celda('K9:M9', 'PROCEDENCIA', { label: true });
+  celda('D9:L9', 'PROVEEDOR', { label: true });
+  celda('M9:O9', 'PROCEDENCIA', { label: true });
   let row = 10;
   for (const g of guiasEncabezado(d)) {
     celda(`A${row}:C${row}`, g.guia);
-    celda(`D${row}:J${row}`, g.proveedor ?? '—');
-    celda(`K${row}:M${row}`, g.procedencia ?? '—');
+    celda(`D${row}:L${row}`, g.proveedor ?? '—');
+    celda(`M${row}:O${row}`, g.procedencia ?? '—');
     row++;
   }
 
@@ -366,12 +375,12 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
   row++;
   celda(`A${row}:A${row + 1}`, 'No.', { label: true });
   celda(`B${row}:C${row}`, 'SACRIFICIO', { label: true });
-  celda(`D${row}:F${row}`, 'ANIMAL', { label: true });
-  celda(`G${row}:I${row}`, 'PESAJE', { label: true });
-  celda(`J${row}:J${row + 1}`, 'RND(%)', { label: true });
-  celda(`K${row}:M${row}`, 'LOGÍSTICA', { label: true });
+  celda(`D${row}:G${row}`, 'ANIMAL', { label: true });
+  celda(`H${row}:K${row}`, 'PESAJE', { label: true });
+  celda(`L${row}:L${row + 1}`, 'RND(%)', { label: true });
+  celda(`M${row}:O${row}`, 'LOGÍSTICA', { label: true });
   const sub = GRUPOS_SACRIFICIO.flatMap((g) => [...g.columnas]);
-  ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'K', 'L', 'M'].forEach((col, i) => celda(`${col}${row + 1}`, sub[i], { label: true }));
+  ['B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'M', 'N', 'O'].forEach((col, i) => celda(`${col}${row + 1}`, sub[i], { label: true }));
   row += 2;
   for (const f of filasSacrificio(d)) {
     const valores: [string | number | null, 'left' | 'right' | 'center', string?, boolean?][] = [
@@ -381,8 +390,10 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
       [f.tipo, 'center'],
       [f.codigo, 'center'],
       [f.turno, 'center'],
+      [f.gancho, 'center'],
       [f.pep, 'right', '#,##0.0'],
       [f.pec, 'right', '#,##0.0', true],
+      [f.pecf, 'right', '#,##0.0'],
       [f.piel, 'right', '#,##0.0'],
       [f.rnd, 'right', '0.0'],
       [f.observacion, 'center'],
@@ -396,10 +407,10 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
   // Animales por sexo y tipo.
   row++;
   const c = conteoAnimales(d);
-  celda(`A${row}:M${row}`, 'ANIMALES', { label: true });
+  celda(`A${row}:O${row}`, 'ANIMALES', { label: true });
   celda(`A${row + 1}:D${row + 1}`, 'SEXO', { label: true });
-  celda(`E${row + 1}:M${row + 1}`, 'TIPO', { label: true });
-  const rangosAnimales = ['A:B', 'C:D', 'E:E', 'F:G', 'H:H', 'I:J', 'K:L', 'M:M'];
+  celda(`E${row + 1}:O${row + 1}`, 'TIPO', { label: true });
+  const rangosAnimales = ['A:B', 'C:D', 'E:F', 'G:H', 'I:J', 'K:L', 'M:M', 'N:O'];
   const titulosAnimales = ['HEMBRAS', 'MACHOS', ...TIPOS_ANIMAL.map(([, t]) => t)];
   const valoresAnimales = [c.hembras, c.machos, ...TIPOS_ANIMAL.map(([t]) => c.tipos[t])];
   rangosAnimales.forEach((rg, i) => {
@@ -411,15 +422,16 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
   // Totales.
   row += 5;
   const t = d.totales;
-  celda(`A${row}:M${row}`, 'TOTALES', { label: true });
-  const rangosTot = ['A:B', 'C:D', 'E:F', 'G:H', 'I:J', 'K:K', 'L:M'];
-  const titulosTot = ['ANIMALES', 'PEP(kg)', 'PIEL(kg)', 'SEBO(kg)', 'PEC(kg)', 'PROM(kg)', 'RND(%)'];
+  celda(`A${row}:O${row}`, 'TOTALES', { label: true });
+  const rangosTot = ['A:B', 'C:D', 'E:F', 'G:H', 'I:J', 'K:L', 'M:M', 'N:O'];
+  const titulosTot = ['ANIMALES', 'PEP(kg)', 'PIEL(kg)', 'SEBO(kg)', 'PEC(kg)', 'PECF(kg)', 'PROM(kg)', 'RND(%)'];
   const valoresTot: [number | null, string?][] = [
     [t.animales],
     [t.pepKg, '#,##0.0'],
     [t.pielKg, '#,##0.0'],
     [t.seboKg, '#,##0.0'],
     [t.pecKg, '#,##0.0'],
+    [t.pecfKg, '#,##0.0'],
     [t.promedioKg, '#,##0.0'],
     [t.rendimiento, '0.0'],
   ];
@@ -428,7 +440,7 @@ export async function descargarSacrificioExcel(d: DetalleSacrificio, operario: s
     celda(a === b ? `${a}${row + 1}` : `${a}${row + 1}:${b}${row + 1}`, titulosTot[i], { label: true });
     celda(a === b ? `${a}${row + 2}` : `${a}${row + 2}:${b}${row + 2}`, valoresTot[i][0], { bold: true, fmt: valoresTot[i][1] });
   });
-  celda(`A${row + 3}:M${row + 3}`, LEYENDA_SACRIFICIO, { bold: true, align: 'left' });
+  celda(`A${row + 3}:O${row + 3}`, LEYENDA_SACRIFICIO, { bold: true, align: 'left' });
 
   row += 5;
   ws.getCell(`A${row}`).value = 'Elaboró: © Grupo Santacruz, 2026';

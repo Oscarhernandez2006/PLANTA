@@ -13,7 +13,7 @@ export interface OrdenTraslado {
 
 // Consecutivo de Orden de Traslado: OT + 7 dígitos (OT0000001).
 export function formatOT(n: number) {
-  return `OT${String(n).padStart(7, '0')}`;
+  return `OT${n}`;
 }
 
 export function useOrdenTrasladoNextNumber() {

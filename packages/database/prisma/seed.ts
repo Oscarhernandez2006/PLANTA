@@ -44,6 +44,8 @@ async function main() {
       documentId: '1044616409',
       fullName: 'Oscar Hernández',
       role: 'admin',
+      accesoTotal: true,
+      autorizador: true,
     },
   });
 

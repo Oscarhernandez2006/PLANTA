@@ -49,10 +49,10 @@ const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 /**
- * Etiquetas al cerrar una canastilla: al vacío salen 2 iguales (una para la bolsa y otra para la
- * canastilla); a granel sale 1, porque cada pieza ya lleva la suya pegada.
+ * Etiquetas al cerrar una canastilla, siempre 2 iguales:
+ * al vacío = una para la bolsa y otra para la canastilla; a granel = la caja impresa dos veces.
  */
-const copiasCanastilla = (empaque: string | undefined) => (empaque === 'AL VACIO' ? 2 : 1);
+const copiasCanastilla = () => 2;
 
 type MemoriaEmbalaje = { alVacio?: boolean; tara?: string; ref?: string };
 const claveMemoria = (ordenId: string) => `rotulado-desposte:${ordenId}`;
@@ -163,7 +163,7 @@ export function EmbalajeDesposte({
   const equipo = useDevice();
   usePresenciaRotulado(orden.id, producto.id, {
     id: equipo.mac ?? equipo.hostname ?? '',
-    nombre: equipo.hostname ?? equipo.deviceName ?? 'Estación',
+    nombre: equipo.hostname ?? 'Estación',
     usuario: user?.fullName ?? '',
   });
   const guardarEtiqueta = useGuardarEtiqueta(orden.id);
@@ -243,7 +243,7 @@ export function EmbalajeDesposte({
     await leerBascula();
   }
 
-  async function registrar(registro: GuardarEtiquetaInput) {
+  async function registrar(registro: GuardarEtiquetaInput, autoCerrar = true) {
     try {
       await guardarEtiqueta.mutateAsync(registro);
       setRegistroPendiente(null);
@@ -255,15 +255,18 @@ export function EmbalajeDesposte({
         id: Date.now(),
         texto: `${mensajeApi(err, 'La etiqueta se imprimió pero no se guardó.')} Presiona etiquetar de nuevo para reintentar el guardado (no se reimprime).`,
       });
-      return;
+      return false;
     }
-    // Si con esta pieza la canastilla quedó llena (o su tienda completa), se cierra sola y sale su
-    // etiqueta enseguida, sin preguntar.
-    const { data: nuevo } = await estadoQuery.refetch();
-    const c = nuevo?.canastilla;
-    if (c && c.unds > 0 && bloqueoCanastilla(nuevo)) {
-      await cerrar(c.taraPiezas ?? registro.taraKg, c.id);
+    // Al vacío: si con esta pieza la canastilla quedó llena (o su tienda completa), se cierra sola
+    // y salen sus 2 etiquetas, sin preguntar. A granel el cierre lo maneja el botón de caja.
+    if (autoCerrar) {
+      const { data: nuevo } = await estadoQuery.refetch();
+      const c = nuevo?.canastilla;
+      if (c && c.unds > 0 && bloqueoCanastilla(nuevo)) {
+        await cerrar(c.taraPiezas ?? registro.taraKg, c.id);
+      }
     }
+    return true;
   }
 
   async function imprimirCanastilla(c: CanastillaRotulado, reimpresion = false) {
@@ -290,8 +293,8 @@ export function EmbalajeDesposte({
         ref: c.datos.ref ?? '',
         codigo: c.codigo ?? undefined,
         canastilla: { numero: c.numero, taraKg: c.taraKg, brutoKg: c.brutoKg },
-      }, logo, reimpresion ? 1 : copiasCanastilla(c.datos.empaque)));
-      const copias = copiasCanastilla(c.datos.empaque);
+      }, logo, reimpresion ? 1 : copiasCanastilla()));
+      const copias = copiasCanastilla();
       setAlerta({
         id: Date.now(),
         texto: resultado.ok
@@ -299,7 +302,7 @@ export function EmbalajeDesposte({
               reimpresion
                 ? 'reimpresa'
                 : copias > 1
-                  ? `cerrada: ${copias} etiquetas impresas (bolsa y canastilla)`
+                  ? `cerrada: ${copias} etiquetas impresas`
                   : 'cerrada e impresa'
             }.`
           : resultado.error || 'No se pudo imprimir la etiqueta de la canastilla.',
@@ -400,7 +403,33 @@ export function EmbalajeDesposte({
     }
   }
 
-  async function etiquetarEn(tiendaId: string, tiendaCodigo: string, sobrante: boolean) {
+  /** A granel: pesa la caja, registra 1 pieza (sin etiqueta de pieza) y cierra enseguida (2 etiquetas de caja). */
+  async function etiquetarCaja() {
+    if (imprimiendo || cerrarCanastilla.isPending || netoKg <= 0 || !estado) return;
+    if (!estado.activa) {
+      setAlerta({ id: Date.now(), texto: 'La orden de producción no está activa.' });
+      return;
+    }
+    if (bloqueo) {
+      setAlerta({ id: Date.now(), texto: bloqueo });
+      return;
+    }
+    if (imprimir && !impresora) {
+      setAlerta({ id: Date.now(), texto: SIN_IMPRESORA });
+      return;
+    }
+    if (!sacrificio) {
+      setAlerta({ id: Date.now(), texto: 'No se encontró la fecha de sacrificio de la orden.' });
+      return;
+    }
+    if (siguiente) {
+      await etiquetarEn(siguiente.tiendaId, siguiente.codigo, false, true);
+    } else {
+      setPidiendoSobrante(true);
+    }
+  }
+
+  async function etiquetarEn(tiendaId: string, tiendaCodigo: string, sobrante: boolean, caja = false) {
     if (!sacrificio) return;
     if (canastilla && canastilla.tiendaId !== tiendaId) {
       setAlerta({
@@ -428,15 +457,16 @@ export function EmbalajeDesposte({
             tiendaId,
             sobrante,
             taraKg: Number(taraKg.toFixed(2)),
-            // El nombre registrado en Estaciones (DBOVINO3) da el número que va en el código.
-            estacion: equipo.deviceName ?? equipo.hostname ?? undefined,
+            // El nombre del PC (p. ej. DBOVINO3) da el número que va en el código.
+            estacion: equipo.hostname ?? undefined,
           },
         );
         reserva = response.data;
         setPiezaPendiente(reserva);
       }
       const { pieza, codigo } = reserva;
-      if (imprimir) {
+      // La etiqueta de pieza solo se imprime al vacío; a granel sale la etiqueta de caja al cerrar.
+      if (imprimir && alVacio && !caja) {
         const logo = await obtenerLogoEtiquetaZpl();
         const resultado = await printRaw(impresora, generarEtiquetaDesposteZpl({
           tienda: tiendaCodigo,
@@ -461,27 +491,36 @@ export function EmbalajeDesposte({
         }
       }
       setPiezaPendiente(null);
-      await registrar({
-        productId: producto.id,
-        tiendaId,
-        sobrante,
-        bodegaId: bodegaSel || undefined,
-        pieza,
-        codigo,
-        taraKg: Number(taraKg.toFixed(2)),
-        brutoKg: Number(brutoKg.toFixed(2)),
-        netoKg: Number(netoKg.toFixed(2)),
-        empaque: alVacio ? 'AL VACIO' : 'A GRANEL',
-        conservacion,
-        temperatura: temp,
-        fechaSacrificio: sacrificio,
-        fechaEmpaque: empaque,
-        fechaVencimiento: dias > 0 ? vencimiento : undefined,
-        ref: ref || undefined,
-        procesadoPara: procesadoPara || undefined,
-        impresa: imprimir,
-        estacion: equipo.hostname ?? equipo.deviceName ?? undefined,
-      });
+      const ok = await registrar(
+        {
+          productId: producto.id,
+          tiendaId,
+          sobrante,
+          bodegaId: bodegaSel || undefined,
+          pieza,
+          codigo,
+          taraKg: Number(taraKg.toFixed(2)),
+          brutoKg: Number(brutoKg.toFixed(2)),
+          netoKg: Number(netoKg.toFixed(2)),
+          empaque: alVacio ? 'AL VACIO' : 'A GRANEL',
+          conservacion,
+          temperatura: temp,
+          fechaSacrificio: sacrificio,
+          fechaEmpaque: empaque,
+          fechaVencimiento: dias > 0 ? vencimiento : undefined,
+          ref: ref || undefined,
+          procesadoPara: procesadoPara || undefined,
+          impresa: imprimir,
+          estacion: equipo.hostname ?? undefined,
+        },
+        !caja,
+      );
+      // A granel: cierra la caja (canastilla) enseguida e imprime sus 2 etiquetas.
+      if (ok && caja) {
+        const { data: nuevo } = await estadoQuery.refetch();
+        const c = nuevo?.canastilla;
+        if (c) await cerrar(c.taraPiezas ?? Number(taraKg.toFixed(2)), c.id);
+      }
     } catch (err) {
       setAlerta({
         id: Date.now(),
@@ -722,28 +761,49 @@ export function EmbalajeDesposte({
           <button
             onClick={() => void etiquetar()}
             disabled={
+              !alVacio ||
               (netoKg <= 0 && !registroPendiente && !seleccionada) ||
               (!!bloqueo && !registroPendiente && !seleccionada) ||
               imprimiendo
             }
-            title={seleccionada ? 'Reimprimir la etiqueta seleccionada' : (bloqueo ?? 'Etiquetar producto')}
+            title={
+              !alVacio
+                ? 'A granel se usa el botón de caja'
+                : seleccionada
+                  ? 'Reimprimir la etiqueta seleccionada'
+                  : (bloqueo ?? 'Etiquetar producto')
+            }
             className={botonIcono}
           >
             {imprimiendo ? <LoaderCircle className="size-7 animate-spin" /> : <Barcode className="size-8" />}
           </button>
           <button
-            // Las canastillas se cierran solas al llenarse; este botón cierra ya una incompleta
-            // (sobrantes o fin de turno) e imprime su etiqueta, sin preguntar.
-            onClick={() => canastilla && void cerrar(canastilla.taraPiezas ?? taraKg, canastilla.id)}
-            disabled={!canastilla || imprimiendo || cerrarCanastilla.isPending}
-            title={
-              canastilla
-                ? `Cerrar ya la canastilla N.º ${canastilla.numero} (${canastilla.unds} und) e imprimir su etiqueta`
-                : 'No hay canastilla abierta'
+            // Al vacío: cierra una canastilla incompleta (las llenas se cierran solas).
+            // A granel: pesa la caja, la registra e imprime sus 2 etiquetas, cerrando enseguida.
+            onClick={() =>
+              alVacio
+                ? canastilla && void cerrar(canastilla.taraPiezas ?? taraKg, canastilla.id)
+                : void etiquetarCaja()
             }
-            className={cn(botonIcono, bloqueo && 'animate-pulse border-amber-500 bg-amber-100')}
+            disabled={
+              imprimiendo ||
+              cerrarCanastilla.isPending ||
+              (alVacio ? !canastilla : netoKg <= 0 || !!bloqueo)
+            }
+            title={
+              alVacio
+                ? canastilla
+                  ? `Cerrar ya la canastilla N.º ${canastilla.numero} (${canastilla.unds} und) e imprimir su etiqueta`
+                  : 'No hay canastilla abierta'
+                : 'Registrar la caja e imprimir sus 2 etiquetas'
+            }
+            className={cn(botonIcono, bloqueo && alVacio && 'animate-pulse border-amber-500 bg-amber-100')}
           >
-            {cerrarCanastilla.isPending ? <LoaderCircle className="size-7 animate-spin" /> : <Package className="size-8" />}
+            {cerrarCanastilla.isPending || (!alVacio && imprimiendo) ? (
+              <LoaderCircle className="size-7 animate-spin" />
+            ) : (
+              <Package className="size-8" />
+            )}
           </button>
         </div>
         <FieldBox label={canastilla ? `Canast. ${canastilla.numero}:` : 'Canast.:'} className="w-28 shrink-0">
@@ -993,7 +1053,7 @@ export function EmbalajeDesposte({
                     }
                     onClick={() => {
                       setPidiendoSobrante(false);
-                      void etiquetarEn(t.tiendaId, t.codigo, true);
+                      void etiquetarEn(t.tiendaId, t.codigo, true, !alVacio);
                     }}
                     className="flex h-14 items-center justify-between rounded-md border-2 border-border bg-card px-4 text-left text-lg font-semibold uppercase hover:bg-muted disabled:opacity-40"
                   >

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { DispatchOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
+import { normalizarCodigoBarras, tipoCodigoBarras } from '../../common/codigo-barras';
 import type { AuthContext } from '../../common/auth/auth-context';
 import {
   CreateTransferOrderDto,
@@ -17,11 +18,11 @@ const clienteSelect = {
   select: { id: true, nit: true, concepto: true },
 } as const;
 
-const formatOT = (n: number) => `OT${String(n).padStart(7, '0')}`;
+const formatOT = (n: number) => `OT${n}`;
 
 const trasladoSelect = { select: { transferOrder: { select: { otNumber: true } } } } as const;
 const despachoSelect = { select: { canalDispatchOrder: { select: { dcNumber: true } } } } as const;
-const despachada = (dcNumber: number) => `ya fue despachada en la orden DC${String(dcNumber).padStart(7, '0')}`;
+const despachada = (dcNumber: number) => `ya fue despachada en la orden DC${dcNumber}`;
 
 type Db = Prisma.TransactionClient;
 type OrdenTraslado = { id: string; otNumber: number; clienteId: string; status: DispatchOrderStatus };
@@ -111,11 +112,15 @@ export class TransferOrderService {
    * cliente de la orden y que no est\u00e9 ya trasladada (ni ella ni su canastilla o sus piezas).
    */
   private async resolverEtiqueta(db: Db, ctx: AuthContext, ot: OrdenTraslado, codigo: string) {
-    const valor = codigo.trim().toUpperCase();
+    const valor = normalizarCodigoBarras(codigo);
     const ordenSelect = { select: { clienteId: true } } as const;
     const ya = (otNumber: number) => `ya est\u00e1 en la orden de traslado ${formatOT(otNumber)}`;
+    const tipo = await tipoCodigoBarras(db, ctx.plantId, valor);
+    if (tipo === 'acondicionamiento') {
+      throw new BadRequestException('Ese código es de una etiqueta de Acondicionamiento; no se traslada.');
+    }
 
-    if (valor.includes('C')) {
+    if (tipo === 'canastilla') {
       const c = await db.rotuladoCanastilla.findFirst({
         where: { codigo: valor, plantId: ctx.plantId },
         select: {

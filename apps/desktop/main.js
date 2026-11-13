@@ -567,7 +567,7 @@ function createWindow() {
     void win.loadFile(path.join(__dirname, 'web', 'index.html'));
   } else {
     void win.loadURL(DEV_URL);
-    win.webContents.openDevTools({ mode: 'detach' });
+    // DevTools no se abren solas; usar F12 / Ctrl+Shift+I si hacen falta.
   }
   mainWindow = win;
   win.on('closed', () => {

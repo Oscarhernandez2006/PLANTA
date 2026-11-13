@@ -27,10 +27,10 @@ function initials(name: string) {
 
 export function AppShell() {
   const { user, logout } = useAuth();
-  const { deviceName, hostname } = useDevice();
+  const { hostname } = useDevice();
   const location = useLocation();
   const area = user ? (ROL_LABEL[user.role] ?? user.role) : '';
-  const estacion = deviceName ?? hostname ?? 'Estación sin nombre';
+  const estacion = hostname ?? 'Estación sin nombre';
   const { estado: actualizacion, version: versionApp } = useActualizacion();
 
   // Solo los módulos que el usuario tiene permitidos (los grupos vacíos no se muestran).

@@ -20,7 +20,7 @@ export interface ClienteOpcion {
 
 // Consecutivo de Orden de Despacho: OD + 7 dígitos (OD0000001).
 export function formatOD(n: number) {
-  return `OD${String(n).padStart(7, '0')}`;
+  return `OD${n}`;
 }
 
 /** Todas las órdenes de despacho son de este tipo. */

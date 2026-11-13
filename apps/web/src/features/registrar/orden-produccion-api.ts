@@ -15,7 +15,7 @@ export interface OrdenProduccion {
 
 // Consecutivo de Orden de Producción: OP + 7 dígitos (OP0000001).
 export function formatOP(n: number) {
-  return `OP${String(n).padStart(7, '0')}`;
+  return `OP${n}`;
 }
 
 export function useOrdenProduccionNextNumber() {
@@ -37,6 +37,16 @@ export function useOrdenesProduccionActivas(fecha?: string) {
         })
       ).data.data,
     refetchInterval: 10000,
+  });
+}
+
+/** Cierre explícito de la OP (la web ya validó el código de autorización). */
+export function useCerrarOrdenProduccion() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.patch<{ ok: boolean }>(`/production-orders/${id}/cerrar`)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['production-orders'] }),
   });
 }
 

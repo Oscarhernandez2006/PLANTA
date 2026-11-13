@@ -46,10 +46,11 @@ export interface PielAnimal {
 }
 
 export interface PielLoteDetail extends PielLote {
+  cerrada: boolean;
   animales: PielAnimal[];
 }
 
-/** Sin fecha: lotes con pieles pendientes. Con fecha: los lotes de ese día (últimos 30 días). */
+/** Lotes abiertos en Pieles. Sin fecha: todos; con fecha: los de ese día (últimos 30 días). */
 export function usePielesLotes(date: string | null = null) {
   return useQuery({
     queryKey: ['pieles', 'lotes', date ?? 'activos'],
@@ -108,6 +109,18 @@ export function useRegistrarPielLote() {
     }) =>
       (await api.post<{ ok: boolean; count: number }>('/pieles/lote', payload))
         .data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['pieles'] });
+    },
+  });
+}
+
+/** Cierra el lote en Pieles (exige todos los animales caídos y pesados). */
+export function useCerrarPielesLote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ordenBeneficioId: string) =>
+      (await api.patch<PielLoteDetail>(`/pieles/lotes/${ordenBeneficioId}/cerrar`)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['pieles'] });
     },

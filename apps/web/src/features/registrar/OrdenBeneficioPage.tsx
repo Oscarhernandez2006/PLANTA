@@ -12,6 +12,7 @@ import {
   useCreateOrdenBeneficio,
   useDividirOrdenBeneficio,
   formatOB,
+  type AnimalDisponible,
   type OrdenBeneficioStatus,
 } from './orden-beneficio-api';
 import { DividirOrdenModal } from './DividirOrdenModal';
@@ -65,6 +66,7 @@ type GuiaDisponible = {
   disponibles: number;
   pcReference: number | null;
   bpReference: number | null;
+  animales: AnimalDisponible[];
 };
 
 function RegistrarOrdenBeneficioForm({
@@ -104,15 +106,16 @@ function RegistrarOrdenBeneficioForm({
     setModalOpen(true);
   }
 
-  async function confirmar(cantidades: number[]) {
+  /** `animales` = ids de Peso en Pie por orden; una sola orden = todos los disponibles. */
+  async function confirmar(animales: string[][]) {
     if (!seleccionada) return;
     setModalError(null);
     try {
       const base = { cliente: seleccionada.cliente, guia: seleccionada.guia, date, status };
       const creadas =
-        cantidades.length === 1
+        animales.length === 1
           ? [await crear.mutateAsync(base)]
-          : await dividir.mutateAsync({ ...base, cantidades });
+          : await dividir.mutateAsync({ ...base, animales });
       const refs = creadas.map((o) => formatOB(o.reference));
       setOkMsg(
         refs.length === 1
@@ -153,20 +156,10 @@ function RegistrarOrdenBeneficioForm({
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <div className="space-y-1.5">
               <Label htmlFor="ob-proceso">Proceso</Label>
               <Input id="ob-proceso" value="SACRIFICIO" disabled className="h-9" />
-            </div>
-            <div className="space-y-1.5">
-              <Label htmlFor="ob-fecha-proceso">Fecha del proceso</Label>
-              <Input
-                id="ob-fecha-proceso"
-                type="date"
-                className="h-9"
-                value={date}
-                disabled
-              />
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="ob-fecha-sacrificio">Fecha del sacrificio</Label>
@@ -263,7 +256,7 @@ function RegistrarOrdenBeneficioForm({
             onClose={() => setModalOpen(false)}
             guia={seleccionada.guia}
             cliente={seleccionada.cliente}
-            disponibles={seleccionada.disponibles}
+            animales={seleccionada.animales}
             primeraReferencia={nextRef.data?.next ?? null}
             guardando={guardando}
             error={modalError}

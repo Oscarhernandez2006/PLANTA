@@ -87,8 +87,18 @@ const barcodeDe = (c: Canal) =>
     ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
     : '';
 const productoLibre = (p: Producto) => !p.despachoDc && !p.transformadoOc && !p.trasladoOt;
-const conInventario = (b: BodegaResumen) =>
-  b.canales + b.canalesDespachadas + b.canalesProcesadas + b.productos + b.subproductos > 0;
+const conInventario = (b: BodegaResumen, verTodo: boolean) =>
+  b.canales + b.productos + b.subproductos + (verTodo ? b.canalesDespachadas + b.canalesProcesadas : 0) > 0;
+
+/** Sin "ver todo" solo queda lo que sigue en planta: fuera canales procesadas/despachadas y productos transformados. */
+function soloVigente(d: BodegaDetalle | undefined, verTodo: boolean): BodegaDetalle | undefined {
+  if (!d || verTodo) return d;
+  return {
+    ...d,
+    canales: d.canales.filter((c) => !canalDespachada(c) && !canalProcesada(c)),
+    productos: d.productos.filter((p) => !p.transformadoOc),
+  };
+}
 
 function tituloOrden(o: Orden) {
   if (o.tipo === 'ob') return `Orden de beneficio ${formatOB(o.numero!)}`;
@@ -153,11 +163,13 @@ export function ClientesView() {
   const [clienteId, setClienteId] = useState<string | null>(null);
   const [bodegaId, setBodegaId] = useState<string | null>(null);
   const [ordenKey, setOrdenKey] = useState<string | null>(null);
+  const [verTodo, setVerTodo] = useState(false);
 
   const clientes = useMemo(() => {
     const m = new Map<string, ClienteResumen>();
-    for (const b of bodegas.data ?? []) {
-      if (!conInventario(b)) continue;
+    for (const raw of bodegas.data ?? []) {
+      if (!conInventario(raw, verTodo)) continue;
+      const b = verTodo ? raw : { ...raw, canalesDespachadas: 0, canalesProcesadas: 0 };
       const c = m.get(b.clienteId) ?? {
         id: b.clienteId,
         nombre: b.cliente,
@@ -182,12 +194,12 @@ export function ClientesView() {
       m.set(b.clienteId, c);
     }
     return [...m.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
-  }, [bodegas.data]);
+  }, [bodegas.data, verTodo]);
 
   const cliente = clientes.find((c) => c.id === clienteId) ?? null;
   const bodega = cliente?.bodegas.find((b) => b.id === bodegaId) ?? null;
   const detalle = useBodegaInventario(bodega?.id ?? null);
-  const ordenes = useMemo(() => agruparOrdenes(detalle.data), [detalle.data]);
+  const ordenes = useMemo(() => agruparOrdenes(soloVigente(detalle.data, verTodo)), [detalle.data, verTodo]);
   const orden = ordenes.find((o) => o.key === ordenKey) ?? null;
   const unaBodega = cliente?.bodegas.length === 1;
 
@@ -258,6 +270,18 @@ export function ClientesView() {
             </span>
           );
         })}
+        <label
+          className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase text-muted-foreground"
+          title="Por defecto solo se muestra lo que sigue en planta"
+        >
+          <input
+            type="checkbox"
+            className="size-4 accent-emerald-600"
+            checked={verTodo}
+            onChange={(e) => setVerTodo(e.target.checked)}
+          />
+          Ver procesadas, despachadas y transformadas
+        </label>
       </nav>
       <div className="min-h-0 flex-1">{contenido}</div>
     </div>

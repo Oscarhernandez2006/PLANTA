@@ -6,7 +6,6 @@ import { AuthModule } from './modules/auth/auth.module';
 import { ClientModule } from './modules/client/client.module';
 import { ClienteModule } from './modules/cliente/cliente.module';
 import { ConductorModule } from './modules/conductor/conductor.module';
-import { DeviceModule } from './modules/device/device.module';
 import { PermisosModule } from './modules/permisos/permisos.module';
 import { UsuariosModule } from './modules/usuarios/usuarios.module';
 import { DispatchOrderModule } from './modules/dispatch-order/dispatch-order.module';
@@ -32,6 +31,7 @@ import { InventariosModule } from './modules/inventarios/inventarios.module';
 import { ConservacionModule } from './modules/conservacion/conservacion.module';
 import { InformesModule } from './modules/informes/informes.module';
 import { HistoricoSacrificioModule } from './modules/historico-sacrificio/historico-sacrificio.module';
+import { TalleresModule } from './modules/talleres/talleres.module';
 
 @Module({
   imports: [
@@ -41,7 +41,6 @@ import { HistoricoSacrificioModule } from './modules/historico-sacrificio/histor
     }),
     PrismaModule,
     AuthModule,
-    DeviceModule,
     PermisosModule,
     UsuariosModule,
     ClientModule,
@@ -70,6 +69,7 @@ import { HistoricoSacrificioModule } from './modules/historico-sacrificio/histor
     ConservacionModule,
     InformesModule,
     HistoricoSacrificioModule,
+    TalleresModule,
   ],
   controllers: [HealthController],
 })

@@ -53,8 +53,9 @@ export class SacrificioService {
   }
 
   /**
-   * Sin fecha: órdenes activas (de cualquier día) y las completadas de hoy.
-   * Con fecha (solo los últimos 30 días): activas y completadas de ese día.
+   * Solo órdenes abiertas (status `activo`); las cerradas desaparecen de la
+   * lista. Sin fecha: abiertas de cualquier día. Con fecha (últimos 30 días):
+   * abiertas de ese día.
    */
   async pendientes(ctx: AuthContext, dateStr?: string) {
     const hoyStr = plantToday();
@@ -73,17 +74,8 @@ export class SacrificioService {
       where: {
         plantId: ctx.plantId,
         deletedAt: null,
-        ...(dia
-          ? {
-              date: dia,
-              status: { in: [OrdenBeneficioStatus.activo, OrdenBeneficioStatus.procesado] },
-            }
-          : {
-              OR: [
-                { status: OrdenBeneficioStatus.activo },
-                { status: OrdenBeneficioStatus.procesado, date: hoy },
-              ],
-            }),
+        status: OrdenBeneficioStatus.activo,
+        ...(dia ? { date: dia } : {}),
       },
       orderBy: [{ date: 'asc' }, { reference: 'asc' }],
       include: { _count: { select: { eventos: true } } },
@@ -113,7 +105,15 @@ export class SacrificioService {
   async findOne(ctx: AuthContext, ordenBeneficioId: string) {
     const ob = await this.prisma.ordenBeneficio.findFirst({
       where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
-      include: { eventos: { orderBy: { sequence: 'asc' } } },
+      include: {
+        eventos: { orderBy: { sequence: 'asc' } },
+        // Animales asignados explícitamente al crear la orden (vacío en órdenes antiguas).
+        animales: {
+          where: { deletedAt: null },
+          orderBy: { ordenSequence: 'asc' },
+          select: { ordenSequence: true, reference: true, tipoAnimal: true, corral: true, pesoTotalKg: true },
+        },
+      },
     });
     if (!ob) throw new NotFoundException('Orden de Beneficio no encontrada.');
 
@@ -141,6 +141,13 @@ export class SacrificioService {
       status: ob.status,
       insensibilizados: ob.eventos.length,
       cabezasPatas: ob.cabezasPatas,
+      animales: ob.animales.map((a) => ({
+        sequence: a.ordenSequence ?? 0,
+        reference: a.reference,
+        tipoAnimal: a.tipoAnimal?.trim() || null,
+        corral: a.corral?.trim() || null,
+        pesoKg: a.pesoTotalKg == null ? null : Number(a.pesoTotalKg),
+      })),
       eventos: ob.eventos.map((e) => ({
         sequence: e.sequence,
         stunnedAt: e.stunnedAt.toISOString(),
@@ -163,7 +170,10 @@ export class SacrificioService {
       });
       if (!ob) throw new NotFoundException('Orden de Beneficio no encontrada.');
       if (ob.status === OrdenBeneficioStatus.procesado) {
-        throw new BadRequestException('La orden ya fue procesada.');
+        throw new BadRequestException('La orden ya está cerrada.');
+      }
+      if (ob.status !== OrdenBeneficioStatus.activo) {
+        throw new BadRequestException('La orden no está activa.');
       }
 
       // Serializa el conteo por orden para evitar secuencias duplicadas.
@@ -224,14 +234,41 @@ export class SacrificioService {
         })),
       });
 
-      // La orden se queda "activa" mientras se sacrifican animales; solo
-      // pasa a "procesado" cuando cae el último (no hay estado intermedio).
-      if (count + 1 >= ob.animalCount) {
-        await tx.ordenBeneficio.update({
-          where: { id: ob.id },
-          data: { status: OrdenBeneficioStatus.procesado },
-        });
+      // La orden sigue abierta aunque caiga el último animal: el operario la
+      // cierra explícitamente con `cerrar()` cuando termina.
+    });
+    return this.findOne(ctx, ordenBeneficioId);
+  }
+
+  /**
+   * Cierra la orden (status `procesado`): deja de aparecer en Sacrificio y ya
+   * no se pueden tumbar ni devolver animales. Exige que todos los animales
+   * estén sacrificados.
+   */
+  async cerrar(ctx: AuthContext, ordenBeneficioId: string) {
+    await this.prisma.$transaction(async (tx) => {
+      const ob = await tx.ordenBeneficio.findFirst({
+        where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
+        include: { _count: { select: { eventos: true } } },
+      });
+      if (!ob) throw new NotFoundException('Orden de Beneficio no encontrada.');
+      if (ob.status === OrdenBeneficioStatus.procesado) {
+        throw new BadRequestException('La orden ya está cerrada.');
       }
+      if (ob.status !== OrdenBeneficioStatus.activo) {
+        throw new BadRequestException('La orden no está activa.');
+      }
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ins:${ordenBeneficioId}`}))`;
+      const faltan = ob.animalCount - ob._count.eventos;
+      if (faltan > 0) {
+        throw new BadRequestException(
+          `Faltan ${faltan} ${faltan === 1 ? 'animal' : 'animales'} por sacrificar; no se puede cerrar la orden.`,
+        );
+      }
+      await tx.ordenBeneficio.update({
+        where: { id: ob.id },
+        data: { status: OrdenBeneficioStatus.procesado },
+      });
     });
     return this.findOne(ctx, ordenBeneficioId);
   }
@@ -248,6 +285,9 @@ export class SacrificioService {
         where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
       });
       if (!ob) throw new NotFoundException('Orden de Beneficio no encontrada.');
+      if (ob.status === OrdenBeneficioStatus.procesado) {
+        throw new BadRequestException('La orden ya está cerrada; no se pueden devolver animales.');
+      }
 
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`ins:${ordenBeneficioId}`}))`;
 
@@ -304,12 +344,6 @@ export class SacrificioService {
       }
 
       await tx.ordenBeneficioEvento.delete({ where: { id: last.id } });
-      // Sin estado intermedio: mientras no se completen todos los animales
-      // la orden vuelve/se queda en "activo".
-      await tx.ordenBeneficio.update({
-        where: { id: ob.id },
-        data: { status: OrdenBeneficioStatus.activo },
-      });
     });
     return this.findOne(ctx, ordenBeneficioId);
   }

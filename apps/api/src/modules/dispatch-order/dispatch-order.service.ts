@@ -202,11 +202,11 @@ export class DispatchOrderService {
     const etiqueta = barcode.trim().toUpperCase();
     if (!pieza) throw new NotFoundException(`No se encontró la canal ${etiqueta}.`);
     if (pieza.despacho) {
-      const od = `OD${String(pieza.despacho.dispatchOrder.odNumber).padStart(7, '0')}`;
+      const od = `OD${pieza.despacho.dispatchOrder.odNumber}`;
       throw new ConflictException(`La canal ${etiqueta} ya fue despachada en la orden ${od}.`);
     }
     if (pieza.despachoCanal) {
-      const dc = `DC${String(pieza.despachoCanal.canalDispatchOrder.dcNumber).padStart(7, '0')}`;
+      const dc = `DC${pieza.despachoCanal.canalDispatchOrder.dcNumber}`;
       throw new ConflictException(`La canal ${etiqueta} ya fue despachada en la orden ${dc}.`);
     }
     if (!pieza.cava) {

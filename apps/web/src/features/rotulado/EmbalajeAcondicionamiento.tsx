@@ -205,7 +205,7 @@ export function EmbalajeAcondicionamiento({
         ref: ref || undefined,
         procesadoPara: procesadoPara || undefined,
         impresa: imprimir,
-        estacion: equipo.hostname ?? equipo.deviceName ?? undefined,
+        estacion: equipo.hostname ?? undefined,
       });
       setBruto('0.00');
       if (imprimir) {

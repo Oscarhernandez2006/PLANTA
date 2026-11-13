@@ -6,7 +6,10 @@ import { Button } from './button';
 import { Dialog } from './dialog';
 import { Input } from './input';
 
-/** Verifica cédula + PIN de un administrador para autorizar acciones sensibles. */
+/**
+ * Verifica cédula + PIN de un usuario con el permiso "Autorizador de operaciones"
+ * (Configuración → Permisos). El rol no influye.
+ */
 export function useVerifyAdmin() {
   return useMutation({
     mutationFn: async (creds: { documentId: string; pin: string }) =>
@@ -19,13 +22,13 @@ export function useVerifyAdmin() {
   });
 }
 
-/** Diálogo reutilizable que pide cédula+PIN de un administrador antes de ejecutar una acción sensible (borrar, cambiar de orden, etc). */
+/** Diálogo reutilizable que pide el código de autorización (cédula + PIN de un autorizador) antes de una acción sensible. */
 export function AdminAuthDialog({
   open,
   onClose,
   onAuthorized,
-  title = 'Autorización requerida',
-  description = 'Ingresa la cédula y PIN de un administrador para continuar.',
+  title = 'Código de autorización',
+  description = 'Ingresa la cédula y PIN de un autorizador de operaciones para continuar.',
 }: {
   open: boolean;
   onClose: () => void;
@@ -79,7 +82,7 @@ export function AdminAuthDialog({
             inputMode="numeric"
             value={documentId}
             onChange={(e) => setDocumentId(e.target.value.replace(/\D/g, ''))}
-            placeholder="Cédula del administrador"
+            placeholder="Cédula del autorizador"
           />
         </div>
         <div className="space-y-1.5">

@@ -264,14 +264,19 @@ export class InformesService {
     const sacrificios = items.map((i) => dia(i.canalPieza.evento.ordenBeneficio.date)).sort();
     const ingresos = items.map((i) => diaPlanta(i.createdAt)).sort();
 
-    // Pesaje y etiquetado: una fila por canastilla de Rotulado Desposte (producto + tienda),
-    // igual a como se empacó.
+    // Pesaje y etiquetado: una fila consolidada por producto + tienda, con el total de
+    // canastillas usadas. El detalle se despliega empaque por empaque (cada etiqueta).
     const etiquetas = await this.prisma.rotuladoEtiqueta.findMany({
       where: { productionOrderId: op.id, deletedAt: null },
+      orderBy: { pieza: 'asc' },
       select: {
+        pieza: true,
+        codigo: true,
         netoKg: true,
+        empaque: true,
         sobrante: true,
         canastillaId: true,
+        createdAt: true,
         product: { select: { codigo: true, nombre: true } },
         tienda: { select: { codigo: true, nombre: true } },
         canastilla: { select: { numero: true } },
@@ -279,47 +284,88 @@ export class InformesService {
     });
     // El rendimiento se calcula contra los kilos de materia prima (canales en frío).
     const kgMateriaPrima = detalle.reduce((a, r) => a + r.kg, 0);
-    const porCanastilla = new Map<
+    const rnd = (kgp: number) =>
+      kgMateriaPrima > 0 ? Number(((kgp / kgMateriaPrima) * 100).toFixed(2)) : 0;
+    type Empaque = {
+      pieza: number;
+      codigo: string | null;
+      canastilla: number | null;
+      empaque: string;
+      sobrante: boolean;
+      kg: number;
+      createdAt: Date;
+    };
+    const porProducto = new Map<
       string,
       {
         codigo: string;
         producto: string;
         tiendaCodigo: string;
         tienda: string;
-        canastilla: number | null;
         unds: number;
         sobrantes: number;
         kg: number;
+        canastillasSet: Set<string>;
+        // Detalle: cada empaque/pieza etiquetada (al vacío va por pieza; a granel, la caja entera).
+        empaques: Empaque[];
       }
     >();
     for (const e of etiquetas) {
-      const clave = e.canastillaId ?? `${e.product.codigo}:${e.tienda.codigo}:sin`;
-      const fila = porCanastilla.get(clave) ?? {
+      const clave = `${e.product.codigo}:${e.tienda.codigo}`;
+      const fila = porProducto.get(clave) ?? {
         codigo: e.product.codigo,
         producto: e.product.nombre,
         tiendaCodigo: e.tienda.codigo,
         tienda: e.tienda.nombre,
-        canastilla: e.canastilla?.numero ?? null,
         unds: 0,
         sobrantes: 0,
         kg: 0,
+        canastillasSet: new Set<string>(),
+        empaques: [],
       };
       fila.unds += 1;
       if (e.sobrante) fila.sobrantes += 1;
       fila.kg += Number(e.netoKg);
-      porCanastilla.set(clave, fila);
+      if (e.canastillaId) fila.canastillasSet.add(e.canastillaId);
+      fila.empaques.push({
+        pieza: e.pieza,
+        codigo: e.codigo,
+        canastilla: e.canastilla?.numero ?? null,
+        empaque: e.empaque,
+        sobrante: e.sobrante,
+        kg: Number(e.netoKg),
+        createdAt: e.createdAt,
+      });
+      porProducto.set(clave, fila);
     }
-    const etiquetado = [...porCanastilla.values()]
+    const etiquetado = [...porProducto.values()]
       .sort(
         (a, b) =>
           a.codigo.localeCompare(b.codigo, 'es', { numeric: true }) ||
-          a.tiendaCodigo.localeCompare(b.tiendaCodigo, 'es', { numeric: true }) ||
-          (a.canastilla ?? 0) - (b.canastilla ?? 0),
+          a.tiendaCodigo.localeCompare(b.tiendaCodigo, 'es', { numeric: true }),
       )
-      .map((f) => ({
+      .map(({ canastillasSet, empaques, ...f }) => ({
         ...f,
+        canastillas: canastillasSet.size,
         kg: Number(f.kg.toFixed(2)),
-        rendimiento: kgMateriaPrima > 0 ? Number(((f.kg / kgMateriaPrima) * 100).toFixed(2)) : 0,
+        rendimiento: rnd(f.kg),
+        // Detalle empaque por empaque, ordenado por canastilla y luego por pieza.
+        detalle: empaques
+          .sort(
+            (a, b) =>
+              (a.canastilla ?? Infinity) - (b.canastilla ?? Infinity) ||
+              a.createdAt.getTime() - b.createdAt.getTime() ||
+              a.pieza - b.pieza,
+          )
+          .map((x) => ({
+            pieza: x.pieza,
+            codigo: x.codigo,
+            canastilla: x.canastilla,
+            empaque: x.empaque,
+            sobrante: x.sobrante,
+            kg: Number(x.kg.toFixed(2)),
+            rendimiento: rnd(x.kg),
+          })),
       }));
 
     return {
@@ -409,6 +455,9 @@ export class InformesService {
                 cava: true,
                 destino: true,
                 observaciones: true,
+                // Peso en frío = peso de despacho (OD a proceso o DC frío/caliente), si ya se pesó.
+                despacho: { select: { despachoKg: true } },
+                despachoCanal: { select: { despachoKg: true } },
               },
             },
           },
@@ -436,7 +485,14 @@ export class InformesService {
       guia
         ? this.prisma.pesoEnPie.findMany({
             where: { plantId: ctx.plantId, deletedAt: null, date: orden.date, guia },
-            select: { reference: true, pesoTotalKg: true, tipoAnimal: true, procedencia: true },
+            select: {
+              reference: true,
+              pesoTotalKg: true,
+              tipoAnimal: true,
+              procedencia: true,
+              ordenBeneficioId: true,
+              ordenSequence: true,
+            },
           })
         : [],
       guias.length
@@ -495,6 +551,15 @@ export class InformesService {
 
     const desfase = previas?._sum.animalCount ?? 0;
     const piePorReferencia = new Map(animalesPie.map((a) => [a.reference, a]));
+    // Animales asignados explícitamente a la orden; si no hay (órdenes
+    // antiguas), se resuelve por posición dentro de la guía.
+    const piePorSecuencia = new Map(
+      animalesPie
+        .filter((a) => a.ordenBeneficioId === orden.id && a.ordenSequence != null)
+        .map((a) => [a.ordenSequence as number, a]),
+    );
+    const pieDeSecuencia = (seq: number) =>
+      piePorSecuencia.size ? piePorSecuencia.get(seq) : piePorReferencia.get(desfase + seq);
     let base = 0;
     for (const o of delDia) {
       if (o.id === orden.id) break;
@@ -506,13 +571,28 @@ export class InformesService {
       [...new Set(vals.map((v) => v?.trim()).filter(Boolean))].join(' / ') || null;
 
     const animales = orden.eventos.map((e) => {
-      const pie = piePorReferencia.get(desfase + e.sequence);
+      const pie = pieDeSecuencia(e.sequence);
       const pepKg = pie?.pesoTotalKg == null ? null : Number(pie.pesoTotalKg);
       const piezas = [...e.canalPiezas].sort((a, b) => ORDEN_PIEZA[a.pieza] - ORDEN_PIEZA[b.pieza]);
       const pecKg = piezas.length ? r1(piezas.reduce((s, p) => s + Number(p.pesoKg), 0)) : null;
+      // Peso en frío: suma de los pesos de despacho de las piezas que ya se despacharon.
+      const piezasFrio = piezas.filter(
+        (p) => p.despacho?.despachoKg != null || p.despachoCanal?.despachoKg != null,
+      );
+      const pecfKg = piezasFrio.length
+        ? r1(
+            piezasFrio.reduce(
+              (s, p) => s + Number(p.despacho?.despachoKg ?? p.despachoCanal?.despachoKg ?? 0),
+              0,
+            ),
+          )
+        : null;
+      const turno = base + e.sequence;
       return {
         sequence: e.sequence,
-        turno: base + e.sequence,
+        turno,
+        // Gancho = lote de la orden + turno del día (p. ej. 3-29).
+        gancho: `${orden.reference}-${turno}`,
         guia: guia ?? (guias.join(', ') || null),
         referencia: guia ? camionPorGuia.get(guia)?.referenciaLote ?? null : null,
         tipo: e.canalAnimalTipo?.toUpperCase() ?? pie?.tipoAnimal ?? null,
@@ -522,15 +602,18 @@ export class InformesService {
         stunnedAt: e.stunnedAt.toISOString(),
         pepKg,
         pecKg,
+        pecfKg,
         pielKg: e.pesoPielKg == null ? null : Number(e.pesoPielKg),
         rendimiento: pepKg && pecKg != null ? r1((pecKg / pepKg) * 100) : null,
+        // Merma de frío: lo que perdió la canal entre caliente y despacho.
+        mermaFrioKg: pecKg != null && pecfKg != null ? r1(pecKg - pecfKg) : null,
         observacion: unicos(piezas.map((p) => p.observaciones)),
         ubicacion: unicos(piezas.map((p) => p.cava)),
         destino: unicos(piezas.map((p) => p.destino)),
       };
     });
 
-    const suma = (k: 'pepKg' | 'pecKg' | 'pielKg') =>
+    const suma = (k: 'pepKg' | 'pecKg' | 'pecfKg' | 'pielKg') =>
       r1(animales.reduce((s, a) => s + (a[k] ?? 0), 0));
     // El rendimiento total solo cuenta animales con PEP y PEC.
     const conAmbos = animales.filter((a) => a.pepKg && a.pecKg != null);
@@ -554,6 +637,7 @@ export class InformesService {
         animales: animales.length,
         pepKg: suma('pepKg'),
         pecKg,
+        pecfKg: suma('pecfKg'),
         pielKg: suma('pielKg'),
         // No se pesa en planta: 7 kg por res, como en la hoja de retomas.
         seboKg: animales.length * SEBO_KG_POR_RES,
@@ -684,6 +768,13 @@ export class InformesService {
     }
     const desfase = previas?._sum.animalCount ?? 0;
     const piePorReferencia = new Map(animalesPie.map((a) => [a.reference, a]));
+    const piePorSecuencia = new Map(
+      animalesPie
+        .filter((a) => a.ordenBeneficioId === orden.id && a.ordenSequence != null)
+        .map((a) => [a.ordenSequence as number, a]),
+    );
+    const pieDeSecuencia = (seq: number) =>
+      piePorSecuencia.size ? piePorSecuencia.get(seq) : piePorReferencia.get(desfase + seq);
     const pesosPie = (a: (typeof animalesPie)[number]) => {
       const actual = n(a.pesoTotalKg) ?? 0;
       const inicial = a.repesajes.length ? Number(a.repesajes[0].pesoAnteriorKg) : actual;
@@ -692,7 +783,7 @@ export class InformesService {
 
     // ---- Por animal ----
     const animales = orden.eventos.map((e) => {
-      const pie = piePorReferencia.get(desfase + e.sequence);
+      const pie = pieDeSecuencia(e.sequence);
       const pp = pie ? pesosPie(pie) : null;
       const piezas = e.canalPiezas
         .sort((a, b) => ORDEN_PIEZA[a.pieza] - ORDEN_PIEZA[b.pieza])
@@ -708,9 +799,9 @@ export class InformesService {
           observaciones: p.observaciones,
           traslados: p._count.trasladosCava,
           despacho: p.despacho
-            ? `OD${String(p.despacho.dispatchOrder.odNumber).padStart(6, '0')}`
+            ? `OD${p.despacho.dispatchOrder.odNumber}`
             : p.despachoCanal
-              ? `DC${String(p.despachoCanal.canalDispatchOrder.dcNumber).padStart(6, '0')} (${p.despachoCanal.canalDispatchOrder.tipo})`
+              ? `DC${p.despachoCanal.canalDispatchOrder.dcNumber} (${p.despachoCanal.canalDispatchOrder.tipo})`
               : null,
         }));
       const pecKg = piezas.length ? r2(piezas.reduce((s, p) => s + p.pesoKg, 0)) : null;

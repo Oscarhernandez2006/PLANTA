@@ -118,6 +118,7 @@ export interface CanalLoteDetail {
   date: string;
   consecutivoBase: number;
   animalCount: number;
+  cerrada: boolean;
   animales: CanalAnimal[];
 }
 
@@ -415,6 +416,18 @@ export function useClasificarPieza() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['canal-caliente'] });
       qc.invalidateQueries({ queryKey: ['inventarios'] });
+    },
+  });
+}
+
+/** Cierra la orden en Canal Caliente (exige todos los animales pesados). */
+export function useCerrarCanalLote() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (ordenBeneficioId: string) =>
+      (await api.patch<CanalLoteDetail>(`/canal-caliente/lotes/${ordenBeneficioId}/cerrar`)).data,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['canal-caliente'] });
     },
   });
 }

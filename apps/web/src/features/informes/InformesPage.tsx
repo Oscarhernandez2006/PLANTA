@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
 import {
+  ChevronDown,
+  ChevronRight,
   FileBarChart,
   FileDown,
   FileSpreadsheet,
@@ -20,6 +22,7 @@ import { codigoBarras } from '../canal-caliente/canal-presinto-print';
 import { useAuth } from '../auth/auth-context';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { descargarDespachoExcel, descargarDespachoPdf } from './despacho-canales-export';
+import { formatPieza } from '../rotulado/etiqueta-desposte-zpl';
 import { formatOB, type OrdenBeneficioStatus } from '../registrar/orden-beneficio-api';
 import { PrepararOrdenDialog } from '../registrar/PrepararOrden';
 import {
@@ -269,6 +272,8 @@ function DetalleProduccionDialog({
   const { user } = useAuth();
   const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
   const [preparando, setPreparando] = useState(false);
+  // Filas consolidadas desplegadas para ver su detalle por canastilla.
+  const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const d = detalle.data;
   const tot = d ? totalesProduccion(d) : { piezas: 0, kg: 0 };
   const te = d ? totalesEtiquetado(d) : { canastillas: 0, unds: 0, kg: 0, rendimiento: 0 };
@@ -438,7 +443,7 @@ function DetalleProduccionDialog({
                   <th className={cn(cab, 'w-24')}>Código</th>
                   <th className={cab}>Producto</th>
                   <th className={cab}>Tienda</th>
-                  <th className={cn(cab, 'w-32')}>N.º canastilla</th>
+                  <th className={cn(cab, 'w-28')}>Canastillas</th>
                   <th className={cn(cab, 'w-20')}>Unds</th>
                   <th className={cn(cab, 'w-32')}>Cant.(kg)</th>
                   <th className={cn(cab, 'w-24')}>RND(%)</th>
@@ -452,25 +457,76 @@ function DetalleProduccionDialog({
                     </td>
                   </tr>
                 ) : (
-                  d.etiquetado.map((r, i) => (
-                    <tr key={`${r.codigo}-${r.tiendaCodigo}-${r.canastilla ?? i}`} className="even:bg-muted/30">
-                      <td className={cel}>{String(i + 1).padStart(2, '0')}</td>
-                      <td className={cel}>{r.codigo}</td>
-                      <td className={cel}>{r.producto}</td>
-                      <td className={cel}>
-                        {r.tiendaCodigo} - {r.tienda}
-                        {r.sobrantes > 0 && (
-                          <span className="ml-1.5 rounded-sm bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
-                            {r.sobrantes} SOBRANTE{r.sobrantes > 1 ? 'S' : ''}
-                          </span>
-                        )}
-                      </td>
-                      <td className={cn(cel, 'font-semibold')}>{r.canastilla ?? '—'}</td>
-                      <td className={cel}>{r.unds}</td>
-                      <td className={cn(cel, 'text-right')}>{kg(r.kg)}</td>
-                      <td className={cel}>{kg(r.rendimiento)}</td>
-                    </tr>
-                  ))
+                  d.etiquetado.map((r, i) => {
+                    const clave = `${r.codigo}-${r.tiendaCodigo}`;
+                    const abierta = abiertas.has(clave);
+                    const desplegable = r.detalle.length > 0;
+                    return (
+                      <Fragment key={clave}>
+                        <tr
+                          className={cn('even:bg-muted/30', desplegable && 'cursor-pointer hover:bg-muted/50')}
+                          onClick={
+                            desplegable
+                              ? () =>
+                                  setAbiertas((prev) => {
+                                    const next = new Set(prev);
+                                    if (next.has(clave)) next.delete(clave);
+                                    else next.add(clave);
+                                    return next;
+                                  })
+                              : undefined
+                          }
+                        >
+                          <td className={cel}>{String(i + 1).padStart(2, '0')}</td>
+                          <td className={cel}>{r.codigo}</td>
+                          <td className={cel}>{r.producto}</td>
+                          <td className={cel}>
+                            {r.tiendaCodigo} - {r.tienda}
+                            {r.sobrantes > 0 && (
+                              <span className="ml-1.5 rounded-sm bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
+                                {r.sobrantes} SOBRANTE{r.sobrantes > 1 ? 'S' : ''}
+                              </span>
+                            )}
+                          </td>
+                          <td className={cn(cel, 'font-semibold')}>
+                            <span className="inline-flex items-center justify-center gap-1">
+                              {desplegable &&
+                                (abierta ? (
+                                  <ChevronDown className="size-3.5" />
+                                ) : (
+                                  <ChevronRight className="size-3.5" />
+                                ))}
+                              {r.canastillas}
+                            </span>
+                          </td>
+                          <td className={cel}>{r.unds}</td>
+                          <td className={cn(cel, 'text-right')}>{kg(r.kg)}</td>
+                          <td className={cel}>{kg(r.rendimiento)}</td>
+                        </tr>
+                        {abierta &&
+                          r.detalle.map((c, j) => (
+                            <tr
+                              key={`${clave}-${c.canastilla ?? 's'}-${c.pieza}-${j}`}
+                              className="bg-muted/10 text-xs"
+                            >
+                              <td className={cel} />
+                              <td className={cel}>{r.codigo}</td>
+                              <td className={cn(cel, 'text-left')}>
+                                <span className="text-muted-foreground">
+                                  Pieza #{formatPieza(c.pieza)} · {c.empaque}
+                                  {c.sobrante && ' · SOBRANTE'}
+                                </span>
+                              </td>
+                              <td className={cel}>{r.tiendaCodigo} - {r.tienda}</td>
+                              <td className={cel}>{c.canastilla ?? '—'}</td>
+                              <td className={cel}>1</td>
+                              <td className={cn(cel, 'text-right')}>{kg(c.kg)}</td>
+                              <td className={cel}>{kg(c.rendimiento)}</td>
+                            </tr>
+                          ))}
+                      </Fragment>
+                    );
+                  })
                 )}
                 <tr className="text-base font-bold">
                   <td colSpan={4} className={cn(cel, 'text-right uppercase')}>
@@ -976,8 +1032,10 @@ function DetalleSacrificioDialog({
                       <td className={cel}>{f.tipo}</td>
                       <td className={cel}>{f.codigo}</td>
                       <td className={cn(cel, 'font-semibold')}>{f.turno}</td>
+                      <td className={cn(cel, 'font-semibold')}>{f.gancho}</td>
                       <td className={cn(cel, 'text-right')}>{num(f.pep)}</td>
                       <td className={cn(cel, 'text-right font-semibold')}>{num(f.pec)}</td>
+                      <td className={cn(cel, 'text-right')}>{num(f.pecf)}</td>
                       <td className={cn(cel, 'text-right')}>{num(f.piel)}</td>
                       <td className={cn(cel, 'text-right font-semibold')}>{num(f.rnd)}</td>
                       <td className={cel}>{f.observacion}</td>

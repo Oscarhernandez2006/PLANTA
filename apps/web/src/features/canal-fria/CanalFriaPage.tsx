@@ -195,7 +195,7 @@ export function RegistroTab({
         )}
       </FieldBox>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-[0.7fr_1fr_1fr_1.3fr]">
         <FieldBox label="Piezas (Pza):">
           <div className="flex h-10 items-center justify-center text-3xl font-bold tabular-nums">
             {base.length}
@@ -212,8 +212,10 @@ export function RegistroTab({
           </div>
         </FieldBox>
         <FieldBox label="Diferencia (kg) | (%):">
-          <div className="flex h-10 items-center justify-center text-3xl font-bold tabular-nums text-blue-700">
-            {num(diferencia, 2)} | {num(pct, 2)}
+          <div className="flex h-10 min-w-0 items-center justify-center gap-1.5 whitespace-nowrap font-bold tabular-nums text-blue-700">
+            <span className="text-2xl">{num(diferencia, 2)}</span>
+            <span className="text-lg text-blue-400">|</span>
+            <span className="text-xl">{num(pct, 2)}%</span>
           </div>
         </FieldBox>
       </div>

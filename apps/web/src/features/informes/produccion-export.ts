@@ -32,7 +32,7 @@ export const tiendaEtiquetado = (r: DetalleProduccion['etiquetado'][number]) =>
 
 export function totalesEtiquetado(d: DetalleProduccion) {
   return {
-    canastillas: d.etiquetado.filter((r) => r.canastilla !== null).length,
+    canastillas: d.etiquetado.reduce((a, r) => a + r.canastillas, 0),
     unds: d.etiquetado.reduce((a, r) => a + r.unds, 0),
     kg: d.etiquetado.reduce((a, r) => a + r.kg, 0),
     rendimiento: d.etiquetado.reduce((a, r) => a + r.rendimiento, 0),
@@ -166,7 +166,7 @@ export async function descargarProduccionPdf(d: DetalleProduccion, operario: str
     headStyles: { fillColor: GRAY, textColor: TEXT, fontStyle: 'bold', lineColor: INK, lineWidth: 0.25 },
     head: [
       [{ content: `ORDEN DE PRODUCCIÓN (PESAJE Y ETIQUETADO) No. ${d.opNumber}`, colSpan: 8 }],
-      ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'N.º CANASTILLA', 'UNDS', 'CANT.(kg)', 'RND(%)'],
+      ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'CANASTILLAS', 'UNDS', 'CANT.(kg)', 'RND(%)'],
     ],
     body: [
       ...(d.etiquetado.length
@@ -175,7 +175,7 @@ export async function descargarProduccionPdf(d: DetalleProduccion, operario: str
             r.codigo,
             r.producto,
             tiendaEtiquetado(r),
-            r.canastilla === null ? '—' : String(r.canastilla),
+            String(r.canastillas),
             String(r.unds),
             { content: kg(r.kg), styles: { halign: 'right' as const } },
             kg(r.rendimiento),
@@ -286,12 +286,12 @@ export async function descargarProduccionExcel(d: DetalleProduccion, operario: s
   celda(`G${row}`, tot.piezas, { label: true });
   celda(`H${row}`, Number(tot.kg.toFixed(2)), { label: true, right: true }).numFmt = '#,##0.00';
 
-  // Pesaje y etiquetado: una fila por canastilla.
+  // Pesaje y etiquetado: una fila consolidada por producto + tienda.
   const te = totalesEtiquetado(d);
   row += 2;
   celda(`A${row}:H${row}`, `ORDEN DE PRODUCCIÓN (PESAJE Y ETIQUETADO) No. ${d.opNumber}`, { label: true });
   row++;
-  ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'N.º CANASTILLA', 'UNDS', 'CANT.(kg)', 'RND(%)'].forEach((t, i) =>
+  ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'CANASTILLAS', 'UNDS', 'CANT.(kg)', 'RND(%)'].forEach((t, i) =>
     celda(`${cols[i]}${row}`, t, { label: true }),
   );
   row++;
@@ -300,7 +300,7 @@ export async function descargarProduccionExcel(d: DetalleProduccion, operario: s
     celda(`B${row}`, r.codigo);
     celda(`C${row}`, r.producto);
     celda(`D${row}`, tiendaEtiquetado(r));
-    celda(`E${row}`, r.canastilla ?? '—');
+    celda(`E${row}`, r.canastillas);
     celda(`F${row}`, r.unds);
     celda(`G${row}`, r.kg, { right: true }).numFmt = '#,##0.00';
     celda(`H${row}`, r.rendimiento).numFmt = '0.00';

@@ -23,7 +23,18 @@ export interface SacrificioEvento {
   operatorName: string;
 }
 
+/** Animal de Peso en Pie asignado a la orden (por número dentro de la orden). */
+export interface SacrificioAnimal {
+  sequence: number;
+  reference: number;
+  tipoAnimal: string | null;
+  corral: string | null;
+  pesoKg: number | null;
+}
+
 export interface SacrificioDetail extends SacrificioOrder {
+  /** Vacío en órdenes creadas antes de la asignación explícita de animales. */
+  animales: SacrificioAnimal[];
   eventos: SacrificioEvento[];
 }
 
@@ -66,6 +77,20 @@ export function useUndoLast() {
     // `sequence`: animal a devolver (A01 = 1); sin él, el último caído.
     mutationFn: async ({ id, pin, sequence }: { id: string; pin: string; sequence?: number }) =>
       (await api.post<SacrificioDetail>(`/sacrificio/${id}/undo`, { pin, sequence })).data,
+    onSuccess: (data) => {
+      qc.setQueryData(['sacrificio', 'detail', data.id], data);
+      qc.invalidateQueries({ queryKey: ['sacrificio', 'pendientes'] });
+      qc.invalidateQueries({ queryKey: ['orden-beneficio'] });
+    },
+  });
+}
+
+/** Cierra la orden: desaparece de Sacrificio y ya no se tumban ni devuelven animales. */
+export function useCerrarOrden() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) =>
+      (await api.patch<SacrificioDetail>(`/sacrificio/${id}/cerrar`)).data,
     onSuccess: (data) => {
       qc.setQueryData(['sacrificio', 'detail', data.id], data);
       qc.invalidateQueries({ queryKey: ['sacrificio', 'pendientes'] });

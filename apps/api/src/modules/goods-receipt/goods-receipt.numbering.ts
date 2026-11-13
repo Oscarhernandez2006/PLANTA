@@ -1,9 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { QuarterType, UnitForm } from '@prisma/client';
 
-/** Formatea el consecutivo de ingreso legible: ING-2026-000123. */
+/** Formatea el consecutivo de ingreso legible: ING-2026-123. */
 export function buildReceiptNumber(year: number, seq: number): string {
-  return `ING-${year}-${String(seq).padStart(6, '0')}`;
+  return `ING-${year}-${seq}`;
 }
 
 /**

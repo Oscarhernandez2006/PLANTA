@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -161,6 +162,12 @@ export class ProductionOrderController {
   @Get()
   findAll(@CurrentUser() user: AuthContext, @Query() query: QueryProductionOrderDto) {
     return this.service.findAll(user, query);
+  }
+
+  /** Cierra la orden (la web pide antes el código de autorización de un autorizador). */
+  @Patch(':id/cerrar')
+  cerrar(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.cerrar(user, id);
   }
 
   @Get(':id')

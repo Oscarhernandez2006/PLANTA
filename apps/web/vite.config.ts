@@ -14,7 +14,8 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:3000',
+        // Mismo puerto que usa la API (API_PORT); por defecto 3000.
+        target: `http://localhost:${process.env.API_PORT ?? 3000}`,
         changeOrigin: true,
       },
     },
