@@ -8,11 +8,18 @@ import { DispatchOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import { normalizarCodigoBarras, tipoCodigoBarras } from '../../common/codigo-barras';
 import type { AuthContext } from '../../common/auth/auth-context';
+import { verificarPinSupervisor } from '../../common/auth/supervisor-pin';
+import { PLANT_DAY_CUTOFF_HOUR, plantDateOnly } from '../../common/plant-date';
 import {
+  AnularTransferOrderDto,
   CreateTransferOrderDto,
   QueryTransferOrderDto,
   RegistrarTrasladoDto,
+  UpdateTransferOrderDto,
 } from './transfer-order.dto';
+
+/** Inicio de la jornada de hoy (5:00 a. m. en Colombia, UTC-5). */
+const inicioJornada = () => new Date(plantDateOnly().getTime() + (PLANT_DAY_CUTOFF_HOUR + 5) * 3_600_000);
 
 const clienteSelect = {
   select: { id: true, nit: true, concepto: true },
@@ -70,23 +77,88 @@ export class TransferOrderService {
   }
 
   async findAll(ctx: AuthContext, query: QueryTransferOrderDto) {
-    const where: Prisma.TransferOrderWhereInput = {
+    const q = query.search?.trim();
+    const numero = q ? Number(q.toUpperCase().replace(/^OT/, '')) : NaN;
+    const base: Prisma.TransferOrderWhereInput = {
       plantId: ctx.plantId,
-      deletedAt: null,
-      ...(query.status ? { status: query.status } : {}),
+      ...(query.desde || query.hasta
+        ? {
+            processDate: {
+              ...(query.desde ? { gte: new Date(query.desde) } : {}),
+              ...(query.hasta ? { lte: new Date(query.hasta) } : {}),
+            },
+          }
+        : {}),
+      ...(q
+        ? {
+            OR: [
+              ...(Number.isInteger(numero) && numero > 0 ? [{ otNumber: numero }] : []),
+              { cliente: { concepto: { contains: q, mode: 'insensitive' as const } } },
+              { cliente: { nit: { contains: q } } },
+            ],
+          }
+        : {}),
     };
-    const [total, data] = await this.prisma.$transaction([
+    const estado = query.estado ?? query.status;
+    const where: Prisma.TransferOrderWhereInput =
+      estado === 'anulada'
+        ? { ...base, deletedAt: { not: null } }
+        : { ...base, deletedAt: null, ...(estado ? { status: estado } : {}) };
+    const [total, data, porEstado, anuladas, cerradasHoy] = await this.prisma.$transaction([
       this.prisma.transferOrder.count({ where }),
       this.prisma.transferOrder.findMany({
         where,
         orderBy: { otNumber: 'desc' },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
-        include: { cliente: clienteSelect },
+        include: {
+          cliente: clienteSelect,
+          createdBy: { select: { fullName: true } },
+          conditioningOrders: { where: { deletedAt: null }, select: { ocNumber: true } },
+        },
+      }),
+      this.prisma.transferOrder.groupBy({
+        by: ['status'],
+        where: { ...base, deletedAt: null },
+        orderBy: { status: 'asc' },
+        _count: { _all: true },
+      }),
+      this.prisma.transferOrder.count({ where: { ...base, deletedAt: { not: null } } }),
+      this.prisma.transferOrder.count({
+        where: { plantId: ctx.plantId, deletedAt: null, closedAt: { gte: inicioJornada() } },
       }),
     ]);
+    const totales = data.length
+      ? await this.prisma.transferOrderItem.groupBy({
+          by: ['transferOrderId'],
+          where: { transferOrderId: { in: data.map((o) => o.id) } },
+          _count: { _all: true },
+          _sum: { netoKg: true, unds: true },
+          orderBy: { transferOrderId: 'asc' },
+        })
+      : [];
+    const porOrden = new Map(totales.map((t) => [t.transferOrderId, t]));
+    const conteo = (s: DispatchOrderStatus) =>
+      (porEstado.find((p) => p.status === s)?._count as { _all: number } | undefined)?._all ?? 0;
     return {
-      data,
+      data: data.map(({ createdBy, conditioningOrders, ...o }) => {
+        const t = porOrden.get(o.id);
+        return {
+          ...o,
+          creadaPor: createdBy.fullName,
+          ocNumbers: conditioningOrders.map((c) => c.ocNumber),
+          empaques: t?._count._all ?? 0,
+          unds: t?._sum.unds ?? 0,
+          netoKg: Number(t?._sum.netoKg ?? 0),
+        };
+      }),
+      resumen: {
+        activas: conteo(DispatchOrderStatus.activo),
+        inactivas: conteo(DispatchOrderStatus.inactivo),
+        cerradas: conteo(DispatchOrderStatus.facturado),
+        anuladas,
+        cerradasHoy,
+      },
       pagination: {
         page: query.page,
         pageSize: query.pageSize,
@@ -94,6 +166,97 @@ export class TransferOrderService {
         totalPages: Math.ceil(total / query.pageSize),
       },
     };
+  }
+
+  /** Hoja de la orden: encabezado, quién la creó/cerró/anuló, productos y órdenes de acondicionamiento. */
+  async detalle(ctx: AuthContext, id: string) {
+    const o = await this.prisma.transferOrder.findFirst({
+      where: { id, plantId: ctx.plantId },
+      include: {
+        cliente: clienteSelect,
+        conditioningOrders: {
+          where: { deletedAt: null },
+          select: { id: true, ocNumber: true, status: true, processDate: true },
+          orderBy: { ocNumber: 'asc' },
+        },
+        items: { orderBy: { createdAt: 'desc' }, select: itemSelect },
+      },
+    });
+    if (!o) throw new NotFoundException('Orden de traslado no encontrada.');
+    const ids = [o.createdById, o.closedById, o.deletedById].filter((x): x is string => !!x);
+    const usuarios = await this.prisma.appUser.findMany({ where: { id: { in: ids } }, select: { id: true, fullName: true } });
+    const nombre = (uid: string | null) => (uid ? (usuarios.find((u) => u.id === uid)?.fullName ?? '—') : null);
+    const { items, conditioningOrders, ...orden } = o;
+    return {
+      ...orden,
+      creadaPor: nombre(o.createdById),
+      cerradaPor: nombre(o.closedById),
+      anuladaPor: nombre(o.deletedById),
+      items: items.map(itemDto),
+      ordenesAcondicionamiento: conditioningOrders.map((c) => ({
+        ...c,
+        processDate: c.processDate.toISOString().slice(0, 10),
+      })),
+    };
+  }
+
+  /** Cambia fecha de proceso, estado (activa/inactiva) o cliente (solo si aún no tiene productos). */
+  async actualizar(ctx: AuthContext, id: string, dto: UpdateTransferOrderDto) {
+    const ot = await this.orden(ctx, id);
+    if (ot.status === DispatchOrderStatus.facturado) {
+      throw new BadRequestException('La orden está cerrada: para modificarla primero hay que reabrirla.');
+    }
+    if (dto.clienteId && dto.clienteId !== ot.clienteId) {
+      const items = await this.prisma.transferOrderItem.count({ where: { transferOrderId: id } });
+      if (items) throw new BadRequestException('No se puede cambiar el cliente: la orden ya tiene productos registrados.');
+      const cliente = await this.prisma.cliente.findFirst({ where: { id: dto.clienteId, active: true }, select: { id: true } });
+      if (!cliente) throw new BadRequestException('El cliente no existe o está inactivo.');
+    }
+    await this.prisma.transferOrder.update({
+      where: { id },
+      data: {
+        ...(dto.clienteId ? { clienteId: dto.clienteId } : {}),
+        ...(dto.processDate ? { processDate: new Date(dto.processDate) } : {}),
+        ...(dto.status ? { status: dto.status } : {}),
+      },
+    });
+    return { ok: true };
+  }
+
+  /** Anula la orden (con motivo y PIN de supervisor). Solo si no tiene productos ni acondicionamientos. */
+  async anular(ctx: AuthContext, id: string, dto: AnularTransferOrderDto) {
+    const ot = await this.orden(ctx, id);
+    const supervisorId = await verificarPinSupervisor(this.prisma, ctx.plantId, dto.pin);
+    const [items, ocs] = await Promise.all([
+      this.prisma.transferOrderItem.count({ where: { transferOrderId: id } }),
+      this.prisma.conditioningOrder.count({ where: { transferOrderId: id, deletedAt: null } }),
+    ]);
+    if (items) throw new BadRequestException(`La orden ${formatOT(ot.otNumber)} tiene ${items} producto(s): quítalos antes de anularla.`);
+    if (ocs) throw new BadRequestException('La orden tiene órdenes de acondicionamiento: no se puede anular.');
+    await this.prisma.transferOrder.update({
+      where: { id },
+      data: {
+        deletedAt: new Date(),
+        deletedById: supervisorId,
+        motivoAnulacion: dto.motivo.trim(),
+        status: DispatchOrderStatus.inactivo,
+      },
+    });
+    return { ok: true };
+  }
+
+  /** Reabre una orden cerrada (PIN de supervisor) si aún no se acondicionó. */
+  async reabrir(ctx: AuthContext, id: string, pin: string) {
+    const ot = await this.orden(ctx, id);
+    if (ot.status !== DispatchOrderStatus.facturado) throw new BadRequestException('La orden no está cerrada.');
+    await verificarPinSupervisor(this.prisma, ctx.plantId, pin);
+    const ocs = await this.prisma.conditioningOrder.count({ where: { transferOrderId: id, deletedAt: null } });
+    if (ocs) throw new BadRequestException('La orden ya tiene órdenes de acondicionamiento: no se puede reabrir.');
+    await this.prisma.transferOrder.update({
+      where: { id },
+      data: { status: DispatchOrderStatus.activo, closedAt: null, closedById: null },
+    });
+    return { ok: true };
   }
 
   // ---- Traslado: productos de Rotulado que pasan a proceso ----
@@ -295,7 +458,7 @@ export class TransferOrderService {
     }
     await this.prisma.transferOrder.update({
       where: { id: ot.id },
-      data: { status: DispatchOrderStatus.facturado },
+      data: { status: DispatchOrderStatus.facturado, closedAt: new Date(), closedById: ctx.userId },
     });
     return { ok: true };
   }

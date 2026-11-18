@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { CanalTipo } from '../canal-caliente/api';
 
@@ -45,7 +45,6 @@ export interface CanalRecibida {
   guia: string | null;
   lote: string | null;
   identificacion: string | null;
-  sede: string;
 }
 
 export type CavaSubproductoCategoria =
@@ -250,6 +249,17 @@ export function useBodegaInventario(id: string | null) {
     queryFn: async () => (await api.get<BodegaDetalle>(`/inventarios/bodegas/${id}`)).data,
     enabled: !!id,
     refetchInterval: 10000,
+  });
+}
+
+/** Detalle de varias bodegas (todas las de un cliente) con la misma caché que `useBodegaInventario`. */
+export function useBodegasDetalle(ids: string[]) {
+  return useQueries({
+    queries: ids.map((id) => ({
+      queryKey: ['inventarios', 'bodegas', id],
+      queryFn: async () => (await api.get<BodegaDetalle>(`/inventarios/bodegas/${id}`)).data,
+      refetchInterval: 10000,
+    })),
   });
 }
 
@@ -481,6 +491,8 @@ export function useTrazabilidadCanal(piezaId: string | null) {
     queryFn: async () =>
       (await api.get<TrazabilidadCanal>(`/inventarios/canales/${piezaId}/trazabilidad`)).data,
     enabled: !!piezaId,
+    // Al recorrer el lote se mantiene la canal anterior mientras carga la siguiente.
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -494,10 +506,20 @@ interface TrazabilidadReciboBase {
     creadaPor: string | null;
     cerradaAt: string | null;
     cerradaPor: string | null;
-    cliente: { nit: string; name: string; sede: string };
+    cliente: { nit: string | null; concepto: string };
   };
   bodega: { nombre: string; cliente: string } | null;
   enInventario: boolean;
+  /** Orden por la que salió (OD a proceso, DC caliente/frío o DC posta). */
+  salida: {
+    tipo: 'proceso' | 'caliente' | 'frio' | 'posta';
+    orden: string;
+    cerrada: boolean;
+    cerradaAt: string | null;
+    despachoKg: number | null;
+    at: string | null;
+    por: string | null;
+  } | null;
   reimpresiones: { at: string; estacion: string | null; usuario: string | null }[];
 }
 
@@ -642,6 +664,11 @@ export interface TrazabilidadEtiqueta {
       pesoFrioKg: number | null;
       proveedor: string | null;
       procedencia: string | null;
+      eventoId: string;
+      guias: string[];
+      conCola: boolean | null;
+      expendio: string | null;
+      piezasAnimal: { id: string; pieza: TrazabilidadCanal['pieza']; pesoKg: number; turno: number | null }[];
     }[];
   }[];
 }

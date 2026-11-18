@@ -4,9 +4,10 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { Client, DispatchOrderStatus } from '../canal-fria/api';
+import type { DispatchOrderStatus } from '../canal-fria/api';
+import type { ClienteRecibo, DestinoRecibo } from '../canal-recibo/api';
 
-export type { Client, DispatchOrderStatus } from '../canal-fria/api';
+export type { DispatchOrderStatus } from '../canal-fria/api';
 export { statusLabels, statusTone } from '../canal-fria/api';
 
 export interface PostaReceipt {
@@ -15,7 +16,8 @@ export interface PostaReceipt {
   registrationDate: string;
   processDate: string;
   status: DispatchOrderStatus;
-  client: Client;
+  cliente: ClienteRecibo;
+  bodega: { id: string; code: number; nombre: string } | null;
   /** Resumen que trae el listado. */
   registros?: number;
   piezas?: number;
@@ -34,7 +36,7 @@ export interface Paginated<T> {
 }
 
 export interface CreatePostaReceiptInput {
-  clientId: string;
+  clienteId: string;
   registrationDate: string;
   processDate: string;
   status: DispatchOrderStatus;
@@ -158,14 +160,18 @@ export function useDeletePostaReceiptItem(orderId: string | null) {
   });
 }
 
-/** Cierra la orden de recibo con el PIN de un supervisor. */
+/** Cierra la orden de recibo con el PIN de un supervisor; el producto entra a la bodega elegida. */
 export function useCerrarPostaReceipt() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
-      (await api.patch<{ ok: boolean }>(`/posta-receipts/${id}/cerrar`, { pin })).data,
+    mutationFn: async ({ id, pin, bodegaId }: { id: string; pin: string; bodegaId?: string }) =>
+      (await api.patch<{ ok: boolean }>(`/posta-receipts/${id}/cerrar`, { pin, bodegaId })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['posta-receipts'] }),
   });
+}
+
+export async function destinoPostaReceipt(id: string) {
+  return (await api.get<DestinoRecibo>(`/posta-receipts/${id}/destino`)).data;
 }
 
 /** Deja constancia de la reimpresión de un rótulo; si falla no interrumpe la impresión. */

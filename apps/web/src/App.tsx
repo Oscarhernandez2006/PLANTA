@@ -28,7 +28,7 @@ import { RotuladoDespostePage } from './features/rotulado/RotuladoDespostePage';
 import { RotuladoAcondicionamientoPage } from './features/rotulado/RotuladoAcondicionamientoPage';
 import { SacrificioPage } from './features/sacrificio/SacrificioPage';
 import { PielesPage } from './features/pieles/PielesPage';
-import { SubproductosPage } from './features/subproductos/SubproductosPage';
+import { ProximamentePage } from './pages/ProximamentePage';
 import { OrdenBeneficioPage } from './features/registrar/OrdenBeneficioPage';
 import { OrdenDespachoPage } from './features/registrar/OrdenDespachoPage';
 import { DespachoCanalesPage } from './features/registrar/DespachoCanalesPage';
@@ -40,7 +40,6 @@ import { OrdenProduccionPage } from './features/registrar/OrdenProduccionPage';
 import { ProductosPage } from './features/products/ProductosPage';
 import { ClientesPage } from './features/clientes/ClientesPage';
 import { ConservacionPage } from './features/conservacion/ConservacionPage';
-import { PiezasDespostePage } from './features/piezas-desposte/PiezasDespostePage';
 import { InformesPage } from './features/informes/InformesPage';
 import { TallerDespostePage } from './features/talleres/TallerDespostePage';
 import { TallerAcondicionamientoPage } from './features/talleres/TallerAcondicionamientoPage';
@@ -91,7 +90,7 @@ const router = createRouter([
       },
       { path: 'sacrificio', element: <SacrificioPage /> },
       { path: 'pieles', element: <PielesPage /> },
-      { path: 'subproductos', element: <SubproductosPage /> },
+      { path: 'subproductos', element: <ProximamentePage modulo="Subproductos" /> },
       { path: 'orden-beneficio', element: <OrdenBeneficioPage /> },
       { path: 'orden-despacho', element: <OrdenDespachoPage /> },
       { path: 'despacho-canales', element: <DespachoCanalesPage /> },
@@ -105,7 +104,7 @@ const router = createRouter([
       { path: 'productos', element: <ProductosPage /> },
       { path: 'clientes', element: <ClientesPage /> },
       { path: 'conservacion', element: <ConservacionPage /> },
-      { path: 'piezas-desposte', element: <PiezasDespostePage /> },
+      { path: 'piezas-desposte', element: <Navigate to="/conservacion" replace /> },
       { path: 'informes', element: <InformesPage /> },
       { path: 'talleres/desposte', element: <TallerDespostePage /> },
       { path: 'talleres/acondicionamiento', element: <TallerAcondicionamientoPage /> },

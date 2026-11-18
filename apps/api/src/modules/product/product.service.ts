@@ -41,6 +41,103 @@ export class ProductService {
     return { next: await this.siguienteCodigo(this.prisma, ctx.plantId) };
   }
 
+  /** Etiquetas disponibles en planta (sin trasladar ni despachar) de cada producto. */
+  async existencias(ctx: AuthContext) {
+    const filas = await this.prisma.rotuladoEtiqueta.groupBy({
+      by: ['productId'],
+      where: { plantId: ctx.plantId, deletedAt: null, traslado: { is: null }, despacho: { is: null } },
+      _count: { _all: true },
+      _sum: { netoKg: true },
+    });
+    return filas.map((f) => ({ productId: f.productId, unds: f._count._all, kg: Number(f._sum.netoKg ?? 0) }));
+  }
+
+  /** Hoja del producto: clientes que lo usan, inventario, producción reciente, precios y reglas de corte. */
+  async ficha(ctx: AuthContext, id: string) {
+    const producto = await this.prisma.product.findFirst({
+      where: { id, plantId: ctx.plantId },
+      select: { ...productSelect, createdAt: true },
+    });
+    if (!producto) throw new NotFoundException('Producto no encontrado.');
+    const etiquetas = { productId: id, plantId: ctx.plantId, deletedAt: null };
+    const hace30 = new Date(Date.now() - 30 * 86_400_000);
+    const [clientes, disponibles, ultimos30, total, ultima, precios, reglas] = await Promise.all([
+      this.prisma.clienteProducto.findMany({
+        where: { productId: id },
+        select: {
+          tipo: true,
+          refPluSku: true,
+          refrigeradoDias: true,
+          congeladoDias: true,
+          piezasPorCanal: true,
+          undsPorCaja: true,
+          cliente: { select: { id: true, concepto: true, nit: true } },
+        },
+        orderBy: { cliente: { concepto: 'asc' } },
+      }),
+      this.prisma.rotuladoEtiqueta.aggregate({
+        where: { ...etiquetas, traslado: { is: null }, despacho: { is: null } },
+        _count: { _all: true },
+        _sum: { netoKg: true },
+      }),
+      this.prisma.rotuladoEtiqueta.aggregate({
+        where: { ...etiquetas, createdAt: { gte: hace30 } },
+        _count: { _all: true },
+        _sum: { netoKg: true },
+      }),
+      this.prisma.rotuladoEtiqueta.count({ where: etiquetas }),
+      this.prisma.rotuladoEtiqueta.findFirst({
+        where: etiquetas,
+        orderBy: { createdAt: 'desc' },
+        select: { createdAt: true },
+      }),
+      this.prisma.precioListaItem.findMany({
+        where: { productId: id, lista: { plantId: ctx.plantId } },
+        select: {
+          precioKg: true,
+          lista: { select: { nombre: true, vigenteDesde: true, cliente: { select: { concepto: true } } } },
+        },
+        orderBy: { lista: { vigenteDesde: 'desc' } },
+        take: 20,
+      }),
+      this.prisma.reglaCorte.findMany({
+        where: { productId: id, plantId: ctx.plantId },
+        select: { retoma: true, piking: true, congelacion: true, kgCongelados: true, cliente: { select: { concepto: true } } },
+      }),
+    ]);
+    return {
+      producto: { ...producto, createdAt: producto.createdAt.toISOString() },
+      clientes: clientes.map((c) => ({
+        clienteId: c.cliente.id,
+        cliente: c.cliente.concepto,
+        nit: c.cliente.nit,
+        tipo: c.tipo,
+        refPluSku: c.refPluSku,
+        refrigeradoDias: c.refrigeradoDias,
+        congeladoDias: c.congeladoDias,
+        piezasPorCanal: c.piezasPorCanal,
+        undsPorCaja: c.undsPorCaja,
+      })),
+      inventario: { unds: disponibles._count._all, kg: Number(disponibles._sum.netoKg ?? 0) },
+      produccion30: { unds: ultimos30._count._all, kg: Number(ultimos30._sum.netoKg ?? 0) },
+      etiquetasTotal: total,
+      ultimaEtiqueta: ultima?.createdAt.toISOString() ?? null,
+      precios: precios.map((p) => ({
+        lista: p.lista.nombre,
+        cliente: p.lista.cliente?.concepto ?? null,
+        vigenteDesde: p.lista.vigenteDesde.toISOString().slice(0, 10),
+        precioKg: Number(p.precioKg),
+      })),
+      reglas: reglas.map((r) => ({
+        cliente: r.cliente?.concepto ?? null,
+        retoma: r.retoma,
+        piking: r.piking,
+        congelacion: r.congelacion,
+        kgCongelados: r.kgCongelados == null ? null : Number(r.kgCongelados),
+      })),
+    };
+  }
+
   private async siguienteCodigo(
     db: Pick<PrismaService, '$queryRaw'>,
     plantId: string,

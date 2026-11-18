@@ -34,7 +34,6 @@ const DESCRIPCION: Record<string, string> = {
   '/recibo-canal': 'Órdenes para recibir canales externas',
   '/recibo-posta': 'Órdenes para recibir en posta',
   '/clientes': 'Clientes, tiendas y bodegas',
-  '/piezas-desposte': 'Piezas por canal de cada cliente',
   '/informes': 'Informes de sacrificio, despacho y producción',
   '/talleres/desposte': 'Rendimiento y resultado del desposte',
   '/talleres/acondicionamiento': 'Rendimiento del acondicionamiento',
@@ -191,11 +190,15 @@ function Fila({
   return (
     <button
       type="button"
-      onClick={onClick}
+      onClick={item.proximamente ? undefined : onClick}
+      disabled={item.proximamente}
+      title={item.proximamente ? 'Módulo en construcción: próximamente' : undefined}
       className={cn(
         'group flex min-h-20 w-full items-center gap-4 rounded-xl border px-4 py-3 text-left transition-colors',
-        'hover:border-primary/40 hover:bg-primary/5 active:bg-primary/10',
-        activo ? 'border-primary bg-primary/5' : 'border-transparent bg-muted/40',
+        item.proximamente
+          ? 'cursor-not-allowed border-dashed border-border bg-muted/20 opacity-70'
+          : 'hover:border-primary/40 hover:bg-primary/5 active:bg-primary/10',
+        !item.proximamente && (activo ? 'border-primary bg-primary/5' : 'border-transparent bg-muted/40'),
       )}
     >
       <Icono className="size-7 shrink-0 text-foreground/80" />
@@ -206,7 +209,9 @@ function Fila({
         )}
         {grupo && <span className="mt-1 block text-xs font-medium text-primary/80">{grupo}</span>}
       </span>
-      {activo ? (
+      {item.proximamente ? (
+        <span className="shrink-0 rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800">Próximamente</span>
+      ) : activo ? (
         <span className="shrink-0 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">Abierto</span>
       ) : (
         <ChevronRight className="size-5 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" />

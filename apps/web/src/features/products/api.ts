@@ -69,6 +69,44 @@ export function useNextProductCode() {
   });
 }
 
+/** Etiquetas disponibles en planta por producto. */
+export function useExistenciasProductos() {
+  return useQuery({
+    queryKey: ['products', 'existencias'],
+    queryFn: async () =>
+      (await api.get<{ productId: string; unds: number; kg: number }[]>('/products/existencias')).data,
+  });
+}
+
+export interface FichaProducto {
+  producto: Required<Product> & { createdAt: string };
+  clientes: {
+    clienteId: string;
+    cliente: string;
+    nit: string | null;
+    tipo: string;
+    refPluSku: string | null;
+    refrigeradoDias: number;
+    congeladoDias: number;
+    piezasPorCanal: number;
+    undsPorCaja: number;
+  }[];
+  inventario: { unds: number; kg: number };
+  produccion30: { unds: number; kg: number };
+  etiquetasTotal: number;
+  ultimaEtiqueta: string | null;
+  precios: { lista: string; cliente: string | null; vigenteDesde: string; precioKg: number }[];
+  reglas: { cliente: string | null; retoma: boolean; piking: boolean; congelacion: boolean; kgCongelados: number | null }[];
+}
+
+export function useFichaProducto(id: string | null) {
+  return useQuery({
+    queryKey: ['products', 'ficha', id],
+    queryFn: async () => (await api.get<FichaProducto>(`/products/${id}/ficha`)).data,
+    enabled: !!id,
+  });
+}
+
 export function useCreateProduct() {
   const qc = useQueryClient();
   return useMutation({

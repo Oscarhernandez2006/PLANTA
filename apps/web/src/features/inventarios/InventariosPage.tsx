@@ -116,7 +116,7 @@ export function InventariosPage() {
           />
         </div>
       ) : vista === 'clientes' ? (
-        <div className="min-h-0 flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
+        <div className="min-h-0 flex-1">
           <ClientesView />
         </div>
       ) : (

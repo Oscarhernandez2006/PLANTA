@@ -1,14 +1,21 @@
-import { useMemo, useState, type ComponentType, type ReactNode } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import {
+  AlertTriangle,
+  Beef,
+  Boxes,
   Building2,
+  CalendarClock,
+  ChevronDown,
   ChevronRight,
   ClipboardList,
+  FileSpreadsheet,
   Inbox,
   LoaderCircle,
   Search,
-  Warehouse,
+  Snowflake,
   X,
 } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { codigoBarras } from '../canal-caliente/canal-presinto-print';
@@ -17,13 +24,17 @@ import { formatOD } from '../registrar/orden-despacho-api';
 import { formatOP } from '../registrar/orden-produccion-api';
 import { formatOC } from '../registrar/orden-acondicionamiento-api';
 import { formatDC } from '../registrar/despacho-canales-api';
-import { Caja, Productos, fecha, kg } from './BodegasTab';
+import { formatOT } from '../registrar/orden-traslado-api';
+import { Productos, fecha, kg } from './BodegasTab';
 import { FiltroSelect } from './FiltroSelect';
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
+import { TrazabilidadEtiquetaDialog } from './TrazabilidadEtiquetaDialog';
 import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
+import { descargarInventarioClienteExcel } from './inventario-cliente-export';
 import {
-  useBodegaInventario,
+  useBodegasDetalle,
   useBodegasInventario,
+  useResumenInventario,
   type BodegaDetalle,
   type BodegaResumen,
   type CavaSubproductoCategoria,
@@ -33,6 +44,9 @@ type Canal = BodegaDetalle['canales'][number];
 type Producto = BodegaDetalle['productos'][number];
 type Subproducto = BodegaDetalle['subproductos'][number];
 
+// Módulo de subproductos en pruebas: se muestra como "Próximamente" sin datos.
+const SUBPRODUCTOS_ACTIVO = false;
+
 interface ClienteResumen {
   id: string;
   nombre: string;
@@ -40,21 +54,8 @@ interface ClienteResumen {
   bodegas: BodegaResumen[];
   canales: number;
   canalesKg: number;
-  canalesDespachadas: number;
-  canalesProcesadas: number;
   productos: number;
   productosKg: number;
-  subproductos: number;
-}
-
-interface Orden {
-  key: string;
-  tipo: 'ob' | 'rc' | 'op' | 'oc' | 'rp' | 'sin';
-  numero: number | null;
-  date: string | null;
-  canales: Canal[];
-  subproductos: Subproducto[];
-  productos: Producto[];
 }
 
 const PIEZA: Record<Canal['pieza'], string> = { canal: 'CANAL', cizq: 'CIZQ', cder: 'CDER' };
@@ -67,8 +68,12 @@ const CATEGORIA: Record<CavaSubproductoCategoria, { label: string; orden: number
   cabeza_patas: { label: 'Retomas', orden: 2 },
 };
 
+const DIAS_VENCE = 3;
+
+const kg0 = (n: number) => n.toLocaleString('es-CO', { maximumFractionDigits: 0 });
+
 const cavaSubproducto = (cava: string | null) =>
-  !cava ? '—' : cava === '3' ? 'CAVA SUBPRODUCTO DESPACHO' : `CAVA SUBPRODUCTO ${cava}`;
+  !cava ? '—' : cava === '3' ? 'SUBPRODUCTO DESPACHO' : `SUBPRODUCTO ${cava}`;
 
 /** En una orden activa (OD a proceso o DC sin cerrar): sigue en planta pero ya está asignada. */
 const canalEnOrden = (c: Canal) =>
@@ -76,13 +81,7 @@ const canalEnOrden = (c: Canal) =>
 const canalDespachada = (c: Canal) => !!c.enDespacho?.cerrada;
 const canalProcesada = (c: Canal) => !!c.enOrden?.cerrada;
 const estadoCanal = (c: Canal) =>
-  canalDespachada(c)
-    ? 'despachada'
-    : canalProcesada(c)
-      ? 'procesada'
-      : canalEnOrden(c)
-        ? 'orden'
-        : 'libre';
+  canalDespachada(c) ? 'despachada' : canalProcesada(c) ? 'procesada' : canalEnOrden(c) ? 'orden' : 'libre';
 const barcodeDe = (c: Canal) =>
   c.recibo
     ? `RC${c.recibo.receiptNumber}-${String(c.recibo.codigo).padStart(2, '0')}`
@@ -90,71 +89,29 @@ const barcodeDe = (c: Canal) =>
       ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
       : '';
 const productoLibre = (p: Producto) => !p.despachoDc && !p.transformadoOc && !p.trasladoOt;
-const conInventario = (b: BodegaResumen, verTodo: boolean) =>
-  b.canales + b.productos + b.subproductos + (verTodo ? b.canalesDespachadas + b.canalesProcesadas : 0) > 0;
 
-/** Sin "ver todo" solo queda lo que sigue en planta: fuera canales procesadas/despachadas y productos transformados. */
-function soloVigente(d: BodegaDetalle | undefined, verTodo: boolean): BodegaDetalle | undefined {
-  if (!d || verTodo) return d;
-  return {
-    ...d,
-    canales: d.canales.filter((c) => !canalDespachada(c) && !canalProcesada(c)),
-    productos: d.productos.filter((p) => !p.transformadoOc),
-  };
+/** Días hasta el vencimiento (negativo = vencido). */
+function diasVence(iso: string | null) {
+  if (!iso) return null;
+  const hoy = new Date();
+  hoy.setHours(0, 0, 0, 0);
+  return Math.round((new Date(`${iso}T00:00:00`).getTime() - hoy.getTime()) / 86_400_000);
 }
 
-function tituloOrden(o: Orden) {
-  if (o.tipo === 'ob') return `Orden de beneficio ${formatOB(o.numero!)}`;
-  if (o.tipo === 'rc') return `Recibo de canales RC${o.numero}`;
-  if (o.tipo === 'rp') return `Recibo en posta RP${o.numero}`;
-  if (o.tipo === 'op') return `Orden de producción ${formatOP(o.numero!)}`;
-  if (o.tipo === 'oc') return `Orden de acondicionamiento ${formatOC(o.numero!)}`;
-  return 'Productos sin orden';
-}
-
-function agruparOrdenes(d: BodegaDetalle | undefined): Orden[] {
-  if (!d) return [];
-  const m = new Map<string, Orden>();
-  const obtener = (key: string, tipo: Orden['tipo'], numero: number | null, date: string | null) => {
-    let o = m.get(key);
-    if (!o) {
-      o = { key, tipo, numero, date, canales: [], subproductos: [], productos: [] };
-      m.set(key, o);
-    }
-    return o;
-  };
-  // El consecutivo de la orden de beneficio se repite entre fechas: la clave lleva ambas.
-  for (const c of d.canales) {
-    if (c.recibo) obtener(`rc|${c.recibo.receiptNumber}`, 'rc', c.recibo.receiptNumber, c.date).canales.push(c);
-    else obtener(`ob|${c.date}|${c.reference}`, 'ob', c.reference, c.date).canales.push(c);
-  }
-  for (const s of d.subproductos)
-    obtener(`ob|${s.date}|${s.reference}`, 'ob', s.reference, s.date).subproductos.push(s);
-  for (const p of d.productos) {
-    const o = p.rpNumber
-      ? obtener(`rp|${p.rpNumber}`, 'rp', p.rpNumber, null)
-      : p.ocNumber
-        ? obtener(`oc|${p.ocNumber}`, 'oc', p.ocNumber, null)
-        : p.opNumber
-          ? obtener(`op|${p.opNumber}`, 'op', p.opNumber, null)
-          : obtener('sin', 'sin', null, null);
-    o.productos.push(p);
-    if (!o.date || p.fechaEmpaque > o.date) o.date = p.fechaEmpaque;
-  }
-  const prioridad = { ob: 0, rc: 1, op: 2, oc: 3, rp: 4, sin: 5 };
-  return [...m.values()].sort(
-    (a, b) =>
-      prioridad[a.tipo] - prioridad[b.tipo] ||
-      (a.date ?? '').localeCompare(b.date ?? '') ||
-      (a.numero ?? 0) - (b.numero ?? 0),
-  );
-}
-
-function Cargando() {
+function VenceChip({ iso }: { iso: string | null }) {
+  const d = diasVence(iso);
+  if (d == null) return <span className="text-muted-foreground">—</span>;
   return (
-    <div className="flex h-full items-center justify-center text-muted-foreground">
-      <LoaderCircle className="size-6 animate-spin" />
-    </div>
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums',
+        d < 0 ? 'bg-red-600 text-white' : d <= 1 ? 'bg-red-100 text-red-700' : d <= DIAS_VENCE ? 'bg-amber-100 text-amber-800' : 'text-foreground',
+      )}
+      title={d < 0 ? `Vencido hace ${-d} día(s)` : d === 0 ? 'Vence hoy' : `Faltan ${d} día(s)`}
+    >
+      {d <= DIAS_VENCE && <CalendarClock className="size-3" />}
+      {fecha(iso)}
+    </span>
   );
 }
 
@@ -167,19 +124,54 @@ function Vacio({ text }: { text: string }) {
   );
 }
 
-/** Inventario navegable: cliente → bodega → orden → detalle. */
+function Kpi({
+  icon: Icon,
+  titulo,
+  valor,
+  sub,
+  alerta,
+  children,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  titulo: string;
+  valor: string;
+  sub?: string;
+  alerta?: boolean;
+  children?: ReactNode;
+}) {
+  return (
+    <div className={cn('flex min-w-0 flex-col gap-1.5 rounded-xl border bg-card px-4 py-3', alerta ? 'border-red-200' : 'border-border')}>
+      <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+        <Icon className={cn('size-4', alerta ? 'text-red-600' : 'text-primary')} />
+        {titulo}
+      </div>
+      <div className="flex items-baseline gap-2">
+        <span className={cn('text-2xl font-bold tabular-nums', alerta && 'text-red-600')}>{valor}</span>
+        {sub && <span className="truncate text-sm text-muted-foreground">{sub}</span>}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function Chip({ className, children }: { className?: string; children: ReactNode }) {
+  return <span className={cn('rounded-full px-2 py-0.5 text-xs font-semibold tabular-nums', className)}>{children}</span>;
+}
+
+/** Inventario por cliente: lista a la izquierda y el inventario del cliente elegido a la derecha. */
 export function ClientesView() {
   const bodegas = useBodegasInventario();
+  const resumen = useResumenInventario();
   const [clienteId, setClienteId] = useState<string | null>(null);
-  const [bodegaId, setBodegaId] = useState<string | null>(null);
-  const [ordenKey, setOrdenKey] = useState<string | null>(null);
+  const [busqueda, setBusqueda] = useState('');
   const [verTodo, setVerTodo] = useState(false);
 
   const clientes = useMemo(() => {
     const m = new Map<string, ClienteResumen>();
-    for (const raw of bodegas.data ?? []) {
-      if (!conInventario(raw, verTodo)) continue;
-      const b = verTodo ? raw : { ...raw, canalesDespachadas: 0, canalesProcesadas: 0 };
+    for (const b of bodegas.data ?? []) {
+      const total =
+        b.canales + b.productos + (SUBPRODUCTOS_ACTIVO ? b.subproductos : 0) + (verTodo ? b.canalesDespachadas + b.canalesProcesadas : 0);
+      if (!total) continue;
       const c = m.get(b.clienteId) ?? {
         id: b.clienteId,
         nombre: b.cliente,
@@ -187,381 +179,674 @@ export function ClientesView() {
         bodegas: [],
         canales: 0,
         canalesKg: 0,
-        canalesDespachadas: 0,
-        canalesProcesadas: 0,
         productos: 0,
         productosKg: 0,
-        subproductos: 0,
       };
       c.bodegas.push(b);
       c.canales += b.canales;
       c.canalesKg += b.canalesKg;
-      c.canalesDespachadas += b.canalesDespachadas;
-      c.canalesProcesadas += b.canalesProcesadas;
       c.productos += b.productos;
       c.productosKg += b.productosKg;
-      c.subproductos += b.subproductos;
       m.set(b.clienteId, c);
     }
-    return [...m.values()].sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    return [...m.values()].sort((a, b) => b.canalesKg + b.productosKg - (a.canalesKg + a.productosKg));
   }, [bodegas.data, verTodo]);
 
-  const cliente = clientes.find((c) => c.id === clienteId) ?? null;
-  const bodega = cliente?.bodegas.find((b) => b.id === bodegaId) ?? null;
-  const detalle = useBodegaInventario(bodega?.id ?? null);
-  const ordenes = useMemo(() => agruparOrdenes(soloVigente(detalle.data, verTodo)), [detalle.data, verTodo]);
-  const orden = ordenes.find((o) => o.key === ordenKey) ?? null;
-  const unaBodega = cliente?.bodegas.length === 1;
+  const extra = useMemo(() => {
+    const r = resumen.data;
+    const m = new Map<string, { subKg: number; porVencer: number; canalesViejas: number }>();
+    for (const c of r?.clientes ?? [])
+      m.set(c.cliente, { subKg: SUBPRODUCTOS_ACTIVO ? c.subproductosKg : 0, porVencer: 0, canalesViejas: 0 });
+    for (const p of r?.alertas.productosPorVencer ?? []) {
+      const e = m.get(p.cliente);
+      if (e) e.porVencer += p.unds;
+    }
+    for (const a of r?.alertas.canalesAntiguas ?? []) {
+      const e = m.get(a.cliente);
+      if (e) e.canalesViejas += 1;
+    }
+    return m;
+  }, [resumen.data]);
 
-  function abrirCliente(c: ClienteResumen) {
-    setClienteId(c.id);
-    // Con una sola bodega no hay nada que elegir: se pasa directo a sus órdenes.
-    setBodegaId(c.bodegas.length === 1 ? c.bodegas[0].id : null);
-    setOrdenKey(null);
-  }
-
-  const migas: { label: string; onClick?: () => void }[] = [
-    {
-      label: 'Clientes',
-      onClick: () => {
-        setClienteId(null);
-        setBodegaId(null);
-        setOrdenKey(null);
-      },
-    },
-  ];
-  if (cliente) {
-    migas.push({
-      label: cliente.nombre,
-      onClick: () => {
-        if (!unaBodega) setBodegaId(null);
-        setOrdenKey(null);
-      },
-    });
-  }
-  if (bodega) migas.push({ label: `Bodega ${bodega.code} - ${bodega.nombre}`, onClick: () => setOrdenKey(null) });
-  if (orden) migas.push({ label: tituloOrden(orden) });
-
-  let contenido: ReactNode;
-  if (bodegas.isLoading) contenido = <Cargando />;
-  else if (!cliente) contenido = <ListaClientes clientes={clientes} onAbrir={abrirCliente} />;
-  else if (!bodega)
-    contenido = (
-      <ListaBodegas
-        bodegas={cliente.bodegas}
-        onAbrir={(b) => {
-          setBodegaId(b.id);
-          setOrdenKey(null);
-        }}
-      />
-    );
-  else if (!detalle.data) contenido = <Cargando />;
-  else if (!orden) contenido = <ListaOrdenes ordenes={ordenes} onAbrir={(o) => setOrdenKey(o.key)} />;
-  else contenido = <OrdenDetalle key={orden.key} orden={orden} />;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <nav className="flex flex-wrap items-center gap-1 border-b-2 border-border px-3 py-2 text-sm">
-        {migas.map((m, i) => {
-          const ultima = i === migas.length - 1;
-          return (
-            <span key={i} className="flex items-center gap-1">
-              {i > 0 && <ChevronRight className="size-4 text-muted-foreground" />}
-              {ultima || !m.onClick ? (
-                <span className="font-semibold uppercase">{m.label}</span>
-              ) : (
-                <button
-                  onClick={m.onClick}
-                  className="font-medium uppercase text-emerald-700 hover:underline"
-                >
-                  {m.label}
-                </button>
-              )}
-            </span>
-          );
-        })}
-        <label
-          className="ml-auto flex cursor-pointer items-center gap-2 text-xs font-semibold uppercase text-muted-foreground"
-          title="Por defecto solo se muestra lo que sigue en planta"
-        >
-          <input
-            type="checkbox"
-            className="size-4 accent-emerald-600"
-            checked={verTodo}
-            onChange={(e) => setVerTodo(e.target.checked)}
-          />
-          Ver procesadas, despachadas y transformadas
-        </label>
-      </nav>
-      <div className="min-h-0 flex-1">{contenido}</div>
-    </div>
-  );
-}
-
-function Fila({
-  icon: Icon,
-  titulo,
-  subtitulo,
-  datos,
-  onClick,
-}: {
-  icon: ComponentType<{ className?: string }>;
-  titulo: string;
-  subtitulo?: string;
-  datos: ReactNode[];
-  onClick: () => void;
-}) {
-  return (
-    <li className="mb-2">
-      <button
-        onClick={onClick}
-        className="flex w-full items-center gap-3 rounded-sm border-2 border-border bg-card px-4 py-3 text-left hover:bg-muted/50"
-      >
-        <Icon className="size-6 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-lg font-semibold uppercase">{titulo}</span>
-          {subtitulo && <span className="block truncate text-sm text-muted-foreground">{subtitulo}</span>}
-        </span>
-        <span className="flex shrink-0 flex-wrap justify-end gap-x-4 gap-y-1 text-sm font-semibold tabular-nums text-muted-foreground">
-          {datos.filter(Boolean).map((d, i) => (
-            <span key={i}>{d}</span>
-          ))}
-        </span>
-        <ChevronRight className="size-5 shrink-0" />
-      </button>
-    </li>
-  );
-}
-
-function ListaClientes({
-  clientes,
-  onAbrir,
-}: {
-  clientes: ClienteResumen[];
-  onAbrir: (c: ClienteResumen) => void;
-}) {
-  const [busqueda, setBusqueda] = useState('');
   const q = busqueda.trim().toUpperCase();
-  const rows = clientes.filter(
-    (c) => !q || c.nombre.toUpperCase().includes(q) || (c.nit ?? '').includes(q),
+  // Un código de barras se busca dentro del inventario de todas las bodegas.
+  const codigoQ = busqueda.replace(/\s/g, '').toUpperCase();
+  const porCodigo = codigoQ.length >= 4 && /\d/.test(codigoQ);
+  const listaBodegas = bodegas.data ?? [];
+  const detalles = useBodegasDetalle(porCodigo ? listaBodegas.map((b) => b.id) : []);
+  const buscandoCodigo = detalles.some((r) => r.isLoading);
+  const conCodigo = useMemo(() => {
+    const s = new Set<string>();
+    if (!porCodigo) return s;
+    detalles.forEach((r, i) => {
+      const d = r.data;
+      if (!d) return;
+      if (
+        d.productos.some((p) => (p.codigo ?? '').toUpperCase().includes(codigoQ)) ||
+        d.canales.some((c) => barcodeDe(c).toUpperCase().includes(codigoQ))
+      )
+        s.add(listaBodegas[i].clienteId);
+    });
+    return s;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [porCodigo, codigoQ, detalles.map((r) => r.dataUpdatedAt).join('|')]);
+  const visibles = clientes.filter(
+    (c) => !q || c.nombre.toUpperCase().includes(q) || (c.nit ?? '').includes(q) || conCodigo.has(c.id),
   );
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex items-center gap-2 border-b-2 border-border px-3 py-2">
-        <div className="relative w-80">
-          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            className="h-9 pl-8 uppercase"
-            value={busqueda}
-            onChange={(e) => setBusqueda(e.target.value)}
-            placeholder="Buscar cliente o NIT…"
-          />
-        </div>
-        <p className="ml-auto text-xs text-muted-foreground">{rows.length} cliente(s) con inventario</p>
+  const cliente = clientes.find((c) => c.id === clienteId) ?? visibles[0] ?? null;
+  const buscarEnCliente = cliente && conCodigo.has(cliente.id) ? codigoQ : '';
+  const maxKg = Math.max(1, ...clientes.map((c) => c.canalesKg + c.productosKg + (extra.get(c.nombre)?.subKg ?? 0)));
+
+  if (bodegas.isLoading)
+    return (
+      <div className="flex h-full items-center justify-center text-muted-foreground">
+        <LoaderCircle className="size-6 animate-spin" />
       </div>
-      {!rows.length ? (
-        <Vacio text={clientes.length ? 'No hay clientes que coincidan.' : 'Ningún cliente tiene inventario en planta.'} />
-      ) : (
-        <ul className="min-h-0 flex-1 overflow-auto p-2">
-          {rows.map((c) => (
-            <Fila
-              key={c.id}
-              icon={Building2}
-              titulo={c.nombre}
-              subtitulo={c.nit ? `NIT ${c.nit}` : undefined}
-              onClick={() => onAbrir(c)}
-              datos={[
-                `${c.bodegas.length} bodega(s)`,
-                c.canales > 0 && `${c.canales} canal(es) · ${kg(c.canalesKg)} kg`,
-                c.canalesDespachadas > 0 && (
-                  <span className="text-sky-700">{c.canalesDespachadas} despachada(s)</span>
-                ),
-                c.canalesProcesadas > 0 && (
-                  <span className="text-violet-700">{c.canalesProcesadas} procesada(s)</span>
-                ),
-                c.subproductos > 0 && `${c.subproductos} subproducto(s)`,
-                c.productos > 0 && (
-                  <span className="text-emerald-700">
-                    {c.productos} producto(s) · {kg(c.productosKg)} kg
-                  </span>
-                ),
-              ]}
+    );
+
+  return (
+    <div className="grid h-full min-h-0 gap-3 lg:grid-cols-[21rem_minmax(0,1fr)]">
+      {/* Clientes */}
+      <section className="flex min-h-0 flex-col rounded-xl border border-border bg-card shadow-sm">
+        <div className="space-y-2 border-b border-border p-3">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              className="h-10 pl-9"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              placeholder="Buscar cliente, NIT o barcode"
             />
-          ))}
-        </ul>
+          </div>
+          <div className="flex items-center justify-between text-xs text-muted-foreground">
+            <span className="flex items-center gap-1.5">
+              {buscandoCodigo && <LoaderCircle className="size-3 animate-spin" />}
+              {visibles.length} cliente(s) con inventario
+            </span>
+            <label className="flex cursor-pointer items-center gap-1.5" title="Incluir canales procesadas/despachadas y productos transformados">
+              <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={verTodo} onChange={(e) => setVerTodo(e.target.checked)} />
+              Ver histórico
+            </label>
+          </div>
+        </div>
+        {!visibles.length ? (
+          <Vacio text={clientes.length ? 'No hay clientes que coincidan.' : 'Ningún cliente tiene inventario en planta.'} />
+        ) : (
+          <ul className="scrollbar-app min-h-0 flex-1 space-y-1.5 overflow-auto p-2">
+            {visibles.map((c) => {
+              const e = extra.get(c.nombre);
+              const subKg = e?.subKg ?? 0;
+              const total = c.canalesKg + c.productosKg + subKg;
+              const sel = cliente?.id === c.id;
+              const pct = (n: number) => `${(n / maxKg) * 100}%`;
+              return (
+                <li key={c.id}>
+                  <button
+                    type="button"
+                    onClick={() => setClienteId(c.id)}
+                    className={cn(
+                      'flex w-full flex-col gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors',
+                      sel ? 'border-primary bg-primary/5 ring-1 ring-primary/30' : 'border-transparent hover:bg-muted/60',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-bold uppercase">{c.nombre}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {c.nit ? `NIT ${c.nit}` : 'Sin NIT'} ·{' '}
+                          {c.bodegas.length === 1 ? `Bodega ${c.bodegas[0].code}` : `${c.bodegas.length} bodegas`}
+                        </div>
+                      </div>
+                      <span className="shrink-0 text-sm font-bold tabular-nums">{kg0(total)} kg</span>
+                    </div>
+                    <div className="flex h-2 overflow-hidden rounded-full bg-muted" title={`Canal ${kg0(c.canalesKg)} · Producto ${kg0(c.productosKg)} · Subproducto ${kg0(subKg)} kg`}>
+                      <div className="bg-primary" style={{ width: pct(c.canalesKg) }} />
+                      <div className="bg-teal-400" style={{ width: pct(c.productosKg) }} />
+                      <div className="bg-orange-400" style={{ width: pct(subKg) }} />
+                    </div>
+                    {(!!e?.porVencer || !!e?.canalesViejas) && (
+                      <div className="flex flex-wrap gap-1">
+                        {!!e?.porVencer && <Chip className="bg-amber-100 text-amber-800">{e.porVencer} por vencer</Chip>}
+                        {!!e?.canalesViejas && <Chip className="bg-red-100 text-red-700">{e.canalesViejas} canales +días</Chip>}
+                      </div>
+                    )}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+        <div className="flex items-center justify-center gap-3 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">
+          <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-primary" />Canal</span>
+          <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-teal-400" />Producto</span>
+          {SUBPRODUCTOS_ACTIVO && (
+            <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-orange-400" />Subproducto</span>
+          )}
+        </div>
+      </section>
+
+      {/* Inventario del cliente */}
+      {cliente ? (
+        <DetalleCliente key={`${cliente.id}|${buscarEnCliente}`} cliente={cliente} verTodo={verTodo} buscar={buscarEnCliente} />
+      ) : (
+        <section className="rounded-xl border border-dashed border-border">
+          <Vacio text="Elegí un cliente para ver su inventario." />
+        </section>
       )}
     </div>
   );
 }
 
-function ListaBodegas({
-  bodegas,
-  onAbrir,
-}: {
-  bodegas: BodegaResumen[];
-  onAbrir: (b: BodegaResumen) => void;
-}) {
+type TabDetalle = 'productos' | 'canales' | 'subproductos';
+
+function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen; verTodo: boolean; buscar: string }) {
+  const [bodegaId, setBodegaId] = useState<string>('todas');
+  const ids = bodegaId === 'todas' ? cliente.bodegas.map((b) => b.id) : [bodegaId];
+  const queries = useBodegasDetalle(ids);
+  const cargando = queries.some((q) => q.isLoading);
+  const [tab, setTab] = useState<TabDetalle | null>(null);
+  const [agrupar, setAgrupar] = useState<'producto' | 'orden'>('producto');
+  const [exportando, setExportando] = useState(false);
+
+  const datos = useMemo(() => {
+    const canales: Canal[] = [];
+    const productos: Producto[] = [];
+    const subs = new Map<string, Subproducto>();
+    for (const q of queries) {
+      const d = q.data;
+      if (!d) continue;
+      canales.push(...(verTodo ? d.canales : d.canales.filter((c) => !canalDespachada(c) && !canalProcesada(c))));
+      productos.push(...(verTodo ? d.productos : d.productos.filter((p) => !p.transformadoOc)));
+      // Un subproducto puede quedar asociado a varias bodegas del mismo cliente: se cuenta una vez.
+      for (const s of d.subproductos) subs.set(s.id, s);
+    }
+    return { canales, productos, subproductos: SUBPRODUCTOS_ACTIVO ? [...subs.values()] : [] };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [queries.map((q) => q.dataUpdatedAt).join('|'), verTodo, bodegaId]);
+
+  const { canales, productos, subproductos } = datos;
+  const enPlanta = canales.filter((c) => !canalDespachada(c) && !canalProcesada(c));
+  const canalesKg = enPlanta.reduce((s, c) => s + c.pesoKg, 0);
+  const canalesOrden = enPlanta.filter(canalEnOrden).length;
+  const productosKg = productos.reduce((s, p) => s + p.netoKg, 0);
+  const libres = productos.filter(productoLibre);
+  const libresKg = libres.reduce((s, p) => s + p.netoKg, 0);
+  const subKg = subproductos.reduce((s, x) => s + (x.pesoKg ?? 0), 0);
+  const subUnd = subproductos.reduce((s, x) => s + (x.cantidad ?? 0), 0);
+  const vigentes = productos.filter((p) => !p.transformadoOc && !p.despachoDc);
+  const vencidas = vigentes.filter((p) => (diasVence(p.fechaVencimiento) ?? 99) < 0).length;
+  const porVencer = vigentes.filter((p) => {
+    const d = diasVence(p.fechaVencimiento);
+    return d != null && d >= 0 && d <= DIAS_VENCE;
+  }).length;
+
+  const porProducto = useMemo(() => agruparPorProducto(productos), [productos]);
+
+  const tabs: { key: TabDetalle; label: string; n: number }[] = [
+    { key: 'productos', label: 'Productos', n: productos.length },
+    { key: 'canales', label: 'Canales', n: canales.length },
+    { key: 'subproductos', label: 'Subproductos', n: subproductos.length },
+  ];
+  const activa =
+    tab ??
+    (buscar ? (canales.some((c) => barcodeDe(c).toUpperCase().includes(buscar)) ? 'canales' : 'productos') : undefined) ??
+    tabs.find((t) => t.n > 0)?.key ??
+    'productos';
+  const nombreBodega = bodegaId === 'todas' ? 'Todas las bodegas' : cliente.bodegas.find((b) => b.id === bodegaId)?.nombre ?? '';
+
+  async function exportar() {
+    setExportando(true);
+    try {
+      await descargarInventarioClienteExcel({
+        cliente: cliente.nombre,
+        nit: cliente.nit,
+        bodega: nombreBodega,
+        porProducto: porProducto.map((p) => ({
+          codigo: p.codigo,
+          nombre: p.nombre,
+          unds: p.unds,
+          kg: p.kg,
+          disponibles: p.disponibles,
+          comprometidas: p.enProceso + p.enDespacho,
+          vence: p.vence,
+        })),
+        productos,
+        canales,
+        subproductos,
+      });
+    } finally {
+      setExportando(false);
+    }
+  }
+
   return (
-    <ul className="h-full overflow-auto p-2">
-      {bodegas.map((b) => (
-        <Fila
-          key={b.id}
-          icon={Warehouse}
-          titulo={`${b.code} - ${b.nombre}`}
-          onClick={() => onAbrir(b)}
-          datos={[
-            b.canales > 0 && `${b.canales} canal(es) · ${kg(b.canalesKg)} kg`,
-            b.canalesDespachadas > 0 && (
-              <span className="text-sky-700">{b.canalesDespachadas} despachada(s)</span>
-            ),
-            b.canalesProcesadas > 0 && (
-              <span className="text-violet-700">{b.canalesProcesadas} procesada(s)</span>
-            ),
-            b.subproductos > 0 && `${b.subproductos} subproducto(s)`,
-            b.productos > 0 && (
-              <span className="text-emerald-700">
-                {b.productos} producto(s) · {kg(b.productosKg)} kg
+    <section className="flex min-h-0 flex-col gap-3">
+      {/* Encabezado */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+        <Building2 className="size-7 text-primary" />
+        <div className="min-w-0 flex-1">
+          <h2 className="truncate text-lg font-bold uppercase">{cliente.nombre}</h2>
+          <p className="text-sm text-muted-foreground">{cliente.nit ? `NIT ${cliente.nit}` : 'Sin NIT registrado'}</p>
+        </div>
+        {cliente.bodegas.length > 1 ? (
+          <label className="flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+            Bodega
+            <select
+              value={bodegaId}
+              onChange={(e) => setBodegaId(e.target.value)}
+              className="h-10 rounded-lg border border-input bg-background px-3 text-sm font-semibold normal-case text-foreground outline-none focus:border-primary"
+            >
+              <option value="todas">Todas ({cliente.bodegas.length})</option>
+              {cliente.bodegas.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.code} - {b.nombre}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <span className="rounded-lg bg-muted px-3 py-1.5 text-sm font-semibold">
+            Bodega {cliente.bodegas[0]?.code} - {cliente.bodegas[0]?.nombre}
+          </span>
+        )}
+        <Button variant="outline" className="h-10" onClick={() => void exportar()} disabled={cargando || exportando}>
+          {exportando ? <LoaderCircle className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
+          Excel
+        </Button>
+      </div>
+
+      {/* Indicadores */}
+      <div className="grid shrink-0 grid-cols-2 gap-3 xl:grid-cols-4">
+        <Kpi icon={Beef} titulo="Canales" valor={`${kg(canalesKg)} kg`} sub={`${enPlanta.length} piezas`}>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip className="bg-emerald-100 text-emerald-800">{enPlanta.length - canalesOrden} disponibles</Chip>
+            {canalesOrden > 0 && <Chip className="bg-amber-100 text-amber-800">{canalesOrden} en orden</Chip>}
+          </div>
+        </Kpi>
+        <Kpi icon={Boxes} titulo="Producto empacado" valor={`${kg(productosKg)} kg`} sub={`${productos.length} etiquetas`}>
+          <div className="flex flex-wrap gap-1.5">
+            <Chip className="bg-emerald-100 text-emerald-800">{kg(libresKg)} kg disponibles</Chip>
+            {productos.length - libres.length > 0 && (
+              <Chip className="bg-amber-100 text-amber-800">{productos.length - libres.length} en proceso/despacho</Chip>
+            )}
+          </div>
+        </Kpi>
+        {SUBPRODUCTOS_ACTIVO ? (
+          <Kpi icon={ClipboardList} titulo="Subproductos" valor={`${kg(subKg)} kg`} sub={`${subUnd} und`} />
+        ) : (
+          <Kpi icon={ClipboardList} titulo="Subproductos" valor="Próximamente" sub="Módulo en construcción" />
+        )}
+        <Kpi
+          icon={AlertTriangle}
+          titulo="Vencimientos"
+          valor={`${porVencer + vencidas}`}
+          sub={porVencer + vencidas ? `etiquetas en ${DIAS_VENCE} días o vencidas` : 'nada por vencer'}
+          alerta={porVencer + vencidas > 0}
+        >
+          {vencidas > 0 && (
+            <div>
+              <Chip className="bg-red-600 text-white">{vencidas} vencidas</Chip>
+            </div>
+          )}
+        </Kpi>
+      </div>
+
+      {/* Detalle */}
+      <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm">
+        <div className="flex flex-wrap items-center gap-2 border-b border-border p-2">
+          <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => setTab(t.key)}
+                className={cn(
+                  'flex h-9 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-colors',
+                  activa === t.key ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t.label}
+                {t.key === 'subproductos' && !SUBPRODUCTOS_ACTIVO ? (
+                  <span className="rounded-full bg-amber-100 px-1.5 text-[10px] font-bold uppercase text-amber-800">Pronto</span>
+                ) : (
+                  <span className={cn('rounded-full px-1.5 text-xs tabular-nums', activa === t.key ? 'bg-primary text-primary-foreground' : 'bg-background')}>
+                    {t.n}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {activa === 'productos' && (
+            <div className="ml-auto flex items-center gap-2 text-xs font-semibold uppercase text-muted-foreground">
+              Agrupar por
+              <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+                {(['producto', 'orden'] as const).map((a) => (
+                  <button
+                    key={a}
+                    type="button"
+                    onClick={() => setAgrupar(a)}
+                    className={cn(
+                      'h-8 rounded-md px-3 text-sm font-semibold normal-case transition-colors',
+                      agrupar === a ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {a === 'producto' ? 'Producto' : 'Orden'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+        <div className="min-h-0 flex-1">
+          {cargando ? (
+            <div className="flex h-full items-center justify-center text-muted-foreground">
+              <LoaderCircle className="size-6 animate-spin" />
+            </div>
+          ) : activa === 'productos' ? (
+            !productos.length ? (
+              <Vacio text="Este cliente no tiene producto empacado en esta bodega." />
+            ) : agrupar === 'producto' ? (
+              <ProductosPorProducto filas={porProducto} verTodo={verTodo} buscar={buscar} />
+            ) : (
+              <ProductosPorOrden productos={productos} />
+            )
+          ) : activa === 'canales' ? (
+            !canales.length ? <Vacio text="No hay canales de este cliente en planta." /> : <CanalesTabla canales={canales} buscar={buscar} />
+          ) : !SUBPRODUCTOS_ACTIVO ? (
+            <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
+              <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-bold uppercase tracking-wide text-amber-800">
+                Próximamente
               </span>
-            ),
-          ]}
-        />
-      ))}
-    </ul>
+              <p className="text-sm text-muted-foreground">El inventario de subproductos está en construcción.</p>
+            </div>
+          ) : !subproductos.length ? (
+            <Vacio text="No hay subproductos de este cliente en cava." />
+          ) : (
+            <SubproductosTabla items={subproductos} />
+          )}
+        </div>
+      </div>
+    </section>
   );
 }
 
-function ListaOrdenes({ ordenes, onAbrir }: { ordenes: Orden[]; onAbrir: (o: Orden) => void }) {
-  if (!ordenes.length) return <Vacio text="Esta bodega no tiene órdenes con inventario." />;
+interface FilaProducto {
+  codigo: string;
+  nombre: string;
+  unds: number;
+  kg: number;
+  disponibles: number;
+  disponiblesKg: number;
+  enProceso: number;
+  enDespacho: number;
+  transformados: number;
+  congelado: boolean;
+  vence: string | null;
+  etiquetas: Producto[];
+}
+
+function agruparPorProducto(productos: Producto[]): FilaProducto[] {
+  const m = new Map<string, FilaProducto>();
+  for (const p of productos) {
+    const f = m.get(p.productoCodigo) ?? {
+      codigo: p.productoCodigo,
+      nombre: p.productoNombre,
+      unds: 0,
+      kg: 0,
+      disponibles: 0,
+      disponiblesKg: 0,
+      enProceso: 0,
+      enDespacho: 0,
+      transformados: 0,
+      congelado: false,
+      vence: null,
+      etiquetas: [],
+    };
+    f.unds += 1;
+    f.kg += p.netoKg;
+    f.etiquetas.push(p);
+    if (p.transformadoOc) f.transformados += 1;
+    else if (p.despachoDc) f.enDespacho += 1;
+    else if (p.trasladoOt) f.enProceso += 1;
+    else {
+      f.disponibles += 1;
+      f.disponiblesKg += p.netoKg;
+      if (p.fechaVencimiento && (!f.vence || p.fechaVencimiento < f.vence)) f.vence = p.fechaVencimiento;
+    }
+    if (/congel/i.test(p.conservacion)) f.congelado = true;
+    m.set(p.productoCodigo, f);
+  }
+  return [...m.values()].sort((a, b) => b.kg - a.kg);
+}
+
+function ProductosPorProducto({ filas, verTodo, buscar }: { filas: FilaProducto[]; verTodo: boolean; buscar: string }) {
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  const [busqueda, setBusqueda] = useState(buscar);
+  const [etiquetaId, setEtiquetaId] = useState<string | null>(null);
+  const [postaId, setPostaId] = useState<string | null>(null);
+  const q = busqueda.trim().toUpperCase();
+  const codigoQ = busqueda.replace(/\s/g, '').toUpperCase();
+  // Si no coincide el producto se buscan sus etiquetas por código de barras y se abren.
+  const visibles = filas.flatMap((f) => {
+    if (!q || f.codigo.includes(q) || f.nombre.toUpperCase().includes(q)) return [{ f, etiquetas: f.etiquetas, porCodigo: false }];
+    const etiquetas = f.etiquetas.filter((e) => (e.codigo ?? '').toUpperCase().includes(codigoQ));
+    return etiquetas.length ? [{ f, etiquetas, porCodigo: true }] : [];
+  });
+  const toggle = (codigo: string) =>
+    setAbiertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(codigo)) next.delete(codigo);
+      else next.add(codigo);
+      return next;
+    });
+  const tot = visibles.reduce(
+    (s, { f }) => ({ unds: s.unds + f.unds, kg: s.kg + f.kg, disp: s.disp + f.disponibles, dispKg: s.dispKg + f.disponiblesKg }),
+    { unds: 0, kg: 0, disp: 0, dispKg: 0 },
+  );
+
   return (
-    <ul className="h-full overflow-auto p-2">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex items-center gap-3 px-3 py-2">
+        <div className="relative w-72">
+          <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="h-9 pl-8" value={busqueda} onChange={(e) => setBusqueda(e.target.value)} placeholder="Buscar código, producto o barcode" />
+        </div>
+        <p className="ml-auto text-sm text-muted-foreground">
+          {visibles.length} referencia(s) · <b className="tabular-nums text-foreground">{tot.unds}</b> und ·{' '}
+          <b className="tabular-nums text-foreground">{kg(tot.kg)}</b> kg
+        </p>
+      </div>
+      <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
+        <table className="w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <tr className="[&>th]:h-10 [&>th]:px-3">
+              <th className="w-8" />
+              <th>Código</th>
+              <th>Producto</th>
+              <th className="text-right">Und</th>
+              <th className="text-right">Kg</th>
+              <th className="text-right">Disponible</th>
+              <th>Comprometido</th>
+              <th>Vence</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {visibles.map(({ f, etiquetas, porCodigo }) => {
+              const abierto = porCodigo || abiertos.has(f.codigo);
+              return (
+                <Fragment key={f.codigo}>
+                  <tr
+                    onClick={() => toggle(f.codigo)}
+                    className={cn('h-12 cursor-pointer transition-colors [&>td]:px-3', abierto ? 'bg-primary/5' : 'hover:bg-muted/40')}
+                  >
+                    <td className="text-muted-foreground">
+                      {abierto ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
+                    </td>
+                    <td className="font-semibold tabular-nums text-muted-foreground">{f.codigo}</td>
+                    <td className="font-semibold uppercase">
+                      {f.nombre}
+                      {f.congelado && <Snowflake className="ml-1.5 inline size-3.5 text-sky-600" />}
+                    </td>
+                    <td className="text-right tabular-nums">{f.unds}</td>
+                    <td className="text-right font-semibold tabular-nums">{kg(f.kg)}</td>
+                    <td className="text-right tabular-nums text-emerald-700">
+                      {f.disponibles} <span className="text-xs text-muted-foreground">· {kg(f.disponiblesKg)} kg</span>
+                    </td>
+                    <td>
+                      <div className="flex flex-wrap gap-1">
+                        {f.enProceso > 0 && <Chip className="bg-amber-100 text-amber-800">{f.enProceso} en proceso</Chip>}
+                        {f.enDespacho > 0 && <Chip className="bg-sky-100 text-sky-800">{f.enDespacho} en despacho</Chip>}
+                        {verTodo && f.transformados > 0 && <Chip className="bg-violet-100 text-violet-800">{f.transformados} transformados</Chip>}
+                        {!f.enProceso && !f.enDespacho && !(verTodo && f.transformados) && <span className="text-muted-foreground">—</span>}
+                      </div>
+                    </td>
+                    <td>
+                      <VenceChip iso={f.vence} />
+                    </td>
+                  </tr>
+                  {abierto && (
+                    <tr>
+                      <td colSpan={8} className="bg-muted/20 p-0">
+                        <table className="w-full text-xs">
+                          <thead className="text-left uppercase text-muted-foreground">
+                            <tr className="[&>th]:px-3 [&>th]:py-1.5">
+                              <th className="pl-11">Código de barras</th>
+                              <th>Origen</th>
+                              <th>Tienda</th>
+                              <th className="text-right">Kg</th>
+                              <th>Conservación</th>
+                              <th>Empaque</th>
+                              <th>Vence</th>
+                              <th>Estado</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-border/60">
+                            {etiquetas.map((e) => (
+                              <tr
+                                key={e.id}
+                                onClick={() => (e.rpNumber ? setPostaId(e.id) : setEtiquetaId(e.id))}
+                                title="Ver trazabilidad"
+                                className="cursor-pointer hover:bg-card [&>td]:px-3 [&>td]:py-1.5"
+                              >
+                                <td className="pl-11 font-mono font-semibold text-primary">{e.codigo ?? '—'}</td>
+                                <td className="tabular-nums">
+                                  {e.rpNumber
+                                    ? `RP${e.rpNumber}`
+                                    : e.ocNumber
+                                      ? `${formatOC(e.ocNumber)}${e.origenOt ? ` ← ${formatOT(e.origenOt)}` : ''}`
+                                      : e.opNumber
+                                        ? formatOP(e.opNumber)
+                                        : '—'}
+                                </td>
+                                <td className="uppercase">{e.tiendaCodigo ? `${e.tiendaCodigo} - ${e.tienda}` : e.tienda}</td>
+                                <td className="text-right font-semibold tabular-nums">{kg(e.netoKg)}</td>
+                                <td className="uppercase">{e.conservacion || '—'}</td>
+                                <td className="tabular-nums">{fecha(e.fechaEmpaque)}</td>
+                                <td>
+                                  <VenceChip iso={e.fechaVencimiento} />
+                                </td>
+                                <td>
+                                  {e.transformadoOc ? (
+                                    <span className="font-semibold text-violet-700">TRANSFORMADO · {formatOC(e.transformadoOc)}</span>
+                                  ) : e.despachoDc ? (
+                                    <span className="font-semibold text-sky-700">EN DESPACHO · {formatDC(e.despachoDc)}</span>
+                                  ) : e.trasladoOt ? (
+                                    <span className="font-semibold text-amber-700">EN PROCESO · {formatOT(e.trasladoOt)}</span>
+                                  ) : (
+                                    <span className="font-semibold text-emerald-700">DISPONIBLE</span>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+          </tbody>
+          <tfoot className="sticky bottom-0 bg-muted font-semibold tabular-nums">
+            <tr className="h-10 [&>td]:px-3">
+              <td />
+              <td colSpan={2}>TOTAL</td>
+              <td className="text-right">{tot.unds}</td>
+              <td className="text-right">{kg(tot.kg)}</td>
+              <td className="text-right text-emerald-700">
+                {tot.disp} <span className="text-xs text-muted-foreground">· {kg(tot.dispKg)} kg</span>
+              </td>
+              <td colSpan={2} />
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      {etiquetaId && <TrazabilidadEtiquetaDialog id={etiquetaId} onClose={() => setEtiquetaId(null)} />}
+      {postaId && <TrazabilidadReciboDialog tipo="posta" id={postaId} onClose={() => setPostaId(null)} />}
+    </div>
+  );
+}
+
+function ProductosPorOrden({ productos }: { productos: Producto[] }) {
+  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+  const ordenes = useMemo(() => {
+    const m = new Map<string, { key: string; titulo: string; date: string; productos: Producto[] }>();
+    for (const p of productos) {
+      const [key, titulo] = p.rpNumber
+        ? [`rp|${p.rpNumber}`, `Recibo en posta RP${p.rpNumber}`]
+        : p.ocNumber
+          ? [`oc|${p.ocNumber}`, `Orden de acondicionamiento ${formatOC(p.ocNumber)}`]
+          : p.opNumber
+            ? [`op|${p.opNumber}`, `Orden de producción ${formatOP(p.opNumber)}`]
+            : ['sin', 'Productos sin orden'];
+      const o = m.get(key) ?? { key, titulo, date: p.fechaEmpaque, productos: [] };
+      o.productos.push(p);
+      if (p.fechaEmpaque > o.date) o.date = p.fechaEmpaque;
+      m.set(key, o);
+    }
+    return [...m.values()].sort((a, b) => b.date.localeCompare(a.date));
+  }, [productos]);
+  const toggle = (k: string) =>
+    setAbiertos((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
+
+  return (
+    <ul className="scrollbar-app h-full space-y-2 overflow-auto p-3">
       {ordenes.map((o) => {
-        const enOrden = o.canales.filter(canalEnOrden).length;
-        const despachadas = o.canales.filter(canalDespachada).length;
-        const procesadas = o.canales.filter(canalProcesada).length;
-        const canalesKg = o.canales.reduce((s, c) => s + c.pesoKg, 0);
-        const productosKg = o.productos.reduce((s, p) => s + p.netoKg, 0);
-        const libres = o.canales.length - enOrden - despachadas - procesadas;
+        const abierto = abiertos.has(o.key);
+        const totalKg = o.productos.reduce((s, p) => s + p.netoKg, 0);
+        const libres = o.productos.filter(productoLibre).length;
         return (
-          <Fila
-            key={o.key}
-            icon={ClipboardList}
-            titulo={tituloOrden(o)}
-            subtitulo={o.date ? `Fecha ${fecha(o.date)}` : undefined}
-            onClick={() => onAbrir(o)}
-            datos={[
-              o.canales.length > 0 && `${o.canales.length} canal(es) · ${kg(canalesKg)} kg`,
-              libres > 0 && <span className="text-emerald-700">{libres} disponible(s)</span>,
-              enOrden > 0 && <span className="text-amber-600">{enOrden} en orden</span>,
-              despachadas > 0 && <span className="text-sky-700">{despachadas} despachada(s)</span>,
-              procesadas > 0 && <span className="text-violet-700">{procesadas} procesada(s)</span>,
-              o.subproductos.length > 0 && `${o.subproductos.length} subproducto(s)`,
-              o.productos.length > 0 && (
-                <span className="text-emerald-700">
-                  {o.productos.length} producto(s) · {kg(productosKg)} kg
-                </span>
-              ),
-            ]}
-          />
+          <li key={o.key} className="rounded-lg border border-border">
+            <button
+              type="button"
+              onClick={() => toggle(o.key)}
+              className={cn('flex w-full items-center gap-3 px-4 py-3 text-left', abierto ? 'bg-primary/5' : 'hover:bg-muted/40')}
+            >
+              {abierto ? <ChevronDown className="size-4 text-muted-foreground" /> : <ChevronRight className="size-4 text-muted-foreground" />}
+              <span className="min-w-0 flex-1">
+                <span className="block font-semibold uppercase">{o.titulo}</span>
+                <span className="text-xs text-muted-foreground">Último empaque {fecha(o.date)}</span>
+              </span>
+              <span className="flex flex-wrap items-center justify-end gap-2 text-sm tabular-nums">
+                <span>{o.productos.length} etiquetas</span>
+                <b>{kg(totalKg)} kg</b>
+                <Chip className="bg-emerald-100 text-emerald-800">{libres} disponibles</Chip>
+              </span>
+            </button>
+            {abierto && (
+              <div className="border-t border-border p-3">
+                <Productos d={{ productos: o.productos }} />
+              </div>
+            )}
+          </li>
         );
       })}
     </ul>
-  );
-}
-
-type TabDetalle = 'canales' | 'subproductos' | 'productos';
-
-function OrdenDetalle({ orden }: { orden: Orden }) {
-  const tabs: { key: TabDetalle; label: string; n: number }[] = [
-    { key: 'canales' as const, label: 'Canales', n: orden.canales.length },
-    { key: 'subproductos' as const, label: 'Subproductos', n: orden.subproductos.length },
-    { key: 'productos' as const, label: 'Productos', n: orden.productos.length },
-  ].filter((t) => t.n > 0);
-  const [tab, setTab] = useState<TabDetalle>(tabs[0]?.key ?? 'canales');
-  const activa = tabs.some((t) => t.key === tab) ? tab : tabs[0]?.key;
-
-  const canalesKg = orden.canales.reduce((s, c) => s + c.pesoKg, 0);
-  const enOrden = orden.canales.filter(canalEnOrden).length;
-  const despachadas = orden.canales.filter(canalDespachada).length;
-  const procesadas = orden.canales.filter(canalProcesada).length;
-  const subKg = orden.subproductos.reduce((s, x) => s + (x.pesoKg ?? 0), 0);
-  const subUnidades = orden.subproductos.reduce((s, x) => s + (x.cantidad ?? 0), 0);
-  const productosKg = orden.productos.reduce((s, p) => s + p.netoKg, 0);
-  const productosLibres = orden.productos.filter(productoLibre).length;
-
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="grid grid-cols-2 gap-2 border-b-2 border-border p-3 sm:grid-cols-4">
-        {orden.canales.length > 0 && (
-          <>
-            <Caja titulo="Canales" valor={String(orden.canales.length)} detalle={`${kg(canalesKg)} kg`} />
-            <Caja
-              titulo="Disponibles"
-              valor={String(orden.canales.length - enOrden - despachadas - procesadas)}
-              className="text-emerald-700"
-            />
-            <Caja titulo="En orden / despacho" valor={String(enOrden)} className="text-amber-600" />
-            {despachadas > 0 && (
-              <Caja titulo="Despachadas" valor={String(despachadas)} className="text-sky-700" />
-            )}
-            {procesadas > 0 && (
-              <Caja titulo="Procesadas" valor={String(procesadas)} className="text-violet-700" />
-            )}
-          </>
-        )}
-        {orden.subproductos.length > 0 && (
-          <Caja
-            titulo="Subproductos"
-            valor={String(orden.subproductos.length)}
-            detalle={[subUnidades > 0 && `${subUnidades} und`, subKg > 0 && `${kg(subKg)} kg`].filter(Boolean).join(' · ')}
-          />
-        )}
-        {orden.productos.length > 0 && (
-          <>
-            <Caja
-              titulo="Productos"
-              valor={String(orden.productos.length)}
-              detalle={`${kg(productosKg)} kg`}
-              className="text-emerald-700"
-            />
-            <Caja titulo="Disponibles" valor={String(productosLibres)} className="text-emerald-700" />
-            <Caja
-              titulo="En proceso / despacho"
-              valor={String(orden.productos.length - productosLibres)}
-              className="text-amber-600"
-            />
-          </>
-        )}
-      </div>
-
-      {tabs.length > 1 && (
-        <div className="flex border-b-2 border-border">
-          {tabs.map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={cn(
-                'flex-1 border-r-2 border-border px-3 py-2 text-xs font-semibold uppercase tracking-wide transition-colors last:border-r-0',
-                activa === t.key
-                  ? 'bg-background text-foreground shadow-[inset_0_-3px_0_0] shadow-emerald-600'
-                  : 'bg-muted/40 text-muted-foreground hover:bg-muted',
-              )}
-            >
-              {t.label} ({t.n})
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="min-h-0 flex-1">
-        {activa === 'canales' && <CanalesTabla canales={orden.canales} />}
-        {activa === 'subproductos' && <SubproductosTabla items={orden.subproductos} />}
-        {activa === 'productos' && (
-          <div className="h-full overflow-auto p-3">
-            <Productos d={{ productos: orden.productos }} />
-          </div>
-        )}
-      </div>
-    </div>
   );
 }
 
@@ -570,7 +855,7 @@ function EstadoCanal({ c }: { c: Canal }) {
     return (
       <span
         title="La orden de despacho se cerró en Canal Fría: la canal salió a desposte"
-        className="inline-flex flex-col rounded-sm bg-violet-600 px-2 py-0.5 text-xs font-bold tabular-nums text-white"
+        className="inline-flex flex-col rounded-md bg-violet-600 px-2 py-0.5 text-xs font-bold tabular-nums text-white"
       >
         <span>PROCESADA · {formatOD(c.enOrden.odNumber)}</span>
         {c.enOrden.opNumbers.length > 0 && <span>{c.enOrden.opNumbers.map(formatOP).join(', ')}</span>}
@@ -581,12 +866,10 @@ function EstadoCanal({ c }: { c: Canal }) {
     return (
       <span
         title="Sigue en la cava, pero ya está asignada a esta orden"
-        className="inline-flex flex-col rounded-sm border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-900"
+        className="inline-flex flex-col rounded-md border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-900"
       >
         <span>{formatOD(c.enOrden.odNumber)}</span>
-        {c.enOrden.opNumbers.length > 0 && (
-          <span>{c.enOrden.opNumbers.map(formatOP).join(', ')} · EN PROCESO</span>
-        )}
+        {c.enOrden.opNumbers.length > 0 && <span>{c.enOrden.opNumbers.map(formatOP).join(', ')} · EN PROCESO</span>}
       </span>
     );
   }
@@ -594,7 +877,7 @@ function EstadoCanal({ c }: { c: Canal }) {
     return (
       <span
         title={`Salió de planta${c.enDespacho.cerradaAt ? ` el ${new Date(c.enDespacho.cerradaAt).toLocaleString('es-CO')}` : ''}`}
-        className="inline-flex flex-col rounded-sm bg-sky-600 px-2 py-0.5 text-xs font-bold tabular-nums text-white"
+        className="inline-flex flex-col rounded-md bg-sky-600 px-2 py-0.5 text-xs font-bold tabular-nums text-white"
       >
         <span>DESPACHADA · {formatDC(c.enDespacho.dcNumber)}</span>
         <span>{c.enDespacho.tipo === 'caliente' ? 'CALIENTE' : 'FRÍO'}</span>
@@ -605,7 +888,7 @@ function EstadoCanal({ c }: { c: Canal }) {
     return (
       <span
         title="Sigue en la cava hasta que se cierre la orden de despacho"
-        className="inline-flex flex-col rounded-sm border border-sky-400 bg-sky-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-sky-900"
+        className="inline-flex flex-col rounded-md border border-sky-400 bg-sky-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-sky-900"
       >
         <span>{formatDC(c.enDespacho.dcNumber)}</span>
         <span>DESPACHO {c.enDespacho.tipo === 'caliente' ? 'CALIENTE' : 'FRÍO'}</span>
@@ -615,8 +898,8 @@ function EstadoCanal({ c }: { c: Canal }) {
   return <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>;
 }
 
-function CanalesTabla({ canales }: { canales: Canal[] }) {
-  const [busqueda, setBusqueda] = useState('');
+function CanalesTabla({ canales, buscar }: { canales: Canal[]; buscar: string }) {
+  const [busqueda, setBusqueda] = useState(buscar);
   const [tipo, setTipo] = useState('');
   const [pieza, setPieza] = useState('');
   const [cava, setCava] = useState('');
@@ -624,8 +907,9 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
   const [trazaId, setTrazaId] = useState<string | null>(null);
   const [reciboId, setReciboId] = useState<string | null>(null);
 
+  const tipoDe = (c: Canal) => (c.recibo ? 'RECIBIDA' : c.canalAnimalTipo);
   const tipos = useMemo(
-    () => [...new Set(canales.map((c) => c.canalAnimalTipo).filter((t): t is string => !!t))].sort(),
+    () => [...new Set(canales.map(tipoDe).filter((t): t is string => !!t))].sort(),
     [canales],
   );
   const cavas = useMemo(
@@ -637,7 +921,7 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
     .filter(
       (c) =>
         (!q || barcodeDe(c).toUpperCase().includes(q)) &&
-        (!tipo || c.canalAnimalTipo === tipo) &&
+        (!tipo || tipoDe(c) === tipo) &&
         (!pieza || c.pieza === pieza) &&
         (!cava || c.cava === cava) &&
         (!estado || estadoCanal(c) === estado),
@@ -653,7 +937,7 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-4 border-b-2 border-border px-3 py-2">
+      <div className="flex flex-wrap items-center gap-4 px-3 py-2">
         <div className="relative w-56">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -672,24 +956,14 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
             </button>
           )}
         </div>
-        <FiltroSelect
-          label="Tipo"
-          value={tipo}
-          onChange={setTipo}
-          opciones={tipos.map((t) => ({ value: t, label: t.toUpperCase() }))}
-        />
+        <FiltroSelect label="Tipo" value={tipo} onChange={setTipo} opciones={tipos.map((t) => ({ value: t, label: t.toUpperCase() }))} />
         <FiltroSelect
           label="Pieza"
           value={pieza}
           onChange={setPieza}
           opciones={(Object.keys(PIEZA) as Canal['pieza'][]).map((p) => ({ value: p, label: PIEZA[p] }))}
         />
-        <FiltroSelect
-          label="Cava"
-          value={cava}
-          onChange={setCava}
-          opciones={cavas.map((c) => ({ value: c, label: c }))}
-        />
+        <FiltroSelect label="Cava" value={cava} onChange={setCava} opciones={cavas.map((c) => ({ value: c, label: c }))} />
         <FiltroSelect
           label="Estado"
           value={estado}
@@ -708,10 +982,10 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
       {!filtradas.length ? (
         <Vacio text="No hay canales con estos filtros." />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
           <table className="w-full whitespace-nowrap text-sm">
-            <thead className="sticky top-0 z-10 bg-muted text-left">
-              <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
+            <thead className="sticky top-0 z-10 bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <tr className="[&>th]:h-10 [&>th]:px-3">
                 <th>Orden</th>
                 <th>Turno</th>
                 <th>Barcode</th>
@@ -721,7 +995,6 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
                 <th>Cava</th>
                 <th>Estado</th>
                 <th>Destino</th>
-                <th>Observación</th>
                 <th className="text-right">Caliente (kg)</th>
                 <th className="text-right">Frío (kg)</th>
               </tr>
@@ -732,27 +1005,27 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
                   key={c.id}
                   onClick={() => (c.recibo ? setReciboId(c.id) : setTrazaId(c.id))}
                   title={c.recibo ? 'Ver trazabilidad del recibo' : 'Ver trazabilidad de la canal'}
-                  className={cn(
-                    'cursor-pointer hover:bg-muted/50 [&>td]:px-3 [&>td]:py-2',
-                    canalDespachada(c) && 'bg-sky-50/60',
-                  )}
+                  className={cn('cursor-pointer hover:bg-muted/50 [&>td]:px-3 [&>td]:py-2', canalDespachada(c) && 'bg-sky-50/60')}
                 >
                   <td className="tabular-nums">{c.recibo ? `RC${c.recibo.receiptNumber}` : formatOB(c.reference)}</td>
                   <td className="tabular-nums">{c.turno ?? '—'}</td>
-                  <td className="tabular-nums">{barcodeDe(c) || '—'}</td>
-                  <td className="tabular-nums">{c.date}</td>
-                  <td className="text-xs uppercase">{c.recibo ? 'RECIBIDA' : (c.canalAnimalTipo ?? '—')}</td>
+                  <td className="font-mono tabular-nums">{barcodeDe(c) || '—'}</td>
+                  <td className="tabular-nums">{fecha(c.date)}</td>
+                  <td className="text-xs uppercase">
+                    {c.recibo ? (
+                      <span className="rounded-md bg-violet-100 px-1.5 py-0.5 font-bold text-violet-800">RECIBIDA</span>
+                    ) : (
+                      (c.canalAnimalTipo ?? '—')
+                    )}
+                  </td>
                   <td className="text-xs font-semibold uppercase text-red-600">{PIEZA[c.pieza]}</td>
                   <td className="uppercase">{c.cava ?? '—'}</td>
                   <td>
                     <EstadoCanal c={c} />
                   </td>
                   <td className="whitespace-normal">{c.destino || '—'}</td>
-                  <td className="min-w-40 whitespace-normal">{c.observaciones || '—'}</td>
                   <td className="text-right font-semibold tabular-nums">{kg(c.pesoKg)}</td>
-                  <td className="text-right tabular-nums">
-                    {c.pesoFrioKg == null ? '—' : kg(c.pesoFrioKg)}
-                  </td>
+                  <td className="text-right tabular-nums">{c.pesoFrioKg == null ? '—' : kg(c.pesoFrioKg)}</td>
                 </tr>
               ))}
             </tbody>
@@ -810,10 +1083,10 @@ function SubproductosTabla({ items }: { items: Subproducto[] }) {
   }, [items]);
 
   return (
-    <div className="h-full overflow-auto">
+    <div className="scrollbar-app h-full overflow-auto">
       <table className="w-full whitespace-nowrap text-sm">
-        <thead className="sticky top-0 z-10 bg-muted text-left">
-          <tr className="[&>th]:px-3 [&>th]:py-2 [&>th]:font-semibold">
+        <thead className="sticky top-0 z-10 bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <tr className="[&>th]:h-10 [&>th]:px-3">
             <th>Código</th>
             <th>Producto</th>
             <th>Categoría</th>
@@ -830,18 +1103,11 @@ function SubproductosTabla({ items }: { items: Subproducto[] }) {
               <td className="font-medium uppercase">{f.label}</td>
               <td className="text-xs uppercase text-muted-foreground">{CATEGORIA[f.categoria].label}</td>
               <td className="uppercase">{cavaSubproducto(f.cava)}</td>
-              <td className="text-right tabular-nums">
-                {f.unidad === 'unidad' ? `${f.unidades} und` : `${f.registros} reg.`}
-              </td>
+              <td className="text-right tabular-nums">{f.unidad === 'unidad' ? `${f.unidades} und` : `${f.registros} reg.`}</td>
               <td className="text-right font-semibold tabular-nums">{f.kg > 0 ? kg(f.kg) : '—'}</td>
               <td className="tabular-nums">
                 {f.ultimo
-                  ? new Date(f.ultimo).toLocaleString('es-CO', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })
+                  ? new Date(f.ultimo).toLocaleString('es-CO', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
                   : '—'}
               </td>
             </tr>

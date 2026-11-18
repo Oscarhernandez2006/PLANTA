@@ -14,6 +14,7 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { ActualizarConservacionDto } from './dto/actualizar-conservacion.dto';
 import { AsignarProductoDto } from './dto/asignar-producto.dto';
+import { CopiarConservacionDto } from './dto/copiar-conservacion.dto';
 import { ConservacionService } from './conservacion.service';
 
 @UseGuards(JwtAuthGuard)
@@ -41,6 +42,15 @@ export class ConservacionController {
     @Body() dto: AsignarProductoDto,
   ) {
     return this.service.asignar(user, clienteId, dto);
+  }
+
+  @Post('clientes/:clienteId/copiar')
+  copiar(
+    @CurrentUser() user: AuthContext,
+    @Param('clienteId', ParseUUIDPipe) clienteId: string,
+    @Body() dto: CopiarConservacionDto,
+  ) {
+    return this.service.copiar(user, clienteId, dto);
   }
 
   @Patch('clientes/:clienteId/productos/:productId')

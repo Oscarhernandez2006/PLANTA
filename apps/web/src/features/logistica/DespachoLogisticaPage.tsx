@@ -1,24 +1,21 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
 import {
+  ArrowLeft,
   Beef,
-  ChevronDown,
-  ChevronUp,
-  Gauge,
+  CheckCircle2,
   LoaderCircle,
   Lock,
-  Pencil,
-  RefreshCw,
   ThermometerSnowflake,
   ThermometerSun,
-  Trash2,
   TriangleAlert,
+  X,
 } from 'lucide-react';
 import { useBascula } from '@/components/bascula/Bascula';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { cn, soloDecimal } from '@/lib/utils';
-import { FieldBox, Mensaje, RegistroTab, TotalesTab } from '../canal-fria/CanalFriaPage';
+import { cn } from '@/lib/utils';
+import { PIEZA_LABEL, PanelFria, TablaDespacho, TotalesFria } from '../canal-fria/CanalFriaPage';
 import type { ItemDespacho } from '../canal-fria/api';
 import {
   buscarProductoPosta,
@@ -36,7 +33,7 @@ import {
   type OrdenDespachoCanales,
   type TipoDespachoCanales,
 } from '../registrar/despacho-canales-api';
-import { RegistroProductosPage, type ConfigRegistroProductos } from '../traslado/TrasladoPage';
+import { ListaOrdenes, RegistroProductosPage, type ConfigRegistroProductos } from '../traslado/TrasladoPage';
 
 export type TipoDespachoLogistica = TipoDespachoCanales;
 
@@ -49,19 +46,10 @@ const CONFIG: Record<
   posta: { titulo: 'Despacho Posta', icono: Beef },
 };
 
-type Tab = 'ordenes' | 'registro' | 'totales';
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'ordenes', label: 'Órdenes de despacho' },
-  { key: 'registro', label: 'Registro' },
-  { key: 'totales', label: 'Totales' },
-];
+type Vista = 'ordenes' | 'despacho' | 'totales';
 
 const num = (n: number, dec = 1) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-
-const botonIcono =
-  'flex size-14 shrink-0 items-center justify-center rounded-md border-2 border-foreground/70 bg-card hover:bg-muted disabled:opacity-40';
 
 const CONFIG_POSTA: ConfigRegistroProductos<OrdenDespachoCanales> = {
   icono: Beef,
@@ -88,10 +76,10 @@ export function DespachoLogisticaPage({ tipo }: { tipo: TipoDespachoLogistica })
 /** Despacho caliente / frío: se pistolean canales en la orden DC y salen del inventario. */
 function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
   const { titulo, icono: Icono } = CONFIG[tipo];
-  const [tab, setTab] = useState<Tab>('ordenes');
+  const [vista, setVista] = useState<Vista>('ordenes');
   const [orden, setOrden] = useState<OrdenDespachoCanales | null>(null);
   const ordenes = useDespachosCanalesActivos(tipo);
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const barcodeRef = useRef<HTMLInputElement>(null);
   const [barcode, setBarcode] = useState('');
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
   const itemsQuery = useItemsDespachoCanales(orden?.id ?? null);
@@ -101,31 +89,23 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
   const pesar = usePesarItemDespachoCanales(orden?.id ?? null);
   const cerrar = useCerrarDespachoCanales();
   const [confirmarCierre, setConfirmarCierre] = useState(false);
-  const totalNeto = items.reduce((s, i) => s + (i.despachoKg ?? i.pesoKg), 0);
-  const sinPesar = items.filter((i) => i.despachoKg === null).length;
   const [seleccionadoId, setSeleccionadoId] = useState<string | null>(null);
   const seleccionado = items.find((i) => i.itemId === seleccionadoId) ?? null;
-  // Lote del último pistoleo o de la fila seleccionada.
-  const ultimo = seleccionado ?? items[items.length - 1] ?? null;
-  const [scanError, setScanErrorState] = useState<string | null>(null);
-  const [alertaId, setAlertaId] = useState(0);
+  const [ultimo, setUltimo] = useState<ItemDespacho | null>(null);
   const buscando = agregar.isPending;
+  const pesoKg = Number(peso.replace(',', '.'));
+  const hayPeso = Number.isFinite(pesoKg) && pesoKg > 0;
+  // Las canales sin pesar cuentan con su peso en caliente.
+  const totalNeto = items.reduce((s, i) => s + (i.despachoKg ?? i.pesoKg), 0);
+  const sinPesar = items.filter((i) => i.despachoKg === null).length;
 
-  function setScanError(texto: string | null) {
-    setScanErrorState(texto);
-    if (texto) setAlertaId(Date.now());
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const noticeTimer = useRef<number | undefined>(undefined);
+  function flash(type: 'success' | 'error', text: string) {
+    setNotice({ type, text });
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
   }
-
-  // La alerta se quita sola a los 4 segundos.
-  useEffect(() => {
-    if (!scanError) return;
-    const t = setTimeout(() => setScanErrorState(null), 4000);
-    return () => clearTimeout(t);
-  }, [scanError, alertaId]);
-
-  useEffect(() => {
-    if (error) setScanError(error);
-  }, [error]);
 
   const mensajeApi = (err: unknown, porDefecto: string) => {
     const m = isAxiosError(err) ? err.response?.data?.message : null;
@@ -135,293 +115,197 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
   function seleccionar(item: ItemDespacho | null) {
     setSeleccionadoId(item?.itemId ?? null);
     setPeso('0.0');
-    setScanError(null);
   }
 
   async function guardarPeso() {
     if (!seleccionado || pesar.isPending) return;
-    const kg = Number(peso.replace(',', '.'));
-    if (!Number.isFinite(kg) || kg <= 0) {
-      setScanError('Toma un peso mayor a 0 antes de guardar.');
-      return;
-    }
-    setScanError(null);
+    if (!hayPeso) return flash('error', 'Toma un peso mayor a 0 antes de guardar.');
     try {
-      await pesar.mutateAsync({ itemId: seleccionado.itemId, despachoKg: kg });
+      await pesar.mutateAsync({ itemId: seleccionado.itemId, despachoKg: pesoKg });
+      flash('success', `Peso del gancho ${seleccionado.turno ?? seleccionado.sequence} guardado: ${num(pesoKg)} kg.`);
       const siguiente = items.find((i) => i.itemId !== seleccionado.itemId && i.despachoKg === null);
       seleccionar(siguiente ?? null);
     } catch (err) {
-      setScanError(mensajeApi(err, 'No se pudo guardar el peso.'));
+      flash('error', mensajeApi(err, 'No se pudo guardar el peso.'));
     }
   }
 
+  /** Agrega la canal; si hay peso en el campo, queda guardado como su peso de despacho. */
   async function escanear() {
     const codigo = barcode.trim();
     if (!codigo || !orden || buscando) return;
-    setScanError(null);
     try {
-      await agregar.mutateAsync(codigo);
+      let item = await agregar.mutateAsync(codigo);
+      if (hayPeso) item = await pesar.mutateAsync({ itemId: item.itemId, despachoKg: pesoKg });
       setBarcode('');
-      setTab('registro');
+      setPeso('0.0');
+      setSeleccionadoId(null);
+      setUltimo(item);
+      flash(
+        'success',
+        `Gancho ${item.turno ?? item.sequence} (${PIEZA_LABEL[item.pieza]}) agregado${item.despachoKg != null ? `: ${num(item.despachoKg)} kg` : ''}.`,
+      );
     } catch (err) {
-      setScanError(mensajeApi(err, 'No se pudo despachar la canal.'));
+      flash('error', mensajeApi(err, 'No se pudo despachar la canal.'));
+    } finally {
+      barcodeRef.current?.focus();
     }
   }
 
-  function quitarItem(itemId: string) {
-    setScanError(null);
-    quitar.mutate(itemId, {
+  function quitarItem(item: ItemDespacho) {
+    quitar.mutate(item.itemId, {
       onSuccess: () => {
-        if (seleccionadoId === itemId) setSeleccionadoId(null);
+        seleccionar(null);
+        flash('success', `Gancho ${item.turno ?? item.sequence} quitado de la orden: vuelve a ${item.cavaOrigen}.`);
       },
-      onError: (err) => setScanError(mensajeApi(err, 'No se pudo quitar la canal.')),
+      onError: (err) => flash('error', mensajeApi(err, 'No se pudo quitar la canal.')),
     });
   }
 
   function elegirOrden(o: OrdenDespachoCanales | null) {
     setOrden(o);
     setSeleccionadoId(null);
-    setScanError(null);
+    setUltimo(null);
   }
 
   function cerrarOrden() {
     if (!orden) return;
+    const dc = formatDC(orden.dcNumber);
     cerrar.mutate(orden.id, {
       onSuccess: () => {
         setConfirmarCierre(false);
         elegirOrden(null);
-        setTab('ordenes');
+        setPeso('0.0');
+        setVista('ordenes');
+        flash('success', `Orden ${dc} cerrada.`);
       },
       onError: (err) => {
         setConfirmarCierre(false);
-        setScanError(mensajeApi(err, 'No se pudo cerrar la orden.'));
+        flash('error', mensajeApi(err, 'No se pudo cerrar la orden.'));
       },
     });
   }
 
-  function scrollList(dir: 1 | -1) {
-    scrollRef.current?.scrollBy({ top: dir * 220, behavior: 'smooth' });
-  }
-
   return (
-    <div className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col gap-3 p-2">
-      {/* Encabezado: orden y cliente */}
-      <div className="flex items-stretch gap-2">
-        <div
-          title={titulo}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card p-2"
-        >
-          <Icono className="size-10 text-foreground" />
-        </div>
-        <FieldBox label="DC No.:" className="min-w-44">
-          <div className="flex h-9 items-center text-xl font-bold tabular-nums text-red-600">
-            {orden ? formatDC(orden.dcNumber) : '—'}
-          </div>
-        </FieldBox>
-        <FieldBox label="Cliente:" className="flex-1">
-          <div className="flex h-9 items-center truncate text-xl font-bold uppercase">
-            {orden?.cliente.concepto ?? '—'}
-          </div>
-        </FieldBox>
-      </div>
-
-      {/* Pistoleo y báscula */}
-      <div className="flex flex-wrap items-stretch gap-2">
-        <FieldBox label="Lote:" className="w-28">
-          <div className="flex h-10 items-center justify-center text-xl font-bold tabular-nums">
-            {ultimo?.reference ?? ''}
-          </div>
-        </FieldBox>
-        <FieldBox label="Código de Barras:" className="min-w-48 flex-1">
-          <input
-            value={barcode}
-            onChange={(e) => setBarcode(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void escanear();
-            }}
-            disabled={!orden || buscando}
-            autoFocus
-            placeholder={orden ? 'Escanea el presinto y presiona Enter…' : 'Elige una orden'}
-            className="h-10 w-full bg-transparent text-xl font-semibold outline-none disabled:opacity-50"
-          />
-        </FieldBox>
-        <button
-          onClick={() => {
-            setBarcode('');
-            setScanError(null);
-          }}
-          title="Limpiar código"
-          className={botonIcono}
-        >
-          <Trash2 className="size-7" />
-        </button>
-        <button
-          onClick={() => {
-            setBarcode('');
-            setPeso('0.0');
-            elegirOrden(null);
-            setTab('ordenes');
-            void ordenes.refetch();
-          }}
-          title="Reiniciar"
-          className={botonIcono}
-        >
-          <RefreshCw className="size-7" />
-        </button>
-        <FieldBox label="Peso (kg):" className="w-32">
-          <input
-            value={peso}
-            onChange={(e) => setPeso(soloDecimal(e.target.value))}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') void guardarPeso();
-            }}
-            inputMode="decimal"
-            disabled={!seleccionado}
-            title={seleccionado ? 'Enter para guardar el peso' : 'Selecciona una fila de Productos'}
-            className="h-10 w-full bg-transparent text-center text-2xl font-bold text-emerald-700 outline-none disabled:opacity-50"
-          />
-        </FieldBox>
-        <button
-          onClick={leerBascula}
-          disabled={leyendo || !seleccionado}
-          title="Leer báscula"
-          className={botonIcono}
-        >
-          {leyendo ? <LoaderCircle className="size-7 animate-spin" /> : <Gauge className="size-7" />}
-        </button>
-        <button
-          onClick={() => void guardarPeso()}
-          disabled={!seleccionado || pesar.isPending}
-          title="Guardar peso de despacho de la canal seleccionada"
-          className={botonIcono}
-        >
-          {pesar.isPending ? <LoaderCircle className="size-7 animate-spin" /> : <Pencil className="size-7" />}
-        </button>
-        <FieldBox label="Gancho:" className="w-24">
-          <div className="flex h-10 items-center justify-center text-2xl font-bold tabular-nums text-red-600">
-            {seleccionado ? (seleccionado.turno ?? seleccionado.sequence) : '—'}
-          </div>
-        </FieldBox>
-        <FieldBox label="Cant.(kg):" className="w-28">
-          <div className="flex h-10 items-center justify-center text-2xl font-bold tabular-nums">
-            {seleccionado ? num(seleccionado.pesoKg, 1) : '—'}
-          </div>
-        </FieldBox>
-        {scanError && (
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      <div className="pointer-events-none fixed left-1/2 top-24 z-50 flex w-[30rem] max-w-[calc(100vw-3rem)] -translate-x-1/2 flex-col gap-2">
+        {(notice || error) && (
           <div
-            key={alertaId}
-            className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4"
+            className={cn(
+              'pointer-events-auto flex items-center gap-2 rounded-xl border bg-white px-4 py-3 text-sm font-medium shadow-lg animate-in fade-in-0 slide-in-from-top-2',
+              notice?.type === 'success' ? 'border-emerald-200 text-emerald-700' : 'border-red-200 text-red-700',
+            )}
           >
-            <div
-              role="alert"
-              className="flex max-w-lg items-start gap-3 rounded-md border-2 border-amber-400 bg-card px-5 py-4 shadow-2xl"
-            >
-              <TriangleAlert className="mt-0.5 size-7 shrink-0 text-amber-500" />
-              <p className="text-base font-semibold text-foreground">{scanError}</p>
-            </div>
+            {notice?.type === 'success' ? <CheckCircle2 className="size-4 shrink-0" /> : <TriangleAlert className="size-4 shrink-0" />}
+            <span className="flex-1">{notice?.text ?? error}</span>
+            {notice && (
+              <button type="button" onClick={() => setNotice(null)} aria-label="Cerrar" className="shrink-0 opacity-60 hover:opacity-100">
+                <X className="size-4" />
+              </button>
+            )}
           </div>
         )}
       </div>
 
-      {/* Pestañas */}
-      <div className="flex overflow-hidden rounded-sm border-2 border-border">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={cn(
-              'flex-1 border-r-2 border-border px-3 py-3 text-center text-sm font-semibold uppercase tracking-wide transition-colors last:border-r-0',
-              tab === t.key
-                ? 'bg-background text-foreground shadow-[inset_0_-3px_0_0] shadow-emerald-600'
-                : 'bg-muted/40 text-muted-foreground hover:bg-muted',
-            )}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Contenido */}
-      <div ref={scrollRef} className="min-h-0 flex-1 overflow-auto rounded-sm border-2 border-border bg-card">
-        {tab === 'ordenes' &&
-          (ordenes.isLoading ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              <LoaderCircle className="size-6 animate-spin" />
+      {vista === 'ordenes' || !orden ? (
+        <ListaOrdenes
+          config={{
+            icono: Icono,
+            numero: (o: OrdenDespachoCanales) => formatDC(o.dcNumber),
+            tipoTexto: titulo.toUpperCase(),
+            sinOrdenes: `No hay órdenes de ${titulo.toLowerCase()} activas. Créalas en Administrativo → Órdenes Despacho Canales.`,
+          }}
+          cargando={ordenes.isLoading}
+          ordenes={ordenes.data ?? []}
+          seleccionadaId={orden?.id ?? null}
+          refrescando={ordenes.isFetching}
+          onRefrescar={() => void ordenes.refetch()}
+          onElegir={(o) => {
+            elegirOrden(o);
+            setVista('despacho');
+          }}
+        />
+      ) : (
+        <>
+          <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+            <Button variant="outline" className="h-12 px-4 text-base" onClick={() => setVista('ordenes')}>
+              <ArrowLeft className="size-5" />
+              Órdenes
+            </Button>
+            <span className="rounded-lg bg-primary/10 px-3 py-1.5 text-xl font-bold tabular-nums text-primary">{formatDC(orden.dcNumber)}</span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-lg font-semibold uppercase">{orden.cliente.concepto}</div>
+              <div className="text-sm text-muted-foreground">
+                {titulo} · <b className="tabular-nums text-foreground">{items.length}</b> {items.length === 1 ? 'canal' : 'canales'} ·{' '}
+                <b className="tabular-nums text-foreground">{num(totalNeto)}</b> kg
+                {sinPesar > 0 && <span className="text-amber-700"> · {sinPesar} sin pesar</span>}
+              </div>
             </div>
-          ) : !ordenes.data?.length ? (
-            <Mensaje
-              text={`No hay órdenes de ${titulo.toLowerCase()} activas. Créalas en Administrativo → Órdenes Despacho Canales.`}
-            />
-          ) : (
-            <ul className="flex flex-col gap-2 p-2">
-              {ordenes.data.map((o) => (
-                <li key={o.id}>
-                  <button
-                    onClick={() => {
-                      elegirOrden(o);
-                      setTab('registro');
-                    }}
-                    className={cn(
-                      'w-full rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
-                      orden?.id === o.id
-                        ? 'border-emerald-500 bg-emerald-50'
-                        : 'border-border bg-card hover:bg-muted/50',
-                    )}
-                  >
-                    <span className="font-bold tabular-nums">{formatDC(o.dcNumber)}</span>
-                    <span className="mx-2 text-muted-foreground">|</span>
-                    {o.cliente.nit ? `${o.cliente.nit} - ` : ''}
-                    {o.cliente.concepto} ({titulo.toUpperCase()})
-                  </button>
-                </li>
+            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+              {(['despacho', 'totales'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setVista(t)}
+                  className={cn(
+                    'flex h-10 items-center rounded-md px-4 text-sm font-semibold transition-colors',
+                    vista === t ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {t === 'despacho' ? 'Despacho' : 'Totales'}
+                </button>
               ))}
-            </ul>
-          ))}
-        {tab === 'registro' &&
-          (!orden ? (
-            <Mensaje text="Selecciona una orden en la pestaña ÓRDENES DE DESPACHO." />
-          ) : (
-            <RegistroTab
-              items={items}
-              seleccionadoId={seleccionadoId}
-              onSeleccionar={seleccionar}
-              onQuitar={quitarItem}
-              quitando={quitar.isPending}
-            />
-          ))}
-        {tab === 'totales' &&
-          (!orden ? (
-            <Mensaje text="Selecciona una orden en la pestaña ÓRDENES DE DESPACHO." />
-          ) : (
-            <TotalesTab items={items} />
-          ))}
-      </div>
-
-      {orden && (
-        <div className="flex items-stretch gap-2">
-          <FieldBox label="Total Piezas:" className="w-40">
-            <div className="flex h-10 items-center justify-end text-3xl font-bold tabular-nums">
-              {items.length}
             </div>
-          </FieldBox>
-          <FieldBox label="Total Neto(kg):" className="w-52">
-            <div
-              title="Peso de despacho; las canales sin pesar cuentan con su peso en caliente"
-              className="flex h-10 items-center justify-end text-3xl font-bold tabular-nums"
+            <Button
+              variant="outline"
+              className="h-12 px-5 text-base"
+              onClick={() => setConfirmarCierre(true)}
+              disabled={!items.length || cerrar.isPending}
+              title={items.length ? 'Cerrar la orden de despacho' : 'La orden no tiene canales'}
             >
-              {num(totalNeto)}
+              {cerrar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Lock className="size-5" />}
+              Cerrar orden
+            </Button>
+          </div>
+
+          {vista === 'despacho' ? (
+            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_400px]">
+              <TablaDespacho
+                items={items}
+                loading={itemsQuery.isLoading}
+                seleccionadoId={seleccionadoId}
+                onSeleccionar={(i) => seleccionar(seleccionadoId === i.itemId ? null : i)}
+                pesoLabel="Despacho"
+              />
+              <PanelFria
+                orden
+                seleccionado={seleccionado}
+                ultimo={ultimo}
+                peso={peso}
+                setPeso={setPeso}
+                hayPeso={hayPeso}
+                leyendo={leyendo}
+                onLeer={() => void leerBascula()}
+                barcode={barcode}
+                setBarcode={setBarcode}
+                barcodeRef={barcodeRef}
+                buscando={buscando || pesar.isPending}
+                onEscanear={() => void escanear()}
+                guardando={pesar.isPending}
+                onGuardarCorreccion={() => void guardarPeso()}
+                quitando={quitar.isPending}
+                onQuitar={() => seleccionado && quitarItem(seleccionado)}
+                onCancelar={() => seleccionar(null)}
+                pesoLabel="Peso de despacho"
+                ayuda="Si hay un peso en el campo, la canal se agrega con ese peso de despacho; si no, sale con su peso en caliente y la puedes pesar después tocando la fila."
+              />
             </div>
-          </FieldBox>
-          <button
-            onClick={() => setConfirmarCierre(true)}
-            disabled={!items.length || cerrar.isPending}
-            title={items.length ? 'Cerrar la orden de despacho' : 'La orden no tiene canales'}
-            className="ml-auto flex items-center gap-3 self-center rounded-md border-2 border-foreground/70 bg-card px-5 py-3 text-base font-bold uppercase hover:bg-muted disabled:opacity-40"
-          >
-            <Lock className="size-7" />
-            Cerrar orden
-          </button>
-        </div>
+          ) : (
+            <div className="scrollbar-app min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card">
+              <TotalesFria items={items} pesoLabel="Despacho" />
+            </div>
+          )}
+        </>
       )}
 
       {confirmarCierre && orden && (
@@ -448,23 +332,6 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
           </div>
         </Dialog>
       )}
-
-      <div className={cn('grid grid-cols-2 gap-2', tab === 'registro' && 'hidden')}>
-        <button
-          onClick={() => scrollList(-1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Subir"
-        >
-          <ChevronUp className="size-7" />
-        </button>
-        <button
-          onClick={() => scrollList(1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Bajar"
-        >
-          <ChevronDown className="size-7" />
-        </button>
-      </div>
     </div>
   );
 }

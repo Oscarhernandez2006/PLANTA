@@ -4,10 +4,31 @@ import {
   useQueryClient,
 } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { Client, DispatchOrderStatus } from '../canal-fria/api';
+import type { DispatchOrderStatus } from '../canal-fria/api';
 
-export type { Client, DispatchOrderStatus } from '../canal-fria/api';
+export type { DispatchOrderStatus } from '../canal-fria/api';
 export { statusLabels, statusTone } from '../canal-fria/api';
+
+/** Cliente del maestro de clientes del software. */
+export interface ClienteRecibo {
+  id: string;
+  nit: string | null;
+  concepto: string;
+}
+
+/** A qué cliente/bodega entra lo recibido al cerrar, o por qué aún no se puede cerrar. */
+export type DestinoRecibo =
+  | {
+      ok: true;
+      cliente: { id: string; concepto: string; nit: string };
+      bodegas: { id: string; code: number; nombre: string }[];
+    }
+  | {
+      ok: false;
+      motivo: 'sin_cliente' | 'sin_nit' | 'sin_bodega';
+      mensaje: string;
+      cliente: { id: string; concepto: string; nit: string | null } | null;
+    };
 
 export interface CanalReceipt {
   id: string;
@@ -15,7 +36,9 @@ export interface CanalReceipt {
   registrationDate: string;
   processDate: string;
   status: DispatchOrderStatus;
-  client: Client;
+  cliente: ClienteRecibo;
+  /** Bodega a la que entró al cerrar la orden. */
+  bodega: { id: string; code: number; nombre: string } | null;
   /** Canales recibidas y kilos (solo en la lista). */
   piezas?: number;
   kg?: number;
@@ -32,7 +55,7 @@ export interface Paginated<T> {
 }
 
 export interface CreateCanalReceiptInput {
-  clientId: string;
+  clienteId: string;
   registrationDate: string;
   processDate: string;
   status: DispatchOrderStatus;
@@ -140,14 +163,18 @@ export function useDeleteCanalReceiptItem(orderId: string | null) {
   });
 }
 
-/** Cierra la orden de recibo con el PIN de un supervisor. */
+/** Cierra la orden de recibo con el PIN de un supervisor; lo recibido entra a la bodega elegida. */
 export function useCerrarCanalReceipt() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
-      (await api.patch<{ ok: boolean }>(`/canal-receipts/${id}/cerrar`, { pin })).data,
+    mutationFn: async ({ id, pin, bodegaId }: { id: string; pin: string; bodegaId?: string }) =>
+      (await api.patch<{ ok: boolean }>(`/canal-receipts/${id}/cerrar`, { pin, bodegaId })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['canal-receipts'] }),
   });
+}
+
+export async function destinoCanalReceipt(id: string) {
+  return (await api.get<DestinoRecibo>(`/canal-receipts/${id}/destino`)).data;
 }
 
 /** Deja constancia de la reimpresión de un rótulo; si falla no interrumpe la impresión. */

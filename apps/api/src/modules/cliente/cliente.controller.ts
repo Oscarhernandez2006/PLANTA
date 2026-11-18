@@ -55,6 +55,16 @@ export class ClienteController {
     return this.service.nextCode();
   }
 
+  @Get('resumen')
+  resumen() {
+    return this.service.resumen();
+  }
+
+  @Get(':id/ordenes')
+  ordenes(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.ordenes(id);
+  }
+
   @Get()
   findAll(@Query() query: QueryClienteDto) {
     return this.service.findAll(query.search, query.todos);

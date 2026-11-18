@@ -14,10 +14,13 @@ import { CurrentUser } from '../../common/auth/current-user.decorator';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
+  AnularTransferOrderDto,
   BuscarEtiquetaTrasladoDto,
   CreateTransferOrderDto,
+  PinSupervisorDto,
   QueryTransferOrderDto,
   RegistrarTrasladoDto,
+  UpdateTransferOrderDto,
 } from './transfer-order.dto';
 import { TransferOrderService } from './transfer-order.service';
 
@@ -67,6 +70,38 @@ export class TransferOrderController {
     @Body() dto: RegistrarTrasladoDto,
   ) {
     return this.service.registrar(user, id, dto);
+  }
+
+  @Get(':id')
+  detalle(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.detalle(user, id);
+  }
+
+  @Patch(':id')
+  actualizar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateTransferOrderDto,
+  ) {
+    return this.service.actualizar(user, id, dto);
+  }
+
+  @Patch(':id/anular')
+  anular(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AnularTransferOrderDto,
+  ) {
+    return this.service.anular(user, id, dto);
+  }
+
+  @Patch(':id/reabrir')
+  reabrir(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PinSupervisorDto,
+  ) {
+    return this.service.reabrir(user, id, dto.pin);
   }
 
   @Patch(':id/cerrar')

@@ -5,7 +5,7 @@ export interface RotuloReciboDatos {
   receiptNumber: number;
   codigo: number;
   cliente: string;
-  sede: string;
+  nit: string;
   guia: string;
   lote: string;
   identificacion: string;
@@ -33,7 +33,7 @@ export function generarRotuloReciboZpl(d: RotuloReciboDatos) {
     texto(20, 18, 26, 22, 'AGROPECUARIA SANTACRUZ · RECIBO DE CANALES'),
     `^FO15,52^GB450,2,2^FS`,
     texto(20, 62, 20, 18, recortar(`CLIENTE: ${d.cliente}`, 38)),
-    texto(20, 86, 20, 18, recortar(`SEDE: ${d.sede}`, 38)),
+    texto(20, 86, 20, 18, recortar(`NIT: ${d.nit || '—'}`, 38)),
     texto(20, 116, 18, 16, 'PIEZA'),
     texto(20, 136, 56, 40, pieza),
     texto(300, 116, 18, 16, 'PESO (kg)'),

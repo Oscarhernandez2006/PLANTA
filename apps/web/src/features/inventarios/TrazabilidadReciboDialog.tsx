@@ -1,8 +1,28 @@
-import { Beef, ClipboardList, LoaderCircle, MapPin, Package, Printer, Scale, Tag, Warehouse } from 'lucide-react';
+import { Beef, CircleCheck, ClipboardList, LoaderCircle, Printer, Scale, Tag, Truck, Warehouse } from 'lucide-react';
 import { Dialog } from '@/components/ui/dialog';
-import { cn } from '@/lib/utils';
+import { printRaw } from '@/lib/device';
+import { registrarReimpresionRecibo } from '../canal-recibo/api';
+import { generarRotuloReciboZpl } from '../canal-recibo/rotulo-recibo-zpl';
+import { registrarReimpresionPosta } from '../recibo-posta/api';
+import { generarRotuloPostaZpl } from '../recibo-posta/rotulo-posta-zpl';
+import { useDevice } from '../device/device-context';
+import { SIN_IMPRESORA, useImpresoraEtiquetas } from '../rotulado/ui';
 import { fecha } from './BodegasTab';
-import { Dato, Grid, Paso, Tabla, estadoOrden, fechaHora, kgs } from './TrazabilidadCanalDialog';
+import { descargarTrazabilidadPdf, type SeccionPdf } from './trazabilidad-pdf';
+import {
+  Acciones,
+  Dato,
+  Etapas,
+  Grid,
+  Linea,
+  Paso,
+  Resumen,
+  Tabla,
+  estadoOrden,
+  fechaHora,
+  kgs,
+  type Etapa,
+} from './trazabilidad-ui';
 import {
   useTrazabilidadReciboCanal,
   useTrazabilidadReciboPosta,
@@ -10,8 +30,17 @@ import {
   type TrazabilidadReciboPosta,
 } from './api';
 
+type Traza = TrazabilidadReciboCanal | TrazabilidadReciboPosta;
+
 const pieza = (prefijo: 'RC' | 'RP', orden: number, codigo: number) =>
   `${prefijo}${orden}-${String(codigo).padStart(2, '0')}`;
+
+const SALIDA: Record<NonNullable<Traza['salida']>['tipo'], string> = {
+  proceso: 'Despacho a proceso (Canal Fría)',
+  caliente: 'Despacho en caliente',
+  frio: 'Despacho en frío',
+  posta: 'Despacho posta',
+};
 
 /** Días que faltan para el vencimiento (negativo = vencido). */
 function diasVence(iso: string | null) {
@@ -19,6 +48,13 @@ function diasVence(iso: string | null) {
   const hoy = new Date();
   hoy.setHours(0, 0, 0, 0);
   return Math.round((new Date(`${iso}T00:00:00`).getTime() - hoy.getTime()) / 86_400_000);
+}
+
+function estadoDe(t: Traza, disponible: string) {
+  if (t.salida?.cerrada) return { label: `SALIÓ · ${t.salida.orden}`, className: 'bg-sky-600 text-white' };
+  if (t.salida) return { label: `EN ORDEN · ${t.salida.orden}`, className: 'bg-amber-400 text-amber-950' };
+  if (t.enInventario) return { label: disponible, className: 'bg-emerald-600 text-white' };
+  return { label: 'RECIBO ABIERTO · AÚN NO ENTRA AL INVENTARIO', className: 'bg-muted text-muted-foreground ring-1 ring-border' };
 }
 
 /**
@@ -38,21 +74,84 @@ export function TrazabilidadReciboDialog({
   const posta = useTrazabilidadReciboPosta(tipo === 'posta' ? id : null);
   const q = tipo === 'canal' ? canal : posta;
   const t = q.data;
+  const impresora = useImpresoraEtiquetas();
+  const equipo = useDevice();
+  const codigo = t ? pieza(tipo === 'canal' ? 'RC' : 'RP', t.orden.receiptNumber, t.item.codigo) : null;
 
-  const descripcion = !t
-    ? undefined
-    : tipo === 'canal'
-      ? `${pieza('RC', t.orden.receiptNumber, t.item.codigo)} · ${t.orden.cliente.name}`
-      : `${pieza('RP', t.orden.receiptNumber, t.item.codigo)} · ${(t as TrazabilidadReciboPosta).item.producto.nombre}`;
+  async function reimprimir(): Promise<string | null> {
+    if (!t) return null;
+    if (!impresora) return SIN_IMPRESORA;
+    const fechaItem = new Date(t.item.createdAt);
+    try {
+      const zpl =
+        tipo === 'canal'
+          ? (() => {
+              const i = (t as TrazabilidadReciboCanal).item;
+              return generarRotuloReciboZpl({
+                receiptNumber: t.orden.receiptNumber,
+                codigo: i.codigo,
+                cliente: t.orden.cliente.concepto,
+                nit: t.orden.cliente.nit ?? '',
+                guia: i.guia ?? '',
+                lote: i.lote ?? '',
+                identificacion: i.identificacion ?? '',
+                cava: Number(i.cava.replace(/\D/g, '')) || 0,
+                pesoKg: i.pesoKg,
+                fecha: fechaItem.toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' }),
+              });
+            })()
+          : (() => {
+              const i = (t as TrazabilidadReciboPosta).item;
+              return generarRotuloPostaZpl({
+                receiptNumber: t.orden.receiptNumber,
+                codigo: i.codigo,
+                cliente: t.orden.cliente.concepto,
+                productoCodigo: i.producto.codigo,
+                producto: i.producto.nombre,
+                netoKg: i.netoKg,
+                piezas: i.piezas,
+                lote: i.lote ?? '',
+                conservacion: i.conservacion === 'congelado' ? 'congelado' : 'refrigerado',
+                recibo: fechaItem.toLocaleDateString('es-CO'),
+                sacrificio: i.fechaSacrificio ? fecha(i.fechaSacrificio) : undefined,
+                vencimiento: i.fechaVencimiento ? fecha(i.fechaVencimiento) : undefined,
+              });
+            })();
+      const r = await printRaw(impresora, zpl);
+      if (!r.ok) return r.error || 'No se pudo imprimir el rótulo.';
+      if (tipo === 'canal') registrarReimpresionRecibo(t.item.id, equipo.hostname);
+      else registrarReimpresionPosta(t.item.id, equipo.hostname);
+      return null;
+    } catch {
+      return 'No se pudo enviar el rótulo a la impresora.';
+    }
+  }
+
+  const etapas: Etapa[] = t
+    ? [
+        { id: 'tr-recibo', label: 'Recibo', hecho: true, tono: 'origen' },
+        { id: 'tr-ingreso', label: tipo === 'canal' ? 'Ingreso' : 'Pesaje', hecho: true, tono: 'origen' },
+        { id: 'tr-inventario', label: 'Inventario', hecho: !!t.bodega, tono: 'proceso' },
+        { id: 'tr-salida', label: 'Salida', hecho: !!t.salida, tono: 'salida' },
+      ]
+    : [];
 
   return (
     <Dialog
       open
       onClose={onClose}
       title={tipo === 'canal' ? 'Trazabilidad de la canal recibida' : 'Trazabilidad del producto recibido en posta'}
-      description={descripcion}
-      className="max-w-4xl"
+      description={
+        t
+          ? tipo === 'canal'
+            ? `${codigo} · ${t.orden.cliente.concepto}`
+            : `${codigo} · ${(t as TrazabilidadReciboPosta).item.producto.nombre}`
+          : undefined
+      }
+      className="max-w-5xl"
       scrollInterno
+      subencabezado={t && <Etapas etapas={etapas} />}
+      acciones={t && <Acciones codigo={codigo} onReimprimir={reimprimir} onPdf={() => pdfRecibo(tipo, t)} />}
     >
       {q.isLoading ? (
         <div className="flex justify-center py-10 text-muted-foreground">
@@ -69,27 +168,14 @@ export function TrazabilidadReciboDialog({
   );
 }
 
-function Estado({ enInventario, texto }: { enInventario: boolean; texto: string }) {
-  return (
-    <span
-      className={cn(
-        'rounded-sm px-2 py-0.5 text-xs font-bold',
-        enInventario ? 'bg-emerald-600 text-white' : 'bg-muted text-muted-foreground',
-      )}
-    >
-      {enInventario ? texto : 'FUERA DE INVENTARIO'}
-    </span>
-  );
-}
-
-function PasoOrden({ t, prefijo, titulo }: { t: TrazabilidadReciboCanal | TrazabilidadReciboPosta; prefijo: 'RC' | 'RP'; titulo: string }) {
+function PasoOrden({ t, prefijo, titulo }: { t: Traza; prefijo: 'RC' | 'RP'; titulo: string }) {
   const o = t.orden;
   return (
-    <Paso icon={ClipboardList} titulo={`${titulo} · ${prefijo}${o.receiptNumber}`} at={o.createdAt} operario={o.creadaPor}>
+    <Paso id="tr-recibo" tono="origen" icon={ClipboardList} titulo={`${titulo} · ${prefijo}${o.receiptNumber}`} at={o.createdAt} operario={o.creadaPor}>
       <Grid>
-        <Dato label="Cliente" valor={o.cliente.name} />
-        <Dato label="NIT" valor={o.cliente.nit} />
-        <Dato label="Sede" valor={o.cliente.sede} />
+        <Dato label="Cliente" valor={o.cliente.concepto} />
+        <Dato label="NIT" valor={o.cliente.nit ?? '—'} />
+        <Dato label="Bodega" valor={t.bodega?.nombre ?? 'Se asigna al cerrar'} />
         <Dato label="Estado de la orden" valor={estadoOrden(o.status)} />
         <Dato label="Fecha de registro" valor={fecha(o.registrationDate)} />
         <Dato label="Fecha de proceso" valor={fecha(o.processDate)} />
@@ -100,37 +186,67 @@ function PasoOrden({ t, prefijo, titulo }: { t: TrazabilidadReciboCanal | Trazab
   );
 }
 
-function PasoReimpresiones({ t }: { t: TrazabilidadReciboCanal | TrazabilidadReciboPosta }) {
+function PasosComunes({ t, ubicacion }: { t: Traza; ubicacion: string }) {
+  const s = t.salida;
   return (
-    <Paso
-      icon={Printer}
-      titulo={`Reimpresiones del rótulo (${t.reimpresiones.length})`}
-      vacio={!t.reimpresiones.length && 'El rótulo no se ha reimpreso.'}
-    >
-      <Tabla
-        columnas={['Fecha y hora', 'Usuario', 'Estación']}
-        filas={t.reimpresiones.map((r) => [fechaHora(r.at), r.usuario ?? '—', r.estacion ?? '—'])}
-      />
-    </Paso>
-  );
-}
-
-function PasoUbicacion({ t, ubicacion }: { t: TrazabilidadReciboCanal | TrazabilidadReciboPosta; ubicacion: string }) {
-  return (
-    <Paso icon={Warehouse} titulo="Ubicación en inventario" final={t.enInventario}>
-      <Grid>
-        <Dato label="Ubicación" valor={ubicacion} />
-        <Dato label="Bodega" valor={t.bodega ? t.bodega.nombre : 'Sin bodega asociada'} />
-        <Dato label="Cliente de la bodega" valor={t.bodega?.cliente ?? '—'} />
-        <Dato label="Estado" valor={<Estado enInventario={t.enInventario} texto="EN INVENTARIO" />} />
-      </Grid>
-      {!t.bodega && (
-        <p className="text-xs text-muted-foreground">
-          El NIT del cliente del recibo no coincide con ningún cliente del maestro: se ve en el tablero y en la cava, pero
-          no dentro de una bodega.
+    <>
+      <Paso
+        tono="proceso"
+        icon={Printer}
+        titulo={`Reimpresiones del rótulo${t.reimpresiones.length ? ` (${t.reimpresiones.length})` : ''}`}
+        vacio={!t.reimpresiones.length && 'El rótulo no se ha reimpreso.'}
+      >
+        <Tabla
+          columnas={['Fecha y hora', 'Usuario', 'Estación']}
+          filas={t.reimpresiones.map((r) => [fechaHora(r.at), r.usuario ?? '—', r.estacion ?? '—'])}
+        />
+      </Paso>
+      <Paso
+        id="tr-inventario"
+        tono="proceso"
+        icon={Warehouse}
+        titulo="Entrada al inventario"
+        at={t.orden.cerradaAt}
+        operario={t.orden.cerradaPor}
+        vacio={!t.bodega && 'Aún no entra al inventario: entra a la bodega del cliente cuando un supervisor cierra la orden de recibo.'}
+      >
+        <Grid>
+          <Dato label="Ubicación" valor={ubicacion} />
+          <Dato label="Bodega" valor={t.bodega?.nombre ?? '—'} />
+          <Dato label="Cliente de la bodega" valor={t.bodega?.cliente ?? '—'} />
+          <Dato label="En inventario" valor={t.enInventario ? 'SÍ' : 'NO'} />
+        </Grid>
+      </Paso>
+      <Paso
+        id="tr-salida"
+        tono="salida"
+        icon={Truck}
+        titulo={s ? `${SALIDA[s.tipo]} · ${s.orden}` : 'Salida'}
+        at={s?.at}
+        operario={s?.por}
+        vacio={!s && 'Aún no ha salido en ninguna orden de despacho.'}
+      >
+        {s && (
+          <Grid>
+            <Dato label="Orden" valor={s.orden} />
+            <Dato label="Estado" valor={s.cerrada ? 'CERRADA · SALIÓ DEL INVENTARIO' : 'ACTIVA · SIGUE EN PLANTA'} />
+            <Dato label="Peso de despacho" valor={kgs(s.despachoKg)} />
+            <Dato label="Cerrada" valor={s.cerradaAt ? fechaHora(s.cerradaAt) : '—'} />
+          </Grid>
+        )}
+      </Paso>
+      <Paso icon={CircleCheck} titulo={s?.cerrada ? 'Fuera de planta' : t.enInventario ? 'En inventario' : 'Recibo abierto'} final>
+        <p className="text-sm text-muted-foreground">
+          {s?.cerrada
+            ? `Salió de planta con la orden ${s.orden}.`
+            : s
+              ? `Asignada a la orden ${s.orden}; sigue en planta hasta que se cierre.`
+              : t.enInventario
+                ? `Disponible en ${ubicacion}.`
+                : 'Pendiente de cerrar la orden de recibo.'}
         </p>
-      )}
-    </Paso>
+      </Paso>
+    </>
   );
 }
 
@@ -138,20 +254,30 @@ function InformeCanalRecibida({ t }: { t: TrazabilidadReciboCanal }) {
   const i = t.item;
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 rounded-md border-2 border-border p-4 sm:grid-cols-4">
-        <Dato label="Pieza" valor={<span className="text-lg font-bold">{pieza('RC', t.orden.receiptNumber, i.codigo)}</span>} />
-        <Dato label="Origen" valor="RECIBO DE CANALES (TERCERO)" />
-        <Dato label="Peso recibido" valor={kgs(i.pesoKg)} />
-        <Dato label="Estado actual" valor={<Estado enInventario={t.enInventario} texto={`DISPONIBLE · ${i.cava}`} />} />
-        <Dato label="Guía" valor={i.guia ?? '—'} />
-        <Dato label="Lote" valor={i.lote ?? '—'} />
-        <Dato label="Identificación" valor={i.identificacion ?? '—'} />
-        <Dato label="Cava" valor={i.cava} />
-      </div>
-
-      <ol className="relative space-y-4 border-l-2 border-border pl-6">
+      <Resumen
+        estado={{ ...estadoDe(t, `DISPONIBLE · ${i.cava}`), detalle: 'Canal recibida de tercero' }}
+        kpis={[
+          { label: 'Peso recibido', valor: kgs(i.pesoKg) },
+          { label: 'Peso de despacho', valor: kgs(t.salida?.despachoKg ?? null), detalle: t.salida ? t.salida.orden : 'Sin salida' },
+          {
+            label: 'Merma',
+            valor: t.salida?.despachoKg != null ? kgs(i.pesoKg - t.salida.despachoKg) : '—',
+          },
+        ]}
+        datos={[
+          ['Pieza', <span className="text-base font-bold">{pieza('RC', t.orden.receiptNumber, i.codigo)}</span>],
+          ['Cliente', t.orden.cliente.concepto],
+          ['Guía', i.guia ?? '—'],
+          ['Lote', i.lote ?? '—'],
+          ['Identificación', i.identificacion ?? '—'],
+          ['Cava', i.cava],
+          ['Bodega', t.bodega?.nombre ?? '—'],
+          ['Recibida', fechaHora(i.createdAt)],
+        ]}
+      />
+      <Linea>
         <PasoOrden t={t} prefijo="RC" titulo="Recibo de canales" />
-        <Paso icon={Beef} titulo="Ingreso de la canal" at={i.createdAt} operario={i.registradoPor}>
+        <Paso id="tr-ingreso" tono="origen" icon={Beef} titulo="Ingreso de la canal" at={i.createdAt} operario={i.registradoPor}>
           <Grid>
             <Dato label="Pieza" valor={pieza('RC', t.orden.receiptNumber, i.codigo)} />
             <Dato label="Peso" valor={kgs(i.pesoKg)} />
@@ -161,9 +287,8 @@ function InformeCanalRecibida({ t }: { t: TrazabilidadReciboCanal }) {
             <Dato label="Cava asignada" valor={i.cava} />
           </Grid>
         </Paso>
-        <PasoReimpresiones t={t} />
-        <PasoUbicacion t={t} ubicacion={i.cava} />
-      </ol>
+        <PasosComunes t={t} ubicacion={i.cava} />
+      </Linea>
     </div>
   );
 }
@@ -174,32 +299,32 @@ function InformePosta({ t }: { t: TrazabilidadReciboPosta }) {
   const congelado = i.conservacion === 'congelado';
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-2 gap-3 rounded-md border-2 border-border p-4 sm:grid-cols-4">
-        <Dato label="Registro" valor={<span className="text-lg font-bold">{pieza('RP', t.orden.receiptNumber, i.codigo)}</span>} />
-        <Dato label="Producto" valor={`${i.producto.codigo} · ${i.producto.nombre}`} />
-        <Dato label="Peso neto" valor={kgs(i.netoKg)} />
-        <Dato label="Estado actual" valor={<Estado enInventario={t.enInventario} texto="DISPONIBLE" />} />
-        <Dato label="Lote" valor={i.lote ?? '—'} />
-        <Dato label="Conservación" valor={congelado ? 'CONGELADO -18 °C A -25 °C' : i.conservacion ? 'REFRIGERADO 0 °C A 4 °C' : '—'} />
-        <Dato label="Sacrificio" valor={fecha(i.fechaSacrificio)} />
-        <Dato
-          label="Vencimiento"
-          valor={
-            i.fechaVencimiento ? (
-              <span className={cn(dias != null && dias < 0 && 'font-bold text-red-600', dias != null && dias >= 0 && dias <= 3 && 'font-bold text-amber-700')}>
-                {fecha(i.fechaVencimiento)}
-                {dias != null && ` (${dias < 0 ? `vencido hace ${-dias} d` : dias === 0 ? 'vence hoy' : `faltan ${dias} d`})`}
-              </span>
-            ) : (
-              '—'
-            )
-          }
-        />
-      </div>
-
-      <ol className="relative space-y-4 border-l-2 border-border pl-6">
+      <Resumen
+        estado={{ ...estadoDe(t, 'DISPONIBLE'), detalle: 'Producto recibido de tercero' }}
+        kpis={[
+          { label: 'Peso neto', valor: kgs(i.netoKg), detalle: `Bruto ${kgs(i.brutoKg)} · tara ${kgs(i.taraKg)}` },
+          {
+            label: 'Vencimiento',
+            valor: fecha(i.fechaVencimiento),
+            detalle: dias == null ? undefined : dias < 0 ? `Vencido hace ${-dias} día(s)` : dias === 0 ? 'Vence hoy' : `Faltan ${dias} día(s)`,
+            alerta: dias != null && dias <= 3,
+          },
+          { label: 'Piezas · empaques', valor: `${i.piezas} · ${i.empaques}` },
+        ]}
+        datos={[
+          ['Registro', <span className="text-base font-bold">{pieza('RP', t.orden.receiptNumber, i.codigo)}</span>],
+          ['Producto', `${i.producto.codigo} · ${i.producto.nombre}`],
+          ['Cliente', t.orden.cliente.concepto],
+          ['Lote', i.lote ?? '—'],
+          ['Conservación', congelado ? 'CONGELADO -18 °C A -25 °C' : i.conservacion ? 'REFRIGERADO 0 °C A 4 °C' : '—'],
+          ['Sacrificio', fecha(i.fechaSacrificio)],
+          ['Bodega', t.bodega?.nombre ?? '—'],
+          ['Recibido', fechaHora(i.createdAt)],
+        ]}
+      />
+      <Linea>
         <PasoOrden t={t} prefijo="RP" titulo="Recibo en posta" />
-        <Paso icon={Scale} titulo="Pesaje" at={i.createdAt} operario={i.registradoPor}>
+        <Paso id="tr-ingreso" tono="origen" icon={Scale} titulo="Pesaje" at={i.createdAt} operario={i.registradoPor}>
           <Grid>
             <Dato label="Producto" valor={`${i.producto.codigo} · ${i.producto.nombre}`} />
             <Dato label="Categoría" valor={i.producto.categoria ?? '—'} />
@@ -210,7 +335,7 @@ function InformePosta({ t }: { t: TrazabilidadReciboPosta }) {
             <Dato label="Neto" valor={<b>{kgs(i.netoKg)}</b>} />
           </Grid>
         </Paso>
-        <Paso icon={Tag} titulo="Rótulo">
+        <Paso tono="origen" icon={Tag} titulo="Rótulo">
           <Grid>
             <Dato label="Lote" valor={i.lote ?? '—'} />
             <Dato label="Conservación" valor={i.conservacion ?? '—'} />
@@ -218,13 +343,101 @@ function InformePosta({ t }: { t: TrazabilidadReciboPosta }) {
             <Dato label="Vencimiento" valor={fecha(i.fechaVencimiento)} />
           </Grid>
         </Paso>
-        <PasoReimpresiones t={t} />
-        <PasoUbicacion t={t} ubicacion={t.bodega ? `Bodega ${t.bodega.nombre}` : 'Recibo en posta'} />
-      </ol>
-      <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-        <Package className="size-3.5" /> Producto de tercero: no tiene canal ni guía de origen en esta planta.
-        <MapPin className="ml-2 size-3.5" /> Cliente {t.orden.cliente.name} ({t.orden.cliente.sede}).
-      </p>
+        <PasosComunes t={t} ubicacion={t.bodega ? `Bodega ${t.bodega.nombre}` : 'Recibo en posta'} />
+      </Linea>
     </div>
   );
+}
+
+async function pdfRecibo(tipo: 'canal' | 'posta', t: Traza) {
+  const o = t.orden;
+  const prefijo = tipo === 'canal' ? 'RC' : 'RP';
+  const codigo = pieza(prefijo, o.receiptNumber, t.item.codigo);
+  const secciones: SeccionPdf[] = [
+    {
+      titulo: `${tipo === 'canal' ? 'Recibo de canales' : 'Recibo en posta'} ${prefijo}${o.receiptNumber}`,
+      meta: `${fechaHora(o.createdAt)} · ${o.creadaPor ?? '—'}`,
+      datos: [
+        ['Cliente', o.cliente.concepto],
+        ['NIT', o.cliente.nit ?? '—'],
+        ['Fecha de registro', fecha(o.registrationDate)],
+        ['Fecha de proceso', fecha(o.processDate)],
+        ['Estado', estadoOrden(o.status)],
+        ['Cerrada', o.cerradaAt ? `${fechaHora(o.cerradaAt)} · ${o.cerradaPor ?? '—'}` : '—'],
+      ],
+    },
+  ];
+  if (tipo === 'canal') {
+    const i = (t as TrazabilidadReciboCanal).item;
+    secciones.push({
+      titulo: 'Ingreso de la canal',
+      meta: `${fechaHora(i.createdAt)} · ${i.registradoPor ?? '—'}`,
+      datos: [
+        ['Pieza', codigo],
+        ['Peso', kgs(i.pesoKg)],
+        ['Guía', i.guia ?? '—'],
+        ['Lote', i.lote ?? '—'],
+        ['Identificación', i.identificacion ?? '—'],
+        ['Cava', i.cava],
+      ],
+    });
+  } else {
+    const i = (t as TrazabilidadReciboPosta).item;
+    secciones.push({
+      titulo: 'Pesaje y rótulo',
+      meta: `${fechaHora(i.createdAt)} · ${i.registradoPor ?? '—'}`,
+      datos: [
+        ['Producto', `${i.producto.codigo} ${i.producto.nombre}`],
+        ['Piezas / empaques', `${i.piezas} / ${i.empaques}`],
+        ['Bruto / tara', `${kgs(i.brutoKg)} / ${kgs(i.taraKg)}`],
+        ['Neto', kgs(i.netoKg)],
+        ['Lote', i.lote ?? '—'],
+        ['Conservación', i.conservacion ?? '—'],
+        ['Sacrificio', fecha(i.fechaSacrificio)],
+        ['Vencimiento', fecha(i.fechaVencimiento)],
+      ],
+    });
+  }
+  secciones.push({
+    titulo: 'Entrada al inventario',
+    datos: [
+      ['Bodega', t.bodega?.nombre ?? '—'],
+      ['En inventario', t.enInventario ? 'SÍ' : 'NO'],
+    ],
+  });
+  if (t.reimpresiones.length)
+    secciones.push({
+      titulo: 'Reimpresiones del rótulo',
+      tabla: { columnas: ['Fecha y hora', 'Usuario', 'Estación'], filas: t.reimpresiones.map((r) => [fechaHora(r.at), r.usuario ?? '—', r.estacion ?? '—']) },
+    });
+  if (t.salida)
+    secciones.push({
+      titulo: `${SALIDA[t.salida.tipo]} ${t.salida.orden}`,
+      meta: `${fechaHora(t.salida.at)} · ${t.salida.por ?? '—'}`,
+      datos: [
+        ['Estado', t.salida.cerrada ? 'CERRADA · SALIÓ DEL INVENTARIO' : 'ACTIVA'],
+        ['Peso de despacho', kgs(t.salida.despachoKg)],
+      ],
+    });
+  await descargarTrazabilidadPdf({
+    titulo: tipo === 'canal' ? 'Trazabilidad de canal recibida' : 'Trazabilidad de producto recibido en posta',
+    codigo,
+    subtitulo: o.cliente.concepto,
+    estado: estadoDe(t, 'DISPONIBLE').label,
+    resumen:
+      tipo === 'canal'
+        ? [
+            ['Cliente', o.cliente.concepto],
+            ['Peso recibido', kgs((t as TrazabilidadReciboCanal).item.pesoKg)],
+            ['Guía', (t as TrazabilidadReciboCanal).item.guia ?? '—'],
+            ['Cava', (t as TrazabilidadReciboCanal).item.cava],
+          ]
+        : [
+            ['Cliente', o.cliente.concepto],
+            ['Producto', `${(t as TrazabilidadReciboPosta).item.producto.codigo} ${(t as TrazabilidadReciboPosta).item.producto.nombre}`],
+            ['Peso neto', kgs((t as TrazabilidadReciboPosta).item.netoKg)],
+            ['Vence', fecha((t as TrazabilidadReciboPosta).item.fechaVencimiento)],
+          ],
+    secciones,
+  });
 }

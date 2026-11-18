@@ -11,7 +11,7 @@ import { Combobox } from '@/components/ui/combobox';
 import { Input, Label, Select } from '@/components/ui/input';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { plantToday as today } from '@/lib/utils';
-import { useClients } from '../canal-fria/api';
+import { useClientesActivos } from '../registrar/orden-despacho-api';
 import {
   usePostaReceiptNextNumber,
   useCreatePostaReceipt,
@@ -26,7 +26,7 @@ function tomorrow() {
 }
 
 export function RegistroPostaTab() {
-  const clients = useClients();
+  const clients = useClientesActivos();
   const next = usePostaReceiptNextNumber();
   const create = useCreatePostaReceipt();
   const keyboard = useKeyboard();
@@ -42,7 +42,7 @@ export function RegistroPostaTab() {
     () =>
       (clients.data ?? []).map((c) => ({
         value: c.id,
-        label: `${c.nit} - ${c.name} (${c.sede})`,
+        label: c.nit ? `${c.nit} - ${c.concepto}` : c.concepto,
       })),
     [clients.data],
   );
@@ -54,7 +54,7 @@ export function RegistroPostaTab() {
     if (!clientId) return setError('Seleccioná un cliente.');
     try {
       const created = await create.mutateAsync({
-        clientId,
+        clienteId: clientId,
         registrationDate,
         processDate,
         status,
@@ -117,7 +117,7 @@ export function RegistroPostaTab() {
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="client">Cliente (Sede)</Label>
+            <Label htmlFor="client">Cliente</Label>
             <Combobox
               id="client"
               options={clientOptions}
@@ -126,6 +126,9 @@ export function RegistroPostaTab() {
               placeholder="Buscar cliente por NIT o nombre…"
               onKeyboard={keyboard.open}
             />
+            <p className="text-xs text-muted-foreground">
+              Son los clientes del módulo Clientes. Si no aparece, créalo allí primero (con NIT y bodega).
+            </p>
           </div>
 
           <div className="space-y-1.5">

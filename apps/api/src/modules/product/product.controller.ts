@@ -31,6 +31,16 @@ export class ProductController {
     return this.service.nextCode(user);
   }
 
+  @Get('existencias')
+  existencias(@CurrentUser() user: AuthContext) {
+    return this.service.existencias(user);
+  }
+
+  @Get(':id/ficha')
+  ficha(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.ficha(user, id);
+  }
+
   @Post()
   create(@CurrentUser() user: AuthContext, @Body() dto: CreateProductDto) {
     return this.service.create(user, dto);

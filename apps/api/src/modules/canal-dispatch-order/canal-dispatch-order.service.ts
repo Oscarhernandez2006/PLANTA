@@ -9,6 +9,12 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { parseCanalBarcode } from '../../common/canal-barcode';
 import { barcodeDe, itemInclude, itemRow } from '../dispatch-order/dispatch-order.service';
+import {
+  canalRecibidaDisponible,
+  canalRecibidaRow,
+  canalRecibidaSelect,
+  parseReciboCanal,
+} from '../canal-receipt/recibo-despacho';
 import { CreateCanalDispatchOrderDto, QueryCanalDispatchOrderDto } from './canal-dispatch-order.dto';
 
 const include = {
@@ -91,7 +97,7 @@ export class CanalDispatchOrderService {
   private async orden(ctx: AuthContext, id: string) {
     const dc = await this.prisma.canalDispatchOrder.findFirst({
       where: { id, plantId: ctx.plantId, deletedAt: null },
-      select: { id: true, status: true, tipo: true },
+      select: { id: true, status: true, tipo: true, clienteId: true },
     });
     if (!dc) throw new NotFoundException('Orden de despacho de canales no encontrada.');
     return dc;
@@ -99,12 +105,31 @@ export class CanalDispatchOrderService {
 
   async items(ctx: AuthContext, id: string) {
     await this.orden(ctx, id);
-    const items = await this.prisma.canalDispatchOrderItem.findMany({
-      where: { canalDispatchOrderId: id },
-      include: itemInclude,
-      orderBy: { createdAt: 'asc' },
+    const [items, recibidas] = await Promise.all([
+      this.prisma.canalDispatchOrderItem.findMany({
+        where: { canalDispatchOrderId: id },
+        include: itemInclude,
+        orderBy: { createdAt: 'asc' },
+      }),
+      this.prisma.canalReceiptItem.findMany({
+        where: { canalDispatchOrderId: id },
+        select: canalRecibidaSelect,
+        orderBy: { despachadoAt: 'asc' },
+      }),
+    ]);
+    return [...items.map((i) => itemRow(i, barcodeDe(i))), ...recibidas.map(canalRecibidaRow)];
+  }
+
+  /** Canal recibida activa en una DC de esta planta (para pesar o quitar). */
+  private async recibidaEnOrden(ctx: AuthContext, itemId: string) {
+    const r = await this.prisma.canalReceiptItem.findFirst({
+      where: { id: itemId, plantId: ctx.plantId, canalDispatchOrder: { deletedAt: null } },
+      select: { id: true, canalDispatchOrder: { select: { status: true } } },
     });
-    return items.map((i) => itemRow(i, barcodeDe(i)));
+    if (r && r.canalDispatchOrder?.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de despacho no está activa.');
+    }
+    return r;
   }
 
   /** Agrega la canal del presinto: no puede estar en una OD a proceso (va a desposte/rotulado). */
@@ -115,6 +140,19 @@ export class CanalDispatchOrderService {
     }
     if (dc.tipo === 'posta') {
       throw new BadRequestException('Las canales no se despachan en Despacho Posta.');
+    }
+    if (parseReciboCanal(barcode)) {
+      return this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`despacho-canal:${ctx.plantId}`}))`;
+        const itemId = await canalRecibidaDisponible(tx, ctx, barcode, dc.clienteId);
+        await tx.canalReceiptItem.update({
+          where: { id: itemId },
+          data: { canalDispatchOrderId: dc.id, despachadoAt: new Date(), despachadoById: ctx.userId },
+        });
+        return canalRecibidaRow(
+          await tx.canalReceiptItem.findUniqueOrThrow({ where: { id: itemId }, select: canalRecibidaSelect }),
+        );
+      });
     }
     const codigo = parseCanalBarcode(barcode);
     if (!codigo) throw new BadRequestException('Código de barras no válido.');
@@ -191,6 +229,16 @@ export class CanalDispatchOrderService {
 
   /** Peso de despacho de la canal; la diferencia es caliente - despacho. */
   async pesarItem(ctx: AuthContext, itemId: string, despachoKg: number) {
+    const recibida = await this.recibidaEnOrden(ctx, itemId);
+    if (recibida) {
+      return canalRecibidaRow(
+        await this.prisma.canalReceiptItem.update({
+          where: { id: recibida.id },
+          data: { despachoKg: new Prisma.Decimal(despachoKg) },
+          select: canalRecibidaSelect,
+        }),
+      );
+    }
     const item = await this.itemActivo(ctx, itemId);
     const actualizado = await this.prisma.canalDispatchOrderItem.update({
       where: { id: item.id },
@@ -209,11 +257,12 @@ export class CanalDispatchOrderService {
     if (dc.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de despacho no está activa.');
     }
-    const [canales, productos] = await Promise.all([
+    const [canales, productos, recibidas] = await Promise.all([
       this.prisma.canalDispatchOrderItem.count({ where: { canalDispatchOrderId: dc.id } }),
       this.prisma.dispatchProductItem.count({ where: { canalDispatchOrderId: dc.id } }),
+      this.prisma.canalReceiptItem.count({ where: { canalDispatchOrderId: dc.id } }),
     ]);
-    if (!canales && !productos) throw new BadRequestException('La orden no tiene nada registrado.');
+    if (!canales && !productos && !recibidas) throw new BadRequestException('La orden no tiene nada registrado.');
     await this.prisma.canalDispatchOrder.update({
       where: { id: dc.id },
       data: { status: DispatchOrderStatus.facturado },
@@ -223,6 +272,14 @@ export class CanalDispatchOrderService {
 
   /** Deshace el despacho por error: la canal vuelve a su cava de origen. */
   async removeItem(ctx: AuthContext, itemId: string) {
+    const recibida = await this.recibidaEnOrden(ctx, itemId);
+    if (recibida) {
+      await this.prisma.canalReceiptItem.update({
+        where: { id: recibida.id },
+        data: { canalDispatchOrderId: null, despachoKg: null, despachadoAt: null, despachadoById: null },
+      });
+      return { ok: true };
+    }
     const item = await this.itemActivo(ctx, itemId);
     await this.prisma.$transaction([
       this.prisma.canalDispatchOrderItem.delete({ where: { id: item.id } }),

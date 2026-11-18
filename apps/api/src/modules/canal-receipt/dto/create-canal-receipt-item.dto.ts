@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsPositive,
   IsString,
+  IsUUID,
   Matches,
   Max,
   MaxLength,
@@ -42,6 +43,12 @@ export class PinSupervisorDto {
   @IsString()
   @Matches(/^\d{4,12}$/, { message: 'El PIN debe tener entre 4 y 12 dígitos.' })
   pin!: string;
+}
+
+export class CerrarReciboDto extends PinSupervisorDto {
+  @IsOptional()
+  @IsUUID()
+  bodegaId?: string;
 }
 
 export class ReimpresionReciboDto {

@@ -1,4 +1,4 @@
-import { Warehouse, FileBarChart, Package, Snowflake, Users, Factory, Puzzle, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, SlidersHorizontal, ShieldCheck, UserCog, LayoutDashboard, History, RotateCcw, Layers, Repeat2, BadgeDollarSign, Database, ChartColumnBig, ChartNoAxesCombined, Tags, Calculator, HandCoins, TrendingUp, ScrollText } from 'lucide-react';
+import { Warehouse, FileBarChart, Package, Snowflake, Users, Factory, ArrowLeftRight, Truck, PackageCheck, Container, ThermometerSun, ThermometerSnowflake, Beef, SlidersHorizontal, ShieldCheck, UserCog, LayoutDashboard, History, RotateCcw, Layers, Repeat2, BadgeDollarSign, Database, ChartColumnBig, ChartNoAxesCombined, Tags, Calculator, HandCoins, TrendingUp, ScrollText } from 'lucide-react';
 import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { CanalReciboIcon } from '@/components/icons/CanalReciboIcon';
 import { PostaReciboIcon } from '@/components/icons/PostaReciboIcon';
@@ -18,6 +18,8 @@ export type NavItem = {
   to: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
+  /** Módulo en pruebas: se muestra en el menú pero no se puede abrir. */
+  proximamente?: boolean;
 };
 
 export interface NavGroup {
@@ -55,7 +57,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { to: '/sacrificio', label: 'Sacrificio', icon: SacrificioIcon },
       { to: '/pieles', label: 'Pieles', icon: PielesIcon },
-      { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon },
+      { to: '/subproductos', label: 'Subproductos', icon: SubproductosIcon, proximamente: true },
       { to: '/canal-caliente', label: 'Canal Caliente', icon: CanalCalienteIcon },
     ],
   },
@@ -101,7 +103,6 @@ export const navGroups: NavGroup[] = [
     title: 'Gestión de Terceros',
     items: [
       { to: '/clientes', label: 'Clientes', icon: Users },
-      { to: '/piezas-desposte', label: 'Piezas Desposte', icon: Puzzle },
       { to: '/informes', label: 'Informes', icon: FileBarChart },
     ],
   },

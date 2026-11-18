@@ -36,12 +36,14 @@ import {
   useCanalReceiptItems,
   useCanalReceipts,
   useCerrarCanalReceipt,
+  destinoCanalReceipt,
   useCreateCanalReceiptItem,
   useDeleteCanalReceiptItem,
   type CanalReceipt,
   type CanalReceiptItem,
 } from '../canal-recibo/api';
 import { generarRotuloReciboZpl } from '../canal-recibo/rotulo-recibo-zpl';
+import { CierreRecibo } from '../canal-recibo/CierreRecibo';
 
 type Vista = 'ordenes' | 'recibo' | 'totales';
 
@@ -143,8 +145,8 @@ export function ReciboCanalesPage() {
         generarRotuloReciboZpl({
           receiptNumber: orden.receiptNumber,
           codigo: item.codigo,
-          cliente: orden.client.name,
-          sede: orden.client.sede,
+          cliente: orden.cliente.concepto,
+          nit: orden.cliente.nit ?? '',
           guia: item.guia ?? '',
           lote: item.lote ?? '',
           identificacion: item.identificacion ?? '',
@@ -243,7 +245,8 @@ export function ReciboCanalesPage() {
         </span>
         <div className="min-w-0 flex-1">
           <div className="truncate text-lg font-semibold uppercase">
-            {orden.client.name} <span className="text-muted-foreground">· {orden.client.sede}</span>
+            {orden.cliente.concepto}
+            {orden.cliente.nit && <span className="text-muted-foreground"> · NIT {orden.cliente.nit}</span>}
           </div>
           <div className="text-sm text-muted-foreground">
             <b className="tabular-nums text-foreground">{items.length}</b> {items.length === 1 ? 'canal' : 'canales'} ·{' '}
@@ -479,22 +482,21 @@ export function ReciboCanalesPage() {
         </div>
       )}
 
-      <SupervisorPinDialog
+      <CierreRecibo
         open={pidiendoCierre}
-        title={`Cerrar orden ${formatRC(orden.receiptNumber)}`}
-        accion="Cerrar orden"
-        description={
+        titulo={`Cerrar orden ${formatRC(orden.receiptNumber)}`}
+        resumen={
           <>
             Se cerrará con <b className="text-foreground">{items.length}</b> canales ({kg(totalKg)} kg) y ya no recibirá más.
-            Ingresa el PIN de un <b className="text-foreground">supervisor</b>.
           </>
         }
+        cargarDestino={() => destinoCanalReceipt(orden.id)}
         onClose={() => setPidiendoCierre(false)}
-        onConfirm={async (pin) => {
+        onConfirm={async (pin, bodegaId) => {
           try {
-            await cerrar.mutateAsync({ id: orden.id, pin });
+            await cerrar.mutateAsync({ id: orden.id, pin, bodegaId });
             setPidiendoCierre(false);
-            flash('success', `Orden ${formatRC(orden.receiptNumber)} cerrada.`);
+            flash('success', `Orden ${formatRC(orden.receiptNumber)} cerrada: las canales entraron al inventario.`);
             setOrden(null);
             setVista('ordenes');
             return null;
@@ -587,7 +589,7 @@ function OrdenesRecibo({
   const estado = (o: CanalReceipt) => ((o.piezas ?? 0) > 0 ? 'proceso' : 'pendiente');
   const q = busqueda.trim().toUpperCase();
   const buscadas = q
-    ? ordenes.filter((o) => [formatRC(o.receiptNumber), o.client.name, o.client.sede, o.client.nit].join(' ').toUpperCase().includes(q))
+    ? ordenes.filter((o) => [formatRC(o.receiptNumber), o.cliente.concepto, o.cliente.nit ?? ''].join(' ').toUpperCase().includes(q))
     : ordenes;
   const visibles = buscadas.filter((o) => !filtro || estado(o) === filtro);
   const filtros = [
@@ -664,8 +666,8 @@ function OrdenesRecibo({
                       <span className="text-lg font-bold tabular-nums text-primary">{formatRC(o.receiptNumber)}</span>
                     </td>
                     <td className="max-w-96">
-                      <div className="truncate text-base font-semibold uppercase">{o.client.name}</div>
-                      <div className="text-xs text-muted-foreground">{o.client.sede}{o.client.nit ? ` · NIT ${o.client.nit}` : ''}</div>
+                      <div className="truncate text-base font-semibold uppercase">{o.cliente.concepto}</div>
+                      <div className="text-xs text-muted-foreground">{o.cliente.nit ? `NIT ${o.cliente.nit}` : 'Sin NIT'}</div>
                     </td>
                     <td className={cn('tabular-nums', o.processDate.slice(0, 10) === hoy && 'font-semibold text-primary')}>
                       {formatFechaDia(o.processDate.slice(0, 10))}
@@ -694,8 +696,8 @@ function OrdenesRecibo({
                   <div className="flex items-start gap-3">
                     <span className="rounded-lg bg-primary/10 px-3 py-1.5 text-2xl font-bold tabular-nums text-primary">{formatRC(o.receiptNumber)}</span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-lg font-bold uppercase">{o.client.name}</div>
-                      <div className="text-sm text-muted-foreground">{o.client.sede} · Proceso {formatFechaDia(o.processDate.slice(0, 10))}</div>
+                      <div className="truncate text-lg font-bold uppercase">{o.cliente.concepto}</div>
+                      <div className="text-sm text-muted-foreground">{o.cliente.nit ? `NIT ${o.cliente.nit} · ` : ''}Proceso {formatFechaDia(o.processDate.slice(0, 10))}</div>
                     </div>
                   </div>
                   <div className="grid grid-cols-2 gap-4 rounded-lg bg-muted/40 px-4 py-3">

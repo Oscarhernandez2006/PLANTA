@@ -15,6 +15,7 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreateCanalReceiptDto } from './dto/create-canal-receipt.dto';
 import {
+  CerrarReciboDto,
   CreateCanalReceiptItemDto,
   PinSupervisorDto,
   ReimpresionReciboDto,
@@ -66,13 +67,18 @@ export class CanalReceiptController {
     return this.service.registrarReimpresion(user, itemId, dto.estacion);
   }
 
+  @Get(':id/destino')
+  destino(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.destino(user, id);
+  }
+
   @Patch(':id/cerrar')
   cerrar(
     @CurrentUser() user: AuthContext,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: PinSupervisorDto,
+    @Body() dto: CerrarReciboDto,
   ) {
-    return this.service.cerrar(user, id, dto.pin);
+    return this.service.cerrar(user, id, dto.pin, dto.bodegaId);
   }
 
   @Get(':id/items')

@@ -119,3 +119,107 @@ export function useCerrarTraslado() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['transfer-orders'] }),
   });
 }
+
+// ---- Gestor de órdenes ----
+
+export type EstadoOrdenGestion = 'activo' | 'inactivo' | 'facturado' | 'anulada';
+
+export interface OrdenTrasladoGestion extends OrdenTraslado {
+  creadaPor: string;
+  ocNumbers: number[];
+  empaques: number;
+  unds: number;
+  netoKg: number;
+  createdAt: string;
+  closedAt: string | null;
+  deletedAt: string | null;
+  motivoAnulacion: string | null;
+}
+
+export interface ResumenOrdenes {
+  activas: number;
+  inactivas: number;
+  cerradas: number;
+  anuladas: number;
+  cerradasHoy: number;
+}
+
+export interface FiltrosOrdenes {
+  estado?: EstadoOrdenGestion;
+  search?: string;
+  desde?: string;
+  hasta?: string;
+  page: number;
+}
+
+export function useOrdenesTraslado(f: FiltrosOrdenes) {
+  return useQuery({
+    queryKey: ['transfer-orders', 'gestion', f],
+    queryFn: async () =>
+      (
+        await api.get<{
+          data: OrdenTrasladoGestion[];
+          resumen: ResumenOrdenes;
+          pagination: { page: number; pageSize: number; total: number; totalPages: number };
+        }>('/transfer-orders', {
+          params: {
+            page: f.page,
+            pageSize: 50,
+            ...(f.estado ? { estado: f.estado } : {}),
+            ...(f.search?.trim() ? { search: f.search.trim() } : {}),
+            ...(f.desde ? { desde: f.desde } : {}),
+            ...(f.hasta ? { hasta: f.hasta } : {}),
+          },
+        })
+      ).data,
+    placeholderData: (prev) => prev,
+    refetchInterval: 15000,
+  });
+}
+
+export interface OrdenTrasladoDetalle extends OrdenTraslado {
+  createdAt: string;
+  closedAt: string | null;
+  deletedAt: string | null;
+  motivoAnulacion: string | null;
+  creadaPor: string | null;
+  cerradaPor: string | null;
+  anuladaPor: string | null;
+  items: ItemTraslado[];
+  ordenesAcondicionamiento: { id: string; ocNumber: number; status: OrdenDespachoStatus; processDate: string }[];
+}
+
+export function useOrdenTrasladoDetalle(id: string | null) {
+  return useQuery({
+    queryKey: ['transfer-orders', 'detalle', id],
+    queryFn: async () => (await api.get<OrdenTrasladoDetalle>(`/transfer-orders/${id}`)).data,
+    enabled: !!id,
+  });
+}
+
+export function useActualizarOrdenTraslado() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...input }: { id: string; clienteId?: string; processDate?: string; status?: OrdenDespachoStatus }) =>
+      (await api.patch(`/transfer-orders/${id}`, input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['transfer-orders'] }),
+  });
+}
+
+export function useAnularOrdenTraslado() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...input }: { id: string; pin: string; motivo: string }) =>
+      (await api.patch(`/transfer-orders/${id}/anular`, input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['transfer-orders'] }),
+  });
+}
+
+export function useReabrirOrdenTraslado() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
+      (await api.patch(`/transfer-orders/${id}/reabrir`, { pin })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['transfer-orders'] }),
+  });
+}

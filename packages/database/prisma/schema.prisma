@@ -116,9 +116,6 @@ model Client {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  canalReceipts CanalReceiptOrder[]
-  postaReceipts PostaReceiptOrder[]
-
   @@unique([nit, sede])
   @@map("client")
 }
@@ -177,6 +174,8 @@ model Cliente {
   preciosListas            PrecioLista[]
   tarifasProceso           TarifaProceso[]
   reglasCorte              ReglaCorte[]
+  recibosCanales           CanalReceiptOrder[]
+  recibosPosta             PostaReceiptOrder[]
 
   @@map("cliente")
 }
@@ -220,6 +219,8 @@ model Bodega {
   etiquetasAcondicionamiento AcondicionamientoEtiqueta[]
   transfersSalida            BodegaTransfer[]            @relation("bodegaTransferOrigen")
   transfersEntrada           BodegaTransfer[]            @relation("bodegaTransferDestino")
+  recibosCanales             CanalReceiptOrder[]
+  recibosPosta               PostaReceiptOrder[]
 
   @@unique([clienteId, nombre])
   @@map("bodega")
@@ -374,6 +375,7 @@ model DispatchOrder {
   cliente          Cliente             @relation(fields: [clienteId], references: [id])
   createdBy        AppUser             @relation("dispatchCreatedBy", fields: [createdById], references: [id])
   items            DispatchOrderItem[]
+  canalesRecibidas CanalReceiptItem[]
   productionOrders ProductionOrder[]
 
   @@unique([plantId, odNumber])
@@ -402,6 +404,7 @@ model CanalDispatchOrder {
   createdBy AppUser                  @relation("canalDispatchCreatedBy", fields: [createdById], references: [id])
   items     CanalDispatchOrderItem[]
   productos DispatchProductItem[]
+  canalesRecibidas CanalReceiptItem[]
 
   @@unique([plantId, dcNumber])
   @@index([plantId, tipo, status])
@@ -436,6 +439,7 @@ model DispatchProductItem {
   etiquetaId           String?  @unique @map("etiqueta_id") @db.Uuid
   canastillaId         String?  @unique @map("canastilla_id") @db.Uuid
   acondEtiquetaId      String?  @unique @map("acond_etiqueta_id") @db.Uuid
+  postaItemId          String?  @unique @map("posta_item_id") @db.Uuid
   codigo               String
   productId            String   @map("product_id") @db.Uuid
   unds                 Int
@@ -450,6 +454,7 @@ model DispatchProductItem {
   etiqueta           RotuladoEtiqueta?          @relation(fields: [etiquetaId], references: [id])
   canastilla         RotuladoCanastilla?        @relation(fields: [canastillaId], references: [id])
   acondEtiqueta      AcondicionamientoEtiqueta? @relation(fields: [acondEtiquetaId], references: [id])
+  postaItem          PostaReceiptItem?          @relation(fields: [postaItemId], references: [id])
   product            Product                    @relation(fields: [productId], references: [id])
   createdBy          AppUser                    @relation("dispatchProductItemCreatedBy", fields: [createdById], references: [id])
 
@@ -470,6 +475,10 @@ model TransferOrder {
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
+  closedAt         DateTime?           @map("closed_at") @db.Timestamptz(6)
+  closedById       String?             @map("closed_by") @db.Uuid
+  deletedById      String?             @map("deleted_by") @db.Uuid
+  motivoAnulacion  String?             @map("motivo_anulacion")
 
   plant              Plant               @relation(fields: [plantId], references: [id])
   cliente            Cliente             @relation(fields: [clienteId], references: [id])
@@ -812,7 +821,9 @@ model CanalReceiptOrder {
   receiptNumber    Int                 @map("receipt_number")
   registrationDate DateTime            @map("registration_date") @db.Date
   processDate      DateTime            @map("process_date") @db.Date
-  clientId         String              @map("client_id") @db.Uuid
+  clienteId        String              @map("cliente_id") @db.Uuid
+  // Bodega del cliente a la que entra lo recibido; se fija al cerrar la orden.
+  bodegaId         String?             @map("bodega_id") @db.Uuid
   status           DispatchOrderStatus @default(activo)
   createdById      String              @map("created_by") @db.Uuid
   // Cierre autorizado con el PIN de un supervisor.
@@ -823,7 +834,8 @@ model CanalReceiptOrder {
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
 
   plant     Plant              @relation(fields: [plantId], references: [id])
-  client    Client             @relation(fields: [clientId], references: [id])
+  cliente   Cliente            @relation(fields: [clienteId], references: [id])
+  bodega    Bodega?            @relation(fields: [bodegaId], references: [id])
   createdBy AppUser            @relation("canalReceiptCreatedBy", fields: [createdById], references: [id])
   items     CanalReceiptItem[]
 
@@ -867,7 +879,9 @@ model PostaReceiptOrder {
   receiptNumber    Int                 @map("receipt_number")
   registrationDate DateTime            @map("registration_date") @db.Date
   processDate      DateTime            @map("process_date") @db.Date
-  clientId         String              @map("client_id") @db.Uuid
+  clienteId        String              @map("cliente_id") @db.Uuid
+  // Bodega del cliente a la que entra lo recibido; se fija al cerrar la orden.
+  bodegaId         String?             @map("bodega_id") @db.Uuid
   status           DispatchOrderStatus @default(activo)
   createdById      String              @map("created_by") @db.Uuid
   // Cierre autorizado con el PIN de un supervisor.
@@ -878,7 +892,8 @@ model PostaReceiptOrder {
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
 
   plant     Plant              @relation(fields: [plantId], references: [id])
-  client    Client             @relation(fields: [clientId], references: [id])
+  cliente   Cliente            @relation(fields: [clienteId], references: [id])
+  bodega    Bodega?            @relation(fields: [bodegaId], references: [id])
   createdBy AppUser            @relation("postaReceiptCreatedBy", fields: [createdById], references: [id])
   items     PostaReceiptItem[]
 
@@ -911,6 +926,7 @@ model PostaReceiptItem {
   plant        Plant             @relation(fields: [plantId], references: [id])
   product      Product           @relation(fields: [productId], references: [id])
   createdBy    AppUser           @relation("postaReceiptItemCreatedBy", fields: [createdById], references: [id])
+  despacho     DispatchProductItem?
 
   @@index([receiptOrderId])
   @@map("posta_receipt_item")
@@ -929,12 +945,22 @@ model CanalReceiptItem {
   identificacion String?
   createdById    String   @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  // Salida: orden de despacho a proceso (OD, Canal Fría) o de despacho de canales (DC caliente/frío).
+  dispatchOrderId      String?   @map("dispatch_order_id") @db.Uuid
+  canalDispatchOrderId String?   @map("canal_dispatch_order_id") @db.Uuid
+  despachoKg           Decimal?  @map("despacho_kg") @db.Decimal(12, 2)
+  despachadoAt         DateTime? @map("despachado_at") @db.Timestamptz(6)
+  despachadoById       String?   @map("despachado_by") @db.Uuid
 
-  receiptOrder CanalReceiptOrder @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
-  plant        Plant             @relation(fields: [plantId], references: [id])
-  createdBy    AppUser           @relation("canalReceiptItemCreatedBy", fields: [createdById], references: [id])
+  receiptOrder       CanalReceiptOrder   @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
+  plant              Plant               @relation(fields: [plantId], references: [id])
+  createdBy          AppUser             @relation("canalReceiptItemCreatedBy", fields: [createdById], references: [id])
+  dispatchOrder      DispatchOrder?      @relation(fields: [dispatchOrderId], references: [id])
+  canalDispatchOrder CanalDispatchOrder? @relation(fields: [canalDispatchOrderId], references: [id])
 
   @@index([receiptOrderId])
+  @@index([dispatchOrderId])
+  @@index([canalDispatchOrderId])
   @@map("canal_receipt_item")
 }
 

@@ -30,6 +30,39 @@ export function useClientesAdmin() {
   });
 }
 
+export interface ResumenCliente {
+  clienteId: string;
+  bodegas: number;
+  tiendas: number;
+  productos: number;
+  ordenes: number;
+  ultimoMovimiento: string | null;
+}
+
+export function useResumenClientes() {
+  return useQuery({
+    queryKey: ['clientes', 'resumen'],
+    queryFn: async () => (await api.get<ResumenCliente[]>('/clientes/resumen')).data,
+  });
+}
+
+export interface OrdenCliente {
+  id: string;
+  tipo: string;
+  numero: string;
+  detalle: string | null;
+  status: 'activo' | 'inactivo' | 'facturado';
+  processDate: string;
+  createdAt: string;
+}
+
+export function useOrdenesCliente(clienteId: string) {
+  return useQuery({
+    queryKey: ['clientes', clienteId, 'ordenes'],
+    queryFn: async () => (await api.get<OrdenCliente[]>(`/clientes/${clienteId}/ordenes`)).data,
+  });
+}
+
 export function useNextClienteCode() {
   return useQuery({
     queryKey: ['clientes', 'next-code'],

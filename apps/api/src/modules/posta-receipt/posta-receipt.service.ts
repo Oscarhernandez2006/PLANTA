@@ -6,10 +6,12 @@ import { verificarPinSupervisor } from '../../common/auth/supervisor-pin';
 import { CreatePostaReceiptDto } from './dto/create-posta-receipt.dto';
 import { CreatePostaReceiptItemDto } from './dto/create-posta-receipt-item.dto';
 import { QueryPostaReceiptDto } from './dto/query-posta-receipt.dto';
+import { bodegaParaCerrar, destinoRecibo } from '../canal-receipt/recibo-destino';
 
 const clientSelect = {
-  select: { id: true, nit: true, name: true, sede: true },
+  select: { id: true, nit: true, concepto: true },
 } as const;
+const bodegaSelect = { select: { id: true, code: true, nombre: true } } as const;
 
 @Injectable()
 export class PostaReceiptService {
@@ -25,6 +27,11 @@ export class PostaReceiptService {
   }
 
   async create(ctx: AuthContext, dto: CreatePostaReceiptDto) {
+    const cliente = await this.prisma.cliente.findFirst({
+      where: { id: dto.clienteId, active: true },
+      select: { id: true },
+    });
+    if (!cliente) throw new BadRequestException('El cliente no existe o está inactivo. Créalo primero en Clientes.');
     return this.prisma.$transaction(async (tx) => {
       // Serializa la numeración por planta.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:posta-receipt`}))`;
@@ -40,11 +47,11 @@ export class PostaReceiptService {
           receiptNumber,
           registrationDate: new Date(dto.registrationDate),
           processDate: new Date(dto.processDate),
-          clientId: dto.clientId,
+          clienteId: dto.clienteId,
           status: dto.status ?? DispatchOrderStatus.activo,
           createdById: ctx.userId,
         },
-        include: { client: clientSelect },
+        include: { cliente: clientSelect, bodega: bodegaSelect },
       });
     });
   }
@@ -64,7 +71,8 @@ export class PostaReceiptService {
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
         include: {
-          client: clientSelect,
+          cliente: clientSelect,
+          bodega: bodegaSelect,
           items: { select: { netoKg: true, piezas: true, productId: true } },
         },
       }),
@@ -92,7 +100,7 @@ export class PostaReceiptService {
   async findOne(ctx: AuthContext, id: string) {
     const order = await this.prisma.postaReceiptOrder.findFirst({
       where: { id, plantId: ctx.plantId, deletedAt: null },
-      include: { client: clientSelect },
+      include: { cliente: clientSelect, bodega: bodegaSelect },
     });
     if (!order) throw new NotFoundException('Recibo en posta no encontrado.');
     return order;
@@ -176,18 +184,25 @@ export class PostaReceiptService {
     return { ok: true };
   }
 
-  /** Cierra la orden con el PIN de un supervisor (queda registrado quién y cuándo). */
-  async cerrar(ctx: AuthContext, id: string, pin: string) {
+  /** Cliente y bodegas a las que puede entrar lo recibido (o por qué aún no se puede cerrar). */
+  async destino(ctx: AuthContext, id: string) {
+    const order = await this.findOne(ctx, id);
+    return destinoRecibo(this.prisma, order.clienteId);
+  }
+
+  /** Cierra la orden con el PIN de un supervisor: el producto entra a la bodega del cliente. */
+  async cerrar(ctx: AuthContext, id: string, pin: string, bodegaId?: string) {
     const order = await this.findOne(ctx, id);
     if (order.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de recibo ya está cerrada.');
     }
     const registros = await this.prisma.postaReceiptItem.count({ where: { receiptOrderId: id } });
     if (!registros) throw new BadRequestException('La orden no tiene producto recibido; no hay nada que cerrar.');
+    const bodega = await bodegaParaCerrar(this.prisma, order.clienteId, bodegaId);
     const supervisorId = await verificarPinSupervisor(this.prisma, ctx.plantId, pin);
     await this.prisma.postaReceiptOrder.update({
       where: { id },
-      data: { status: DispatchOrderStatus.facturado, cerradaAt: new Date(), cerradaById: supervisorId },
+      data: { status: DispatchOrderStatus.facturado, cerradaAt: new Date(), cerradaById: supervisorId, bodegaId: bodega },
     });
     return { ok: true };
   }

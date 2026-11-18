@@ -72,7 +72,7 @@ export function Mensaje({ text }: { text: string }) {
   );
 }
 
-const PIEZA_LABEL: Record<ItemDespacho['pieza'], string> = {
+export const PIEZA_LABEL: Record<ItemDespacho['pieza'], string> = {
   canal: 'CANAL',
   cizq: 'CIZQ',
   cder: 'CDER',
@@ -148,7 +148,7 @@ export function RegistroTab({
                   )}
                 >
                   <td className={cn(celda, 'font-semibold tabular-nums')}>{i.barcode}</td>
-                  <td className={cn(celda, 'tabular-nums')}>{formatOB(i.reference)}</td>
+                  <td className={cn(celda, 'tabular-nums')}>{i.recibida ? `RC${i.reference}` : formatOB(i.reference)}</td>
                   <td className={cn(celda, 'tabular-nums')}>
                     A{String(i.sequence).padStart(2, '0')}
                   </td>
@@ -852,16 +852,18 @@ function OrdenesFria({
   );
 }
 
-function TablaDespacho({
+export function TablaDespacho({
   items,
   loading,
   seleccionadoId,
   onSeleccionar,
+  pesoLabel = 'Frío',
 }: {
   items: ItemDespacho[];
   loading: boolean;
   seleccionadoId: string | null;
   onSeleccionar: (i: ItemDespacho) => void;
+  pesoLabel?: string;
 }) {
   // El más reciente arriba.
   const filas = [...items].sort((a, b) => b.despachadoAt.localeCompare(a.despachadoAt));
@@ -893,7 +895,7 @@ function TablaDespacho({
                 <th>Tipo</th>
                 <th>Cava origen</th>
                 <th className="text-right">Caliente</th>
-                <th className="text-right">Frío</th>
+                <th className="text-right">{pesoLabel}</th>
                 <th className="text-right">Merma</th>
               </tr>
             </thead>
@@ -939,7 +941,7 @@ function TablaDespacho({
   );
 }
 
-function PanelFria({
+export function PanelFria({
   orden,
   seleccionado,
   ultimo,
@@ -958,6 +960,8 @@ function PanelFria({
   quitando,
   onQuitar,
   onCancelar,
+  pesoLabel = 'Peso en frío',
+  ayuda = 'Al pistolear se lee la báscula sola y la canal se agrega con ese peso.',
 }: {
   orden: boolean;
   seleccionado: ItemDespacho | null;
@@ -977,6 +981,8 @@ function PanelFria({
   quitando: boolean;
   onQuitar: () => void;
   onCancelar: () => void;
+  pesoLabel?: string;
+  ayuda?: string;
 }) {
   const campoPeso = (
     <div
@@ -996,7 +1002,7 @@ function PanelFria({
         }}
         inputMode="decimal"
         disabled={!orden}
-        aria-label="Peso en frío (kg)"
+        aria-label={`${pesoLabel} (kg)`}
         className="w-full min-w-0 bg-transparent text-right text-5xl font-bold tabular-nums outline-none"
       />
       <span className="text-xl font-semibold text-muted-foreground">kg</span>
@@ -1021,11 +1027,11 @@ function PanelFria({
         </div>
         <div className="grid grid-cols-3 gap-3 rounded-lg bg-muted/50 px-4 py-3">
           <Dato label="Caliente">{num(seleccionado.pesoKg)}</Dato>
-          <Dato label="Frío actual">{seleccionado.despachoKg !== null ? num(seleccionado.despachoKg) : '—'}</Dato>
+          <Dato label="Peso actual">{seleccionado.despachoKg !== null ? num(seleccionado.despachoKg) : '—'}</Dato>
           <Dato label="Merma">{m ? `${num(m.pct, 1)} %` : '—'}</Dato>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nuevo peso en frío</span>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nuevo {pesoLabel.toLowerCase()}</span>
           {campoPeso}
         </div>
         <div className="grid grid-cols-2 gap-3">
@@ -1080,14 +1086,12 @@ function PanelFria({
             )
           )}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Al pistolear se lee la báscula sola y la canal se agrega con ese peso.
-        </p>
+        <p className="text-xs text-muted-foreground">{ayuda}</p>
       </div>
 
       <div className="flex flex-col gap-2">
         <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Peso en frío
+          {pesoLabel}
           {leyendo && (
             <span className="flex items-center gap-1 normal-case text-primary">
               <LoaderCircle className="size-3.5 animate-spin" /> leyendo báscula…
@@ -1120,7 +1124,7 @@ function PanelFria({
   );
 }
 
-function TotalesFria({ items }: { items: ItemDespacho[] }) {
+export function TotalesFria({ items, pesoLabel = 'Frío' }: { items: ItemDespacho[]; pesoLabel?: string }) {
   if (!items.length) {
     return <Mensaje text="Esta orden aún no tiene canales. Pistoléalas en Despacho." />;
   }
@@ -1143,7 +1147,7 @@ function TotalesFria({ items }: { items: ItemDespacho[] }) {
       <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/40 px-4 py-3 md:grid-cols-5">
         <Dato label="Canales">{total.piezas}</Dato>
         <Dato label="Caliente (kg)">{num(total.caliente)}</Dato>
-        <Dato label="Frío (kg)">{num(total.frio)}</Dato>
+        <Dato label={`${pesoLabel} (kg)`}>{num(total.frio)}</Dato>
         <Dato label="Merma (kg)">{num(total.merma, 2)}</Dato>
         <Dato label="Merma (%)">
           <span className={cn(total.pct > MERMA_MAX && 'text-amber-700')}>{num(total.pct, 2)} %</span>
@@ -1181,7 +1185,7 @@ function TotalesFria({ items }: { items: ItemDespacho[] }) {
               <th>Tipo</th>
               <th>Cava origen</th>
               <th className="text-right">Caliente</th>
-              <th className="text-right">Frío</th>
+              <th className="text-right">{pesoLabel}</th>
               <th className="text-right">Merma kg</th>
               <th className="text-right">Merma %</th>
             </tr>

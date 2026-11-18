@@ -3,6 +3,7 @@ import { Type } from 'class-transformer';
 import {
   IsDateString,
   IsEnum,
+  IsIn,
   IsInt,
   IsNumber,
   IsOptional,
@@ -10,7 +11,9 @@ import {
   IsUUID,
   Matches,
   Max,
+  MaxLength,
   Min,
+  MinLength,
 } from 'class-validator';
 
 // Código de barras de 8 dígitos (pieza o canastilla de Rotulado).
@@ -60,6 +63,24 @@ export class QueryTransferOrderDto {
   @IsEnum(DispatchOrderStatus)
   status?: DispatchOrderStatus;
 
+  /** Gestor de órdenes: estado de negocio (anulada = borrada con motivo). */
+  @IsOptional()
+  @IsIn(['activo', 'inactivo', 'facturado', 'anulada'])
+  estado?: 'activo' | 'inactivo' | 'facturado' | 'anulada';
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  search?: string;
+
+  @IsOptional()
+  @IsDateString()
+  desde?: string;
+
+  @IsOptional()
+  @IsDateString()
+  hasta?: string;
+
   @IsOptional()
   @Type(() => Number)
   @IsInt()
@@ -72,4 +93,31 @@ export class QueryTransferOrderDto {
   @Min(1)
   @Max(100)
   pageSize: number = 20;
+}
+
+export class UpdateTransferOrderDto {
+  @IsOptional()
+  @IsUUID()
+  clienteId?: string;
+
+  @IsOptional()
+  @IsDateString()
+  processDate?: string;
+
+  @IsOptional()
+  @IsIn([DispatchOrderStatus.activo, DispatchOrderStatus.inactivo])
+  status?: DispatchOrderStatus;
+}
+
+export class PinSupervisorDto {
+  @IsString()
+  @Matches(/^\d{4,12}$/, { message: 'PIN no válido.' })
+  pin!: string;
+}
+
+export class AnularTransferOrderDto extends PinSupervisorDto {
+  @IsString()
+  @MinLength(5, { message: 'Escribe el motivo de la anulación (mínimo 5 caracteres).' })
+  @MaxLength(300)
+  motivo!: string;
 }

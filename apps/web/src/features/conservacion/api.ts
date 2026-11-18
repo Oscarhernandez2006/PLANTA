@@ -6,6 +6,8 @@ export interface ConservacionCliente {
   concepto: string;
   nit: string | null;
   productos: number;
+  /** Productos sin caducidad refrigerada o con congelado menor que refrigerado. */
+  alertas: number;
 }
 
 export const TIPOS_CONSERVACION = ['TERMINADO', 'EN PROCESO', 'MATERIA PRIMA', 'SUBPRODUCTO'];
@@ -70,6 +72,20 @@ export function useActualizarConservacion(clienteId: string) {
         await api.patch(
           `/conservacion/clientes/${clienteId}/productos/${productId}`,
           datos,
+        )
+      ).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['conservacion'] }),
+  });
+}
+
+export function useCopiarConservacion(clienteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { origenId: string; sobrescribir: boolean }) =>
+      (
+        await api.post<{ creados: number; actualizados: number; omitidos: number }>(
+          `/conservacion/clientes/${clienteId}/copiar`,
+          input,
         )
       ).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['conservacion'] }),

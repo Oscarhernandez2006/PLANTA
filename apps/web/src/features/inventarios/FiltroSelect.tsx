@@ -15,7 +15,7 @@ export function FiltroSelect({
       <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-9 rounded-sm border-2 border-border bg-card px-2 text-sm font-medium normal-case text-foreground outline-none focus:border-emerald-500"
+        className="h-9 rounded-lg border border-input bg-background px-2 text-sm font-medium normal-case text-foreground outline-none focus:border-primary"
       >
         <option value="">Todos</option>
         {opciones.map((o) => (

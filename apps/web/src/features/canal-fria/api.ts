@@ -45,6 +45,8 @@ export interface ItemDespacho extends Omit<PiezaEnCava, 'cava'> {
   cavaOrigen: string;
   despachoKg: number | null;
   despachadoAt: string;
+  /** Canal recibida de un tercero (Recibo de Canales, rótulo RC#-NN). */
+  recibida?: true;
 }
 
 export function useItemsDespacho(orderId: string | null) {

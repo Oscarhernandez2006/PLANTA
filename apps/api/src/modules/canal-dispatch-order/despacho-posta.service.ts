@@ -9,6 +9,7 @@ import { PrismaService } from '../../prisma/prisma.service';
 import { normalizarCodigoBarras, tipoCodigoBarras } from '../../common/codigo-barras';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { parseCanalBarcode } from '../../common/canal-barcode';
+import { parseReciboCanal, parseReciboPosta, piezaRP } from '../canal-receipt/recibo-despacho';
 
 type Db = Prisma.TransactionClient;
 type OrdenPosta = { id: string; clienteId: string; status: DispatchOrderStatus };
@@ -68,11 +69,56 @@ export class DespachoPostaService {
 
   private async resolver(db: Db, ctx: AuthContext, dc: OrdenPosta, codigo: string) {
     const valor = codigo.trim().toUpperCase();
-    if (parseCanalBarcode(valor)) {
+    if (parseCanalBarcode(valor) || parseReciboCanal(valor)) {
       throw new BadRequestException('Las canales no se despachan en Despacho Posta; usa Despacho Caliente o Frío.');
     }
     const ya = (n: number) => `ya está en la orden de despacho ${formatDC(n)}`;
     const enProceso = (n: number) => `está en proceso en la orden de traslado ${formatOT(n)}`;
+
+    // Producto recibido en posta (rótulo RP#-NN): entra al inventario al cerrar su recibo.
+    const rp = parseReciboPosta(valor);
+    if (rp) {
+      const etiqueta = piezaRP(rp.receiptNumber, rp.codigo);
+      const p = await db.postaReceiptItem.findFirst({
+        where: {
+          plantId: ctx.plantId,
+          codigo: rp.codigo,
+          receiptOrder: { receiptNumber: rp.receiptNumber, plantId: ctx.plantId, deletedAt: null },
+        },
+        select: {
+          id: true,
+          netoKg: true,
+          piezas: true,
+          productId: true,
+          product: { select: { codigo: true, nombre: true } },
+          receiptOrder: { select: { status: true, bodegaId: true, clienteId: true } },
+          despacho: dcSelect,
+        },
+      });
+      if (!p) throw new NotFoundException(`No se encontró el producto recibido ${etiqueta}.`);
+      if (p.receiptOrder.status !== DispatchOrderStatus.facturado || !p.receiptOrder.bodegaId) {
+        throw new BadRequestException(
+          `${etiqueta} aún no está en inventario: primero se debe cerrar su orden de recibo RP${rp.receiptNumber}.`,
+        );
+      }
+      if (p.receiptOrder.clienteId !== dc.clienteId) throw new BadRequestException(`${etiqueta} es de otro cliente.`);
+      if (p.despacho) throw new ConflictException(`${etiqueta} ${ya(p.despacho.canalDispatchOrder.dcNumber)}.`);
+      return {
+        tipo: 'pieza' as const,
+        etiquetaId: null,
+        canastillaId: null,
+        acondEtiquetaId: null,
+        postaItemId: p.id,
+        codigo: etiqueta,
+        productId: p.productId,
+        productoCodigo: p.product.codigo,
+        productoNombre: p.product.nombre,
+        pieza: rp.codigo,
+        canastillaNumero: null,
+        unds: p.piezas,
+        netoEtiquetaKg: Number(p.netoKg),
+      };
+    }
 
     const codigoNormalizado = normalizarCodigoBarras(valor);
     const tipo = await tipoCodigoBarras(db, ctx.plantId, codigoNormalizado);
@@ -101,6 +147,7 @@ export class DespachoPostaService {
         etiquetaId: null,
         canastillaId: null,
         acondEtiquetaId: e.id,
+        postaItemId: null,
         codigo: valor,
         productId: e.productId,
         productoCodigo: e.product.codigo,
@@ -158,6 +205,7 @@ export class DespachoPostaService {
         etiquetaId: null,
         canastillaId: c.id,
         acondEtiquetaId: null,
+        postaItemId: null,
         codigo: valor,
         productId: c.productId,
         productoCodigo: product.codigo,
@@ -204,6 +252,7 @@ export class DespachoPostaService {
       etiquetaId: e.id,
       canastillaId: null,
       acondEtiquetaId: null,
+      postaItemId: null,
       codigo: valor,
       productId: e.productId,
       productoCodigo: e.product.codigo,
@@ -240,6 +289,7 @@ export class DespachoPostaService {
             etiquetaId: info.etiquetaId,
             canastillaId: info.canastillaId,
             acondEtiquetaId: info.acondEtiquetaId,
+            postaItemId: info.postaItemId,
             codigo: info.codigo,
             productId: info.productId,
             unds: info.unds,

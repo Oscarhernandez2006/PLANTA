@@ -33,15 +33,18 @@ const DIAS_VENCE_ALERTA = 3;
 const DIA_MS = 86_400_000;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-// Recibos que siguen vigentes: abiertos o cerrados (cerrado = recibo terminado, el producto sigue en planta).
-const reciboVigente = { deletedAt: null, status: { not: DispatchOrderStatus.inactivo } };
-const reciboClienteSelect = {
-  select: { receiptNumber: true, processDate: true, client: { select: { nit: true, name: true, sede: true } } },
+// Lo recibido entra al inventario al cerrar el recibo, en la bodega del cliente elegida al cerrar.
+const reciboEnInventario = { deletedAt: null, status: DispatchOrderStatus.facturado, bodegaId: { not: null } };
+const reciboSelect = {
+  select: {
+    receiptNumber: true,
+    processDate: true,
+    cliente: { select: { concepto: true } },
+    bodega: { select: { id: true, nombre: true } },
+  },
 } as const;
 /** La cava del recibo de canales se guarda como número (1-5). */
 const nombreCavaRecibo = (n: number) => `CAVA ${n}`;
-/** El NIT se compara sin dígito de verificación ni separadores. */
-const nitClave = (nit: string | null | undefined) => (nit ?? '').split('-')[0].replace(/\D/g, '');
 
 @Injectable()
 export class InventariosService {
@@ -54,7 +57,7 @@ export class InventariosService {
   async resumen(ctx: AuthContext) {
     const ahora = Date.now();
     const hoy = plantDateOnly();
-    const [canales, etiquetas, acond, subproductos, odAbiertas, dcAbiertas, recibidas, posta, bodegasNit] = await Promise.all([
+    const [canales, etiquetas, acond, subproductos, odAbiertas, dcAbiertas, recibidas, posta] = await Promise.all([
       this.prisma.canalPieza.findMany({
         where: this.canalEnInventario(ctx),
         select: {
@@ -112,7 +115,6 @@ export class InventariosService {
       }),
       this.canalesRecibidas(ctx),
       this.productosPosta(ctx),
-      this.bodegaPorNit(),
     ]);
 
     type Cava = {
@@ -198,21 +200,21 @@ export class InventariosService {
     }
 
     for (const r of recibidas) {
-      const f = this.reciboCanalFila(r, bodegasNit.get(nitClave(r.receiptOrder.client.nit)));
+      const f = this.reciboCanalFila(r);
       const dias = Math.floor((ahora - r.createdAt.getTime()) / DIA_MS);
       totCanales.unds += 1;
       totCanales.kg += f.pesoKg;
-      totCanales.disponibles += 1;
+      totCanales[f.estado] += 1;
       const cl = clienteDe(f.cliente);
       cl.canales += 1;
       cl.canalesKg += f.pesoKg;
       const c = cavaDe(f.cava, 'canal');
       c.unds += 1;
       c.kg += f.pesoKg;
-      c.disponibles += 1;
+      c[f.estado] += 1;
       c.clientes.add(f.cliente);
       c.masAntiguaDias = Math.max(c.masAntiguaDias ?? 0, dias);
-      if (dias >= DIAS_CANAL_ALERTA) {
+      if (dias >= DIAS_CANAL_ALERTA && f.estado === 'disponibles') {
         canalesAntiguas.push({
           piezaId: r.id,
           origen: 'recibo',
@@ -236,18 +238,13 @@ export class InventariosService {
     const productosTodos = [
       ...etiquetas,
       ...acond,
-      ...posta.map((p) => {
-        const b = bodegasNit.get(nitClave(p.receiptOrder.client.nit));
-        return {
-          netoKg: p.netoKg,
-          conservacion: p.conservacion,
-          fechaVencimiento: p.fechaVencimiento,
-          product: p.product,
-          bodega: b
-            ? { nombre: b.nombre, cliente: { concepto: b.cliente } }
-            : { nombre: 'RECIBO EN POSTA', cliente: { concepto: p.receiptOrder.client.name } },
-        };
-      }),
+      ...posta.map((p) => ({
+        netoKg: p.netoKg,
+        conservacion: p.conservacion,
+        fechaVencimiento: p.fechaVencimiento,
+        product: p.product,
+        bodega: { nombre: p.receiptOrder.bodega?.nombre ?? '', cliente: { concepto: p.receiptOrder.cliente.concepto } },
+      })),
     ];
     for (const e of productosTodos) {
       const kg = Number(e.netoKg);
@@ -335,10 +332,31 @@ export class InventariosService {
 
   // ---- Producto recibido de terceros (Recibo de Canales / Recibo en Posta) ----
 
-  /** Canales recibidas que siguen en planta (aún no tienen salida propia). */
-  private canalesRecibidas(ctx: AuthContext, where: Prisma.CanalReceiptItemWhereInput = {}) {
+  /**
+   * Canales recibidas en inventario: su recibo se cerró (entraron a la bodega del cliente) y no
+   * han salido, o están en una orden OD/DC activa. Con `incluirDespachadas`, también las que
+   * salieron en órdenes ya cerradas.
+   */
+  private canalesRecibidas(
+    ctx: AuthContext,
+    where: Prisma.CanalReceiptItemWhereInput = {},
+    incluirDespachadas = false,
+  ) {
     return this.prisma.canalReceiptItem.findMany({
-      where: { plantId: ctx.plantId, receiptOrder: reciboVigente, ...where },
+      where: {
+        plantId: ctx.plantId,
+        receiptOrder: reciboEnInventario,
+        ...(incluirDespachadas
+          ? {}
+          : {
+              OR: [
+                { dispatchOrderId: null, canalDispatchOrderId: null },
+                { dispatchOrder: { status: DispatchOrderStatus.activo, deletedAt: null } },
+                { canalDispatchOrder: { status: DispatchOrderStatus.activo, deletedAt: null } },
+              ],
+            }),
+        ...where,
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -348,16 +366,19 @@ export class InventariosService {
         guia: true,
         lote: true,
         identificacion: true,
+        despachoKg: true,
         createdAt: true,
-        receiptOrder: reciboClienteSelect,
+        receiptOrder: reciboSelect,
+        dispatchOrder: { select: { odNumber: true, status: true, updatedAt: true } },
+        canalDispatchOrder: { select: { dcNumber: true, tipo: true, status: true, updatedAt: true } },
       },
     });
   }
 
-  /** Producto recibido en posta que sigue en planta. */
+  /** Producto recibido en posta en inventario (no despachado en una DC cerrada). */
   private productosPosta(ctx: AuthContext, where: Prisma.PostaReceiptItemWhereInput = {}) {
     return this.prisma.postaReceiptItem.findMany({
-      where: { plantId: ctx.plantId, receiptOrder: reciboVigente, ...where },
+      where: { plantId: ctx.plantId, receiptOrder: reciboEnInventario, ...despachoActivoONulo, ...where },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -369,51 +390,40 @@ export class InventariosService {
         fechaVencimiento: true,
         createdAt: true,
         product: { select: { codigo: true, nombre: true } },
-        receiptOrder: reciboClienteSelect,
+        receiptOrder: reciboSelect,
+        despacho: dcSelect,
       },
     });
   }
 
-  /**
-   * Bodega donde queda lo recibido de un cliente: el cliente del recibo se cruza por NIT con el
-   * maestro de clientes y se usa su bodega por defecto (la que lleva su nombre, o la primera).
-   */
-  private async bodegaPorNit() {
-    const bodegas = await this.prisma.bodega.findMany({
-      where: { active: true, cliente: { nit: { not: null } } },
-      orderBy: { code: 'asc' },
-      select: { id: true, nombre: true, cliente: { select: { nit: true, concepto: true } } },
-    });
-    const m = new Map<string, { id: string; nombre: string; cliente: string }>();
-    for (const b of bodegas) {
-      const k = nitClave(b.cliente.nit);
-      if (!k) continue;
-      const actual = m.get(k);
-      if (!actual || (b.nombre === b.cliente.concepto && actual.nombre !== actual.cliente)) {
-        m.set(k, { id: b.id, nombre: b.nombre, cliente: b.cliente.concepto });
-      }
-    }
-    return m;
-  }
-
-  private reciboCanalFila(
-    r: Awaited<ReturnType<InventariosService['canalesRecibidas']>>[number],
-    bodega: { nombre: string; cliente: string } | undefined,
-  ) {
+  private reciboCanalFila(r: Awaited<ReturnType<InventariosService['canalesRecibidas']>>[number]) {
     const o = r.receiptOrder;
+    const od = r.dispatchOrder;
+    const dc = r.canalDispatchOrder;
+    const cerradaOd = !!od && od.status !== DispatchOrderStatus.activo;
+    const cerradaDc = !!dc && dc.status === DispatchOrderStatus.facturado;
     return {
       reference: o.receiptNumber,
-      cliente: bodega?.cliente ?? o.client.name,
+      cliente: o.cliente.concepto,
+      bodegaId: o.bodega?.id ?? null,
+      bodega: o.bodega?.nombre ?? null,
       date: o.processDate.toISOString().slice(0, 10),
       pesoKg: Number(r.pesoKg),
+      pesoFrioKg: r.despachoKg === null ? null : Number(r.despachoKg),
       cava: nombreCavaRecibo(r.cava),
+      estado: od ? ('enOrden' as const) : dc ? ('enDespacho' as const) : ('disponibles' as const),
+      enOrden: od
+        ? { odNumber: od.odNumber, opNumbers: [] as number[], cerrada: cerradaOd, cerradaAt: cerradaOd ? od.updatedAt.toISOString() : null }
+        : null,
+      enDespacho: dc
+        ? { dcNumber: dc.dcNumber, tipo: dc.tipo, cerrada: cerradaDc, cerradaAt: cerradaDc ? dc.updatedAt.toISOString() : null }
+        : null,
       recibo: {
         receiptNumber: o.receiptNumber,
         codigo: r.codigo,
         guia: r.guia,
         lote: r.lote,
         identificacion: r.identificacion,
-        sede: o.client.sede,
       },
     };
   }
@@ -437,7 +447,8 @@ export class InventariosService {
       createdById: string;
       cerradaAt: Date | null;
       cerradaById: string | null;
-      client: { nit: string; name: string; sede: string };
+      cliente: { nit: string | null; concepto: string };
+      bodega: { nombre: string } | null;
     },
     nombre: (id: string | null | undefined) => string | null,
   ) {
@@ -450,28 +461,45 @@ export class InventariosService {
       creadaPor: nombre(o.createdById),
       cerradaAt: o.cerradaAt?.toISOString() ?? null,
       cerradaPor: nombre(o.cerradaById),
-      cliente: o.client,
+      cliente: o.cliente,
     };
   }
 
-  /** Hoja de vida de una canal recibida de terceros: recibo, ingreso, cava y reimpresiones. */
+  /** Hoja de vida de una canal recibida de terceros: recibo, ingreso, cava, salida y reimpresiones. */
   async trazabilidadReciboCanal(ctx: AuthContext, itemId: string) {
     const i = await this.prisma.canalReceiptItem.findFirst({
       where: { id: itemId, plantId: ctx.plantId },
-      include: { receiptOrder: { include: { client: { select: { nit: true, name: true, sede: true } } } } },
+      include: {
+        receiptOrder: { include: { cliente: { select: { nit: true, concepto: true } }, bodega: { select: { nombre: true } } } },
+        dispatchOrder: { select: { odNumber: true, status: true, updatedAt: true } },
+        canalDispatchOrder: { select: { dcNumber: true, tipo: true, status: true, updatedAt: true } },
+      },
     });
     if (!i) throw new NotFoundException('Canal recibida no encontrada.');
-    const [reimpresiones, bodegas] = await Promise.all([
-      this.prisma.canalReceiptReimpresion.findMany({ where: { itemId }, orderBy: { createdAt: 'asc' } }),
-      this.bodegaPorNit(),
-    ]);
+    const reimpresiones = await this.prisma.canalReceiptReimpresion.findMany({ where: { itemId }, orderBy: { createdAt: 'asc' } });
     const o = i.receiptOrder;
-    const nombre = await this.usuarios([i.createdById, o.createdById, o.cerradaById, ...reimpresiones.map((r) => r.userId)]);
-    const bodega = bodegas.get(nitClave(o.client.nit));
+    const nombre = await this.usuarios([
+      i.createdById,
+      o.createdById,
+      o.cerradaById,
+      i.despachadoById,
+      ...reimpresiones.map((r) => r.userId),
+    ]);
+    const salida = i.dispatchOrder
+      ? { tipo: 'proceso' as const, orden: `OD${i.dispatchOrder.odNumber}`, cerrada: i.dispatchOrder.status !== DispatchOrderStatus.activo, cerradaAt: i.dispatchOrder.updatedAt }
+      : i.canalDispatchOrder
+        ? {
+            tipo: i.canalDispatchOrder.tipo,
+            orden: `DC${i.canalDispatchOrder.dcNumber}`,
+            cerrada: i.canalDispatchOrder.status === DispatchOrderStatus.facturado,
+            cerradaAt: i.canalDispatchOrder.updatedAt,
+          }
+        : null;
+    const enRecibo = !o.deletedAt && o.status === DispatchOrderStatus.facturado && !!o.bodegaId;
     return {
       orden: this.ordenRecibo(o, nombre),
-      bodega: bodega ? { nombre: bodega.nombre, cliente: bodega.cliente } : null,
-      enInventario: !o.deletedAt && o.status !== DispatchOrderStatus.inactivo,
+      bodega: o.bodega ? { nombre: o.bodega.nombre, cliente: o.cliente.concepto } : null,
+      enInventario: enRecibo && !salida?.cerrada,
       item: {
         id: i.id,
         codigo: i.codigo,
@@ -483,32 +511,52 @@ export class InventariosService {
         createdAt: i.createdAt.toISOString(),
         registradoPor: nombre(i.createdById),
       },
+      salida: salida && {
+        ...salida,
+        cerradaAt: salida.cerrada ? salida.cerradaAt.toISOString() : null,
+        despachoKg: i.despachoKg === null ? null : Number(i.despachoKg),
+        at: i.despachadoAt?.toISOString() ?? null,
+        por: nombre(i.despachadoById),
+      },
       reimpresiones: reimpresiones.map((r) => ({ at: r.createdAt.toISOString(), estacion: r.estacion, usuario: nombre(r.userId) })),
     };
   }
 
-  /** Hoja de vida de un producto recibido en posta: recibo, pesaje, rótulo y reimpresiones. */
+  /** Hoja de vida de un producto recibido en posta: recibo, pesaje, rótulo, salida y reimpresiones. */
   async trazabilidadReciboPosta(ctx: AuthContext, itemId: string) {
     const i = await this.prisma.postaReceiptItem.findFirst({
       where: { id: itemId, plantId: ctx.plantId },
       include: {
         product: { select: { codigo: true, nombre: true, categoria: true } },
-        receiptOrder: { include: { client: { select: { nit: true, name: true, sede: true } } } },
+        receiptOrder: { include: { cliente: { select: { nit: true, concepto: true } }, bodega: { select: { nombre: true } } } },
+        despacho: {
+          select: {
+            netoKg: true,
+            createdAt: true,
+            createdById: true,
+            canalDispatchOrder: { select: { dcNumber: true, status: true, updatedAt: true } },
+          },
+        },
       },
     });
     if (!i) throw new NotFoundException('Producto recibido no encontrado.');
-    const [reimpresiones, bodegas] = await Promise.all([
-      this.prisma.postaReceiptReimpresion.findMany({ where: { itemId }, orderBy: { createdAt: 'asc' } }),
-      this.bodegaPorNit(),
-    ]);
+    const reimpresiones = await this.prisma.postaReceiptReimpresion.findMany({ where: { itemId }, orderBy: { createdAt: 'asc' } });
     const o = i.receiptOrder;
-    const nombre = await this.usuarios([i.createdById, o.createdById, o.cerradaById, ...reimpresiones.map((r) => r.userId)]);
-    const bodega = bodegas.get(nitClave(o.client.nit));
+    const nombre = await this.usuarios([
+      i.createdById,
+      o.createdById,
+      o.cerradaById,
+      i.despacho?.createdById,
+      ...reimpresiones.map((r) => r.userId),
+    ]);
     const dia = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+    const d = i.despacho;
+    const dcCerrada = d?.canalDispatchOrder.status === DispatchOrderStatus.facturado;
+    const enRecibo = !o.deletedAt && o.status === DispatchOrderStatus.facturado && !!o.bodegaId;
     return {
       orden: this.ordenRecibo(o, nombre),
-      bodega: bodega ? { nombre: bodega.nombre, cliente: bodega.cliente } : null,
-      enInventario: !o.deletedAt && o.status !== DispatchOrderStatus.inactivo,
+      bodega: o.bodega ? { nombre: o.bodega.nombre, cliente: o.cliente.concepto } : null,
+      enInventario: enRecibo && !dcCerrada,
       item: {
         id: i.id,
         codigo: i.codigo,
@@ -524,6 +572,15 @@ export class InventariosService {
         fechaVencimiento: dia(i.fechaVencimiento),
         createdAt: i.createdAt.toISOString(),
         registradoPor: nombre(i.createdById),
+      },
+      salida: d && {
+        tipo: 'posta' as const,
+        orden: `DC${d.canalDispatchOrder.dcNumber}`,
+        cerrada: dcCerrada,
+        cerradaAt: dcCerrada ? d.canalDispatchOrder.updatedAt.toISOString() : null,
+        despachoKg: Number(d.netoKg),
+        at: d.createdAt.toISOString(),
+        por: nombre(d.createdById),
       },
       reimpresiones: reimpresiones.map((r) => ({ at: r.createdAt.toISOString(), estacion: r.estacion, usuario: nombre(r.userId) })),
     };
@@ -639,17 +696,14 @@ export class InventariosService {
       take: 300,
     });
     const numCava = /^CAVA (\d+)$/.exec(cava)?.[1];
-    const [recibidas, bodegasNit] = numCava
-      ? await Promise.all([
-          this.canalesRecibidas(ctx, {
-            cava: Number(numCava),
-            ...(date && { receiptOrder: { ...reciboVigente, processDate: date } }),
-          }),
-          this.bodegaPorNit(),
-        ])
-      : [[], new Map<string, { id: string; nombre: string; cliente: string }>()];
+    const recibidas = numCava
+      ? await this.canalesRecibidas(ctx, {
+          cava: Number(numCava),
+          ...(date && { receiptOrder: { ...reciboEnInventario, processDate: date } }),
+        })
+      : [];
     const deRecibo = recibidas.map((r) => {
-      const f = this.reciboCanalFila(r, bodegasNit.get(nitClave(r.receiptOrder.client.nit)));
+      const f = this.reciboCanalFila(r);
       return {
         piezaId: r.id,
         eventoId: '',
@@ -661,12 +715,12 @@ export class InventariosService {
         sequence: r.codigo,
         turno: null,
         pieza: 'canal' as const,
-        bodega: null,
+        bodega: f.bodega,
         destino: null,
         observaciones: null,
         pesoKg: f.pesoKg,
-        enOrden: null,
-        enDespacho: null,
+        enOrden: f.enOrden && { odNumber: f.enOrden.odNumber, opNumbers: [] as number[] },
+        enDespacho: f.enDespacho && { dcNumber: f.enDespacho.dcNumber, tipo: f.enDespacho.tipo },
         recibo: f.recibo,
       };
     });
@@ -791,27 +845,33 @@ export class InventariosService {
       canalesPor.set(clave, acc);
     }
     const subproductosPor = await this.subproductosPorBodega(ctx);
-    const [recibidas, posta, bodegasNit] = await Promise.all([
-      this.canalesRecibidas(ctx),
+    const [recibidas, posta] = await Promise.all([
+      this.canalesRecibidas(ctx, {}, true),
       this.productosPosta(ctx),
-      this.bodegaPorNit(),
     ]);
-    const recibosPor = new Map<string, { canales: number; canalesKg: number; productos: number; productosKg: number }>();
-    const reciboDe = (nit: string) => {
-      const b = bodegasNit.get(nitClave(nit));
-      if (!b) return null;
-      const acc = recibosPor.get(b.id) ?? { canales: 0, canalesKg: 0, productos: 0, productosKg: 0 };
-      recibosPor.set(b.id, acc);
+    const recibosPor = new Map<
+      string,
+      { canales: number; canalesKg: number; despachadas: number; procesadas: number; productos: number; productosKg: number }
+    >();
+    const reciboDe = (bodegaId: string | null) => {
+      if (!bodegaId) return null;
+      const acc = recibosPor.get(bodegaId) ?? { canales: 0, canalesKg: 0, despachadas: 0, procesadas: 0, productos: 0, productosKg: 0 };
+      recibosPor.set(bodegaId, acc);
       return acc;
     };
     for (const r of recibidas) {
-      const acc = reciboDe(r.receiptOrder.client.nit);
+      const acc = reciboDe(r.receiptOrder.bodega?.id ?? null);
       if (!acc) continue;
-      acc.canales += 1;
-      acc.canalesKg += Number(r.pesoKg);
+      const f = this.reciboCanalFila(r);
+      if (f.enDespacho?.cerrada) acc.despachadas += 1;
+      else if (f.enOrden?.cerrada) acc.procesadas += 1;
+      else {
+        acc.canales += 1;
+        acc.canalesKg += f.pesoKg;
+      }
     }
     for (const p of posta) {
-      const acc = reciboDe(p.receiptOrder.client.nit);
+      const acc = reciboDe(p.receiptOrder.bodega?.id ?? null);
       if (!acc) continue;
       acc.productos += 1;
       acc.productosKg += Number(p.netoKg);
@@ -830,8 +890,8 @@ export class InventariosService {
         cliente: b.cliente.concepto,
         canales: (canalesPor.get(clave)?.n ?? 0) + (rc?.canales ?? 0),
         canalesKg: r2((canalesPor.get(clave)?.kg ?? 0) + (rc?.canalesKg ?? 0)),
-        canalesDespachadas: canalesPor.get(clave)?.despachadas ?? 0,
-        canalesProcesadas: canalesPor.get(clave)?.procesadas ?? 0,
+        canalesDespachadas: (canalesPor.get(clave)?.despachadas ?? 0) + (rc?.despachadas ?? 0),
+        canalesProcesadas: (canalesPor.get(clave)?.procesadas ?? 0) + (rc?.procesadas ?? 0),
         productos: (p?._count._all ?? 0) + (a?._count._all ?? 0) + (rc?.productos ?? 0),
         productosKg: r2(Number(p?._sum.netoKg ?? 0) + Number(a?._sum.netoKg ?? 0) + (rc?.productosKg ?? 0)),
         subproductos: subproductosPor.get(clave) ?? 0,
@@ -1017,60 +1077,54 @@ export class InventariosService {
     ]);
     const dia = (d: Date) => d.toISOString().slice(0, 10);
 
-    // Lo recibido de terceros cuyo cliente (por NIT) cae en esta bodega.
-    const bodegasNit = await this.bodegaPorNit();
-    const esDeEstaBodega = (nit: string) => bodegasNit.get(nitClave(nit))?.id === b.id;
-    const tieneRecibos = [...bodegasNit.values()].some((x) => x.id === b.id);
-    const [recibidas, posta] = tieneRecibos
-      ? await Promise.all([this.canalesRecibidas(ctx), this.productosPosta(ctx)])
-      : [[], []];
-    const canalesRecibo = recibidas
-      .filter((r) => esDeEstaBodega(r.receiptOrder.client.nit))
-      .map((r) => {
-        const f = this.reciboCanalFila(r, undefined);
-        return {
-          id: r.id,
-          reference: f.reference,
-          date: f.date,
-          sequence: r.codigo,
-          turno: null,
-          canalTipo: null,
-          canalAnimalTipo: null,
-          pieza: 'canal' as const,
-          cava: f.cava,
-          destino: null,
-          observaciones: null,
-          pesoKg: f.pesoKg,
-          pesoFrioKg: null,
-          enOrden: null,
-          enDespacho: null,
-          recibo: f.recibo,
-        };
-      });
-    const productosPosta = posta
-      .filter((p) => esDeEstaBodega(p.receiptOrder.client.nit))
-      .map((p) => ({
-        id: p.id,
-        codigo: `RP${p.receiptOrder.receiptNumber}-${String(p.codigo).padStart(2, '0')}`,
-        pieza: p.codigo,
-        productoCodigo: p.product.codigo,
-        productoNombre: p.product.nombre,
-        tiendaCodigo: '',
-        tienda: 'RECIBO EN POSTA',
-        canastilla: null,
-        netoKg: Number(p.netoKg),
-        conservacion: (p.conservacion ?? '').toUpperCase(),
-        sobrante: false,
-        fechaEmpaque: dia(p.createdAt),
-        fechaVencimiento: p.fechaVencimiento ? dia(p.fechaVencimiento) : null,
-        opNumber: null,
-        ocNumber: null,
-        trasladoOt: null,
-        transformadoOc: null,
-        origenOt: null,
-        despachoDc: null,
-        rpNumber: p.receiptOrder.receiptNumber as number | null,
-      }));
+    // Lo recibido de terceros que entró a esta bodega al cerrar su recibo.
+    const [recibidas, posta] = await Promise.all([
+      this.canalesRecibidas(ctx, { receiptOrder: { ...reciboEnInventario, bodegaId: b.id } }, true),
+      this.productosPosta(ctx, { receiptOrder: { ...reciboEnInventario, bodegaId: b.id } }),
+    ]);
+    const canalesRecibo = recibidas.map((r) => {
+      const f = this.reciboCanalFila(r);
+      return {
+        id: r.id,
+        reference: f.reference,
+        date: f.date,
+        sequence: r.codigo,
+        turno: null,
+        canalTipo: null,
+        canalAnimalTipo: null,
+        pieza: 'canal' as const,
+        cava: f.cava,
+        destino: null,
+        observaciones: null,
+        pesoKg: f.pesoKg,
+        pesoFrioKg: f.pesoFrioKg,
+        enOrden: f.enOrden,
+        enDespacho: f.enDespacho,
+        recibo: f.recibo,
+      };
+    });
+    const productosPosta = posta.map((p) => ({
+      id: p.id,
+      codigo: `RP${p.receiptOrder.receiptNumber}-${String(p.codigo).padStart(2, '0')}`,
+      pieza: p.codigo,
+      productoCodigo: p.product.codigo,
+      productoNombre: p.product.nombre,
+      tiendaCodigo: '',
+      tienda: 'RECIBO EN POSTA',
+      canastilla: null,
+      netoKg: Number(p.netoKg),
+      conservacion: (p.conservacion ?? '').toUpperCase(),
+      sobrante: false,
+      fechaEmpaque: dia(p.createdAt),
+      fechaVencimiento: p.fechaVencimiento ? dia(p.fechaVencimiento) : null,
+      opNumber: null,
+      ocNumber: null,
+      trasladoOt: null,
+      transformadoOc: null,
+      origenOt: null,
+      despachoDc: p.despacho?.canalDispatchOrder.dcNumber ?? null,
+      rpNumber: p.receiptOrder.receiptNumber as number | null,
+    }));
 
     return {
       id: b.id,
@@ -1309,7 +1363,8 @@ export class InventariosService {
     if (!p) throw new NotFoundException('Canal no encontrada.');
     const e = p.evento;
     const orden = e.ordenBeneficio;
-    const guia = orden.guias.length === 1 ? orden.guias[0].trim() : null;
+    const guias = orden.guias.map((g) => g.trim()).filter(Boolean);
+    const guia = guias.length === 1 ? guias[0] : null;
     const destinoProceso = p.despacho
       ? await this.productosDeOps(
           ctx,
@@ -1319,12 +1374,18 @@ export class InventariosService {
         )
       : null;
 
-    const [camion, animalesPie, previas] = await Promise.all([
-      guia
-        ? this.prisma.pesoCamion.findFirst({
-            where: { plantId: ctx.plantId, deletedAt: null, date: orden.date, guia },
+    const [camiones, asignado, animalesPie, previas] = await Promise.all([
+      guias.length
+        ? this.prisma.pesoCamion.findMany({
+            where: { plantId: ctx.plantId, deletedAt: null, guia: { in: guias } },
+            orderBy: { date: 'desc' },
           })
-        : null,
+        : [],
+      // Animal asignado a la orden en Peso en Pie (sirve también con varias guías).
+      this.prisma.pesoEnPie.findFirst({
+        where: { plantId: ctx.plantId, deletedAt: null, ordenBeneficioId: orden.id, ordenSequence: e.sequence },
+        include: { repesajes: { orderBy: { ronda: 'asc' } } },
+      }),
       guia
         ? this.prisma.pesoEnPie.findMany({
             where: { plantId: ctx.plantId, deletedAt: null, date: orden.date, guia },
@@ -1345,11 +1406,17 @@ export class InventariosService {
           })
         : null,
     ]);
-    // Asignación explícita a la orden; si no existe (órdenes antiguas), por posición en la guía.
-    const explicitos = animalesPie.filter((a) => a.ordenBeneficioId === orden.id);
-    const pie = explicitos.length
-      ? explicitos.find((a) => a.ordenSequence === e.sequence)
-      : animalesPie.find((a) => a.reference === (previas?._sum.animalCount ?? 0) + e.sequence);
+    // Asignación explícita a la orden; si no existe (órdenes antiguas de una guía), por posición en la guía.
+    const pie =
+      asignado ??
+      (animalesPie.some((a) => a.ordenBeneficioId === orden.id)
+        ? undefined
+        : animalesPie.find((a) => a.reference === (previas?._sum.animalCount ?? 0) + e.sequence));
+    // La guía del animal (con varias guías sale de su registro en Peso en Pie); se prefiere el
+    // camión del mismo día o el anterior más cercano a la fecha de beneficio.
+    const guiaAnimal = pie?.guia?.trim() || guia;
+    const delAnimal = camiones.filter((c) => c.guia?.trim() === guiaAnimal);
+    const camion = delAnimal.find((c) => c.date <= orden.date) ?? delAnimal[0] ?? null;
 
     const ids = new Set<string>([orden.createdById, e.operatorId, p.operatorId]);
     if (e.pielOperatorId) ids.add(e.pielOperatorId);
@@ -1971,9 +2038,13 @@ export class InventariosService {
                   include: {
                     evento: {
                       select: {
+                        id: true,
                         sequence: true,
                         canalTipo: true,
                         canalAnimalTipo: true,
+                        conCola: true,
+                        expendio: true,
+                        canalPiezas: { select: { id: true, pieza: true, pesoKg: true, turno: true } },
                         ordenBeneficio: { select: { reference: true, date: true, cliente: true, guias: true } },
                       },
                     },
@@ -2022,6 +2093,7 @@ export class InventariosService {
     const nombre = new Map(usuarios.map((u) => [u.id, u.fullName]));
     const quien = (uid: string) => nombre.get(uid) ?? '—';
     const num = (d: { toString(): string } | null | undefined) => (d == null ? null : Number(d));
+    const ordenPieza = { canal: 0, cizq: 1, cder: 2 } as const;
 
     return {
       tipo: des ? ('desposte' as const) : ('acondicionamiento' as const),
@@ -2117,6 +2189,13 @@ export class InventariosService {
             pesoFrioKg: num(i.despachoKg),
             proveedor: cam?.proveedor ?? null,
             procedencia: cam?.procedencia ?? null,
+            eventoId: ev.id,
+            guias: ev.ordenBeneficio.guias,
+            conCola: ev.conCola,
+            expendio: ev.expendio,
+            piezasAnimal: ev.canalPiezas
+              .sort((a, b) => ordenPieza[a.pieza] - ordenPieza[b.pieza])
+              .map((x) => ({ id: x.id, pieza: x.pieza, pesoKg: Number(x.pesoKg), turno: x.turno })),
           };
         }),
       })),
