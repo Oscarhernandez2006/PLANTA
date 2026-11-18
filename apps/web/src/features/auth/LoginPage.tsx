@@ -4,6 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Numpad } from '@/components/ui/numpad';
 import { cn } from '@/lib/utils';
 import { useAuth } from './auth-context';
+import '@fontsource/montserrat/700.css';
+import '@fontsource/montserrat/800.css';
 import { PhotoCarousel } from './PhotoCarousel';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import logoCarnes from '@/assets/logo-carnes.png';
@@ -137,29 +139,48 @@ export function LoginPage() {
       </div>
 
       {/* Panel de acceso */}
-      <div className="flex w-full flex-col items-center justify-center px-5 py-10 lg:w-1/2">
-        <div className="w-full max-w-sm">
-          <div className="mb-8 flex flex-col items-center text-center lg:hidden">
+      <div className="flex w-full flex-col items-center justify-center gap-6 bg-muted/40 px-5 py-6 lg:w-1/2">
+        {/* Marca fuera de la tarjeta, como encabezado de la pantalla */}
+        <div className="flex items-center gap-3">
+          <div className="brillo-diamante shrink-0 rounded-full">
             <img
               src={logoSantaCruz}
               alt="Agropecuaria Santa Cruz"
-              className="mb-3 size-16 object-contain"
+              className="h-[4.5rem] object-contain"
             />
-            <p className="text-lg font-semibold">Agropecuaria Santa Cruz</p>
           </div>
-
-          <div className="mb-6 text-center">
-            <h2 className="text-2xl font-semibold tracking-tight">
-              {step === 'cedula' ? 'Iniciar sesión' : 'Ingresá tu PIN'}
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {step === 'cedula'
-                ? 'Escribí tu número de cédula'
-                : userName
-                  ? `Hola, ${userName.split(' ')[0]}`
-                  : `Cédula ${cedula}`}
+          <div className="font-['Montserrat'] text-[#1F2937]">
+            <p className="texto-diamante text-5xl font-extrabold leading-[0.9] tracking-tight">SIGPRO</p>
+            <p className="mt-1.5 whitespace-nowrap text-[0.72rem] font-bold uppercase tracking-wide">
+              Sistema de gestión de producción
             </p>
           </div>
+        </div>
+        <div className="w-full max-w-md rounded-2xl border border-border bg-card px-8 py-7 shadow-xl shadow-slate-900/5">
+          {step === 'pin' && (
+            <div className="mb-3 flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-lg font-semibold leading-tight">
+                  {userName ? `Hola, ${userName.split(' ')[0]}` : `Cédula ${cedula}`}
+                </p>
+                <p className="text-sm text-muted-foreground">Ingresá tu PIN</p>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-9 shrink-0"
+                disabled={submitting}
+                onClick={() => {
+                  setStep('cedula');
+                  setPin('');
+                  setUserName(null);
+                  setError(null);
+                }}
+              >
+                <ArrowLeft className="size-4" /> Cambiar cédula
+              </Button>
+            </div>
+          )}
 
           {step === 'cedula' ? (
             <CedulaDisplay value={cedula} />
@@ -167,25 +188,31 @@ export function LoginPage() {
             <PinDisplay length={pin.length} />
           )}
 
+          {/* Aviso flotante: no empuja el teclado ni genera scroll */}
           {error && (
-            <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-center text-sm text-red-700">
-              {error}
-            </p>
+            <div className="pointer-events-none fixed left-1/2 top-6 z-50 w-[26rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 lg:left-3/4">
+              <p
+                role="alert"
+                className="pointer-events-auto rounded-xl border border-red-200 bg-white px-4 py-3 text-center text-sm font-medium text-red-700 shadow-lg animate-in fade-in-0 slide-in-from-top-2"
+              >
+                {error}
+              </p>
+            </div>
           )}
 
           <Numpad
-            className="mt-6"
+            className={step === 'pin' ? 'mt-4' : 'mt-6'}
             onDigit={handleDigit}
             onBackspace={handleBackspace}
             onClear={handleClear}
             disabled={submitting}
           />
 
-          <div className="mt-6 space-y-3">
+          <div className={step === 'pin' ? 'mt-4' : 'mt-6'}>
             {step === 'cedula' ? (
               <Button
                 size="lg"
-                className="h-14 w-full text-base"
+                className={cn('h-14 w-full text-base', DESHABILITADO)}
                 disabled={cedula.length < MIN_CEDULA || checking}
                 onClick={handleContinue}
               >
@@ -198,40 +225,28 @@ export function LoginPage() {
                 )}
               </Button>
             ) : (
-              <>
-                <Button
-                  size="lg"
-                  className="h-14 w-full text-base"
-                  disabled={pin.length < MIN_PIN || submitting}
-                  onClick={submit}
-                >
-                  {submitting ? (
-                    <LoaderCircle className="size-5 animate-spin" />
-                  ) : (
-                    'Ingresar'
-                  )}
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="h-12 w-full"
-                  disabled={submitting}
-                  onClick={() => {
-                    setStep('cedula');
-                    setPin('');
-                    setUserName(null);
-                    setError(null);
-                  }}
-                >
-                  <ArrowLeft className="size-4" /> Cambiar cédula
-                </Button>
-              </>
+              <Button
+                size="lg"
+                className={cn('h-14 w-full text-base', DESHABILITADO)}
+                disabled={pin.length < MIN_PIN || submitting}
+                onClick={submit}
+              >
+                {submitting ? <LoaderCircle className="size-5 animate-spin" /> : 'Ingresar'}
+              </Button>
             )}
           </div>
         </div>
+
+        <p className="text-xs text-muted-foreground">
+          Agropecuaria Santa Cruz, {new Date().getFullYear()}
+        </p>
       </div>
     </div>
   );
 }
+
+// Mientras falten datos el botón se ve gris, no como un rojo desvanecido.
+const DESHABILITADO = 'disabled:bg-muted disabled:text-muted-foreground disabled:opacity-100 disabled:shadow-none';
 
 function CedulaDisplay({ value }: { value: string }) {
   return (

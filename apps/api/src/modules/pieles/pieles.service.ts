@@ -215,6 +215,8 @@ export class PielesService {
       animalCount: o.animalCount,
       caidos: o.eventos.length,
       pesados: o.eventos.filter((e) => e.pesoPielKg != null).length,
+      pesoTotalKg:
+        Math.round(o.eventos.reduce((s, e) => s + Number(e.pesoPielKg ?? 0), 0) * 100) / 100,
     }));
   }
 
@@ -222,9 +224,13 @@ export class PielesService {
   async loteDetail(ctx: AuthContext, ordenBeneficioId: string) {
     const o = await this.prisma.ordenBeneficio.findFirst({
       where: { id: ordenBeneficioId, plantId: ctx.plantId, deletedAt: null },
-      include: { eventos: { orderBy: { sequence: 'asc' } } },
+      include: {
+        eventos: { orderBy: { sequence: 'asc' } },
+        animales: { where: { deletedAt: null }, select: { ordenSequence: true, tipoAnimal: true } },
+      },
     });
     if (!o) throw new NotFoundException('Lote no encontrado.');
+    const tipoPorSeq = new Map(o.animales.map((a) => [a.ordenSequence, a.tipoAnimal?.trim() || null]));
 
     const bases = await this.consecutivoBases(ctx.plantId, [o.date]);
     const base = bases.get(o.id) ?? 0;
@@ -257,6 +263,7 @@ export class PielesService {
         eventoId: e.id,
         sequence: e.sequence,
         consecutivo: base + e.sequence,
+        tipoAnimal: tipoPorSeq.get(e.sequence) ?? null,
         stunnedAt: e.stunnedAt.toISOString(),
         pesado: e.pesoPielKg != null,
         pesoKg: e.pesoPielKg != null ? Number(e.pesoPielKg) : null,

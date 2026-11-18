@@ -40,12 +40,12 @@ export function useOrdenesProduccionActivas(fecha?: string) {
   });
 }
 
-/** Cierre explícito de la OP (la web ya validó el código de autorización). */
+/** Cierre explícito de la OP con el PIN de un supervisor (queda registrado quién y cuándo). */
 export function useCerrarOrdenProduccion() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) =>
-      (await api.patch<{ ok: boolean }>(`/production-orders/${id}/cerrar`)).data,
+    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
+      (await api.patch<{ ok: boolean }>(`/production-orders/${id}/cerrar`, { pin })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['production-orders'] }),
   });
 }
@@ -313,6 +313,14 @@ export function useBorrarEtiqueta(ordenId: string) {
     onSuccess: () =>
       qc.invalidateQueries({ queryKey: ['production-orders', ordenId, 'rotulado'] }),
   });
+}
+
+/** Deja constancia de una reimpresión (pieza o canastilla); si falla no interrumpe la impresión. */
+export function registrarReimpresion(codigo: string | null | undefined, estacion?: string | null) {
+  if (!codigo) return;
+  void api
+    .post('/production-orders/reimpresiones', { codigo, estacion: estacion ?? undefined })
+    .catch(() => undefined);
 }
 
 export function useCerrarCanastilla(ordenId: string, productId: string) {

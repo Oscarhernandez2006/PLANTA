@@ -28,7 +28,8 @@ export function useBascula(initial = '0.00') {
   const [leyendo, setLeyendo] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function leerBascula() {
+  /** Lee la báscula; devuelve el peso leído o null si falló. */
+  async function leerBascula(): Promise<number | null> {
     setError(null);
     setLeyendo(true);
 
@@ -47,7 +48,7 @@ export function useBascula(initial = '0.00') {
       ]);
       if (result.ok && result.value !== null) {
         setPeso(result.value.toFixed(2));
-        return;
+        return result.value;
       }
       throw new Error(result.error ?? 'scale_not_found');
     } catch (e) {
@@ -59,6 +60,7 @@ export function useBascula(initial = '0.00') {
     } finally {
       setLeyendo(false);
     }
+    return null;
   }
 
   return { peso, setPeso, leyendo, error, leerBascula };

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   Beef,
   Check,
+  X,
   Eraser,
   Gauge,
   Inbox,
@@ -17,7 +18,7 @@ import {
   Tag,
   Eye,
   TrendingDown,
-  Divide,
+  Percent,
   Keyboard,
   Trash2,
 } from 'lucide-react';
@@ -175,6 +176,7 @@ export function PesoEnPiePage() {
   const [netoCamion, setNetoCamion] = useState<number | null>(null);
   const crear = useCreatePesoEnPie();
   const promediar = useRegistrarPromediado();
+  const [promediadoDatos, setPromediado] = useState<{ pendientes: number; disponible: number; pesoKg: number } | null>(null);
   const actualizar = useUpdatePesoEnPie();
   const borrarAnimalMut = useDeletePesoEnPie();
   // Animal resaltado en "Registro de animales" (para editar / borrar).
@@ -270,9 +272,9 @@ export function PesoEnPiePage() {
 
   const tabs: TabItem[] = [
     { value: 'guias', label: `Guías abiertas (${guiasCamion.data?.length ?? 0})` },
-    { value: 'cerradas', label: `Guías cerradas (${guiasCerradas.data?.length ?? 0})` },
     { value: 'registro', label: enRepesaje ? 'Repesaje de animales' : 'Registro de animales' },
     { value: 'observaciones', label: 'Nota general de la guía' },
+    { value: 'cerradas', label: `Guías cerradas (${guiasCerradas.data?.length ?? 0})` },
   ];
 
   const guiaSeleccionada = guia.trim().length > 0 && animalesObjetivo > 0;
@@ -588,7 +590,7 @@ export function PesoEnPiePage() {
       setSaveError('La guía no tiene peso neto de báscula camión.');
       return;
     }
-    const faltan = [!corral.trim() && 'Corral', !tipoAnimal.trim() && 'Tipo de animal'].filter(Boolean);
+    const faltan = [!corral.trim() && 'Corral'].filter(Boolean);
     if (faltan.length) {
       setSaveError(`Para el pesaje promediado selecciona: ${faltan.join(', ')}.`);
       return;
@@ -600,23 +602,28 @@ export function PesoEnPiePage() {
       setSaveError('No queda peso disponible del neto de báscula camión para los animales pendientes.');
       return;
     }
-    const kg2 = (n: number) => n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const confirmado = window.confirm(
-      `Pesaje promediado de la guía ${guia}:\n\n` +
-        `${pendientes} animales × ${kg2(pesoKg)} kg cada uno\n` +
-        `(${animalesRegistrados ? 'neto pendiente' : 'neto báscula camión'} ${kg2(disponible)} kg ÷ ${pendientes} animales)\n` +
-        `Corral ${corral} · ${tipoAnimal}\n\n¿Registrar todos los animales?`,
-    );
-    if (!confirmado) return;
     setSaveError(null);
+    setPromediado({ pendientes, disponible, pesoKg });
+  }
+
+  async function confirmarPromediado(grupos: { tipoAnimal: string; cantidad: number }[]) {
+    if (!guiaCamionId || !promediadoDatos) return;
+    const kg2 = (n: number) => n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     try {
-      const r = await promediar.mutateAsync({ pesoCamionId: guiaCamionId, corral, tipoAnimal });
+      const r = await promediar.mutateAsync({
+        pesoCamionId: guiaCamionId,
+        corral,
+        tipoAnimal: grupos[0].tipoAnimal,
+        grupos,
+      });
+      setPromediado(null);
       setPeso('');
       avisar(
         `Pesaje promediado: ${r.creados} animales (${formatAnimalCorto(r.desde)} a ${formatAnimalCorto(r.hasta)}) con ${kg2(r.pesoKg)} kg cada uno.`,
         5000,
       );
     } catch (error) {
+      setPromediado(null);
       setSaveError(mensajeError(error, 'No se pudo registrar el pesaje promediado.'));
     }
   }
@@ -759,7 +766,7 @@ export function PesoEnPiePage() {
             variant="outline"
             size="icon"
             className="size-12 [&_svg]:size-7"
-            title="Pesaje promediado: neto de báscula camión ÷ animales, para todos los animales de la guía"
+            title="Pesaje promediado: reparte el neto de báscula camión entre los animales de la guía (se puede indicar cuántos machos, hembras…)"
             onClick={pesarPromediado}
             disabled={
               enRepesaje || !guiaCamionId || guiaCompleta || netoCamion == null || promediar.isPending
@@ -768,7 +775,7 @@ export function PesoEnPiePage() {
             {promediar.isPending ? (
               <LoaderCircle className="size-4 animate-spin" />
             ) : (
-              <Divide className="size-4" />
+              <Percent className="size-4" />
             )}
           </Button>
           <Button
@@ -831,33 +838,37 @@ export function PesoEnPiePage() {
             onClick={() => {
               lista.refetch();
               guiasCamion.refetch();
+              guiasCerradas.refetch();
             }}
-            disabled={lista.isFetching || guiasCamion.isFetching}
+            disabled={lista.isFetching || guiasCamion.isFetching || guiasCerradas.isFetching}
           >
             <RefreshCw
               className={cn(
                 'size-4',
-                (lista.isFetching || guiasCamion.isFetching) && 'animate-spin',
+                (lista.isFetching || guiasCamion.isFetching || guiasCerradas.isFetching) && 'animate-spin',
               )}
             />
           </Button>
         </div>
       </div>
 
-      {notice && (
-        <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center">
-          <div className="pointer-events-auto rounded-md bg-emerald-50 px-4 py-1.5 text-sm font-medium text-emerald-700 shadow-lg ring-1 ring-emerald-200">
+      {/* Avisos flotantes, con el mismo diseño de Peso en Camión */}
+      <div className="pointer-events-none fixed left-1/2 top-24 z-50 flex w-[30rem] max-w-[calc(100vw-3rem)] -translate-x-1/2 flex-col gap-2">
+        {saveError && (
+          <div className="pointer-events-auto flex items-start gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-700 shadow-lg animate-in fade-in-0 slide-in-from-top-2">
+            <span className="flex-1">{saveError}</span>
+            <button type="button" onClick={() => setSaveError(null)} aria-label="Cerrar" className="shrink-0 text-red-400 hover:text-red-700">
+              <X className="size-4" />
+            </button>
+          </div>
+        )}
+        {notice && (
+          <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg animate-in fade-in-0 slide-in-from-top-2">
+            <Check className="size-4 shrink-0" />
             {notice}
           </div>
-        </div>
-      )}
-      {saveError && (
-        <div className="pointer-events-none fixed inset-x-0 top-3 z-50 flex justify-center">
-          <div className="pointer-events-auto rounded-md bg-destructive/10 px-4 py-1.5 text-sm font-medium text-destructive shadow-lg ring-1 ring-destructive/20">
-            {saveError}
-          </div>
-        </div>
-      )}
+        )}
+      </div>
 
       <Card className="shrink-0 p-3">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-[130px_1fr_150px]">
@@ -1253,7 +1264,121 @@ export function PesoEnPiePage() {
       </Dialog>
 
       <DetalleGuiaCerradaDialog id={detalleId} onClose={() => setDetalleId(null)} />
+      {promediadoDatos && (
+        <PromediadoDialog
+          guia={guia}
+          corral={corral}
+          tipoInicial={tipoAnimal}
+          {...promediadoDatos}
+          guardando={promediar.isPending}
+          onClose={() => setPromediado(null)}
+          onConfirmar={confirmarPromediado}
+        />
+      )}
     </div>
+  );
+}
+
+const TIPOS = ['MACHO', 'HEMBRA', 'BUFALO', 'BUFALA'] as const;
+
+/** Confirma el pesaje promediado y reparte los animales pendientes por tipo (guías mixtas). */
+function PromediadoDialog({
+  guia,
+  corral,
+  tipoInicial,
+  pendientes,
+  disponible,
+  pesoKg,
+  guardando,
+  onClose,
+  onConfirmar,
+}: {
+  guia: string;
+  corral: string;
+  tipoInicial: string;
+  pendientes: number;
+  disponible: number;
+  pesoKg: number;
+  guardando: boolean;
+  onClose: () => void;
+  onConfirmar: (grupos: { tipoAnimal: string; cantidad: number }[]) => void;
+}) {
+  const [cant, setCant] = useState<Record<string, number>>(() =>
+    tipoInicial ? { [tipoInicial]: pendientes } : {},
+  );
+  const asignados = Object.values(cant).reduce((s, n) => s + n, 0);
+  const restan = pendientes - asignados;
+  const kg2 = (n: number) => n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const cambiar = (t: string, d: number) =>
+    setCant((c) => {
+      const v = Math.max(0, (c[t] ?? 0) + d);
+      if (d > 0 && restan <= 0) return c;
+      return { ...c, [t]: v };
+    });
+  const grupos = TIPOS.filter((t) => (cant[t] ?? 0) > 0).map((t) => ({ tipoAnimal: t, cantidad: cant[t] }));
+
+  return (
+    <Dialog open onClose={onClose} title="Pesaje promediado" description={`Guía ${guia} · Corral ${corral}`} className="max-w-lg">
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-2 rounded-lg bg-muted/50 p-3 text-center">
+          <div>
+            <p className="text-xs text-muted-foreground">Animales</p>
+            <p className="text-xl font-semibold tabular-nums">{pendientes}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Neto a repartir</p>
+            <p className="text-xl font-semibold tabular-nums">{kg2(disponible)}</p>
+          </div>
+          <div>
+            <p className="text-xs text-muted-foreground">Kg por animal</p>
+            <p className="text-xl font-semibold tabular-nums">{kg2(pesoKg)}</p>
+          </div>
+        </div>
+
+        <div>
+          <p className="mb-2 text-sm font-medium">¿Cuántos son de cada tipo?</p>
+          <div className="space-y-2">
+            {TIPOS.map((t) => (
+              <div key={t} className="flex items-center justify-between rounded-lg border border-border px-3 py-2">
+                <span className="font-semibold">{t}</span>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="icon" className="size-11 text-xl" onClick={() => cambiar(t, -1)} disabled={!cant[t]}>
+                    −
+                  </Button>
+                  <span className="w-10 text-center text-2xl font-semibold tabular-nums">{cant[t] ?? 0}</span>
+                  <Button variant="outline" size="icon" className="size-11 text-xl" onClick={() => cambiar(t, 1)} disabled={restan <= 0}>
+                    +
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-11"
+                    disabled={restan <= 0}
+                    onClick={() => setCant((c) => ({ ...c, [t]: (c[t] ?? 0) + restan }))}
+                    title="Asignar todos los que faltan a este tipo"
+                  >
+                    Resto
+                  </Button>
+                </div>
+              </div>
+            ))}
+          </div>
+          <p className={cn('mt-2 text-sm font-medium', restan === 0 ? 'text-emerald-700' : 'text-amber-700')}>
+            {restan === 0 ? `Listo: ${asignados} de ${pendientes} animales asignados.` : `Faltan ${restan} animal(es) por asignar.`}
+          </p>
+        </div>
+
+        <div className="flex justify-end gap-2 border-t border-border pt-4">
+          <Button variant="outline" onClick={onClose} disabled={guardando}>
+            Cancelar
+          </Button>
+          <Button onClick={() => onConfirmar(grupos)} disabled={restan !== 0 || guardando}>
+            {guardando && <LoaderCircle className="animate-spin" />}
+            Registrar {pendientes} animales
+          </Button>
+        </div>
+      </div>
+    </Dialog>
   );
 }
 

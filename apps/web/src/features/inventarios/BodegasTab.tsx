@@ -12,6 +12,7 @@ import { formatDC } from '../registrar/despacho-canales-api';
 import { useBodegaInventario, useBodegasInventario, type BodegaDetalle, type BodegaResumen } from './api';
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
 import { TrazabilidadEtiquetaDialog } from './TrazabilidadEtiquetaDialog';
+import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
 
 export const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -158,9 +159,11 @@ const td = 'whitespace-nowrap border-b border-border px-2 py-1';
 
 function Canales({ d }: { d: BodegaDetalle }) {
   const [trazaId, setTrazaId] = useState<string | null>(null);
+  const [reciboId, setReciboId] = useState<string | null>(null);
   return (
     <section className="space-y-2">
       {trazaId && <TrazabilidadCanalDialog piezaId={trazaId} onClose={() => setTrazaId(null)} />}
+      {reciboId && <TrazabilidadReciboDialog tipo="canal" id={reciboId} onClose={() => setReciboId(null)} />}
       <h3 className="text-base font-semibold">Canales ({d.canales.length})</h3>
       {!d.canales.length ? (
         <p className="text-sm text-muted-foreground">No hay canales en esta bodega.</p>
@@ -178,19 +181,21 @@ function Canales({ d }: { d: BodegaDetalle }) {
               {d.canales.map((c) => (
                 <tr
                   key={c.id}
-                  onClick={() => setTrazaId(c.id)}
-                  title="Ver trazabilidad de la canal"
+                  onClick={() => (c.recibo ? setReciboId(c.id) : setTrazaId(c.id))}
+                  title={c.recibo ? 'Ver trazabilidad del recibo' : 'Ver trazabilidad de la canal'}
                   className="cursor-pointer odd:bg-muted/30 hover:bg-muted/60"
                 >
-                  <td className={td}>{c.reference}</td>
-                  <td className={td}>A{String(c.sequence).padStart(2, '0')}</td>
+                  <td className={td}>{c.recibo ? `RC${c.recibo.receiptNumber}` : c.reference}</td>
+                  <td className={td}>{c.recibo ? '—' : `A${String(c.sequence).padStart(2, '0')}`}</td>
                   <td className={td}>
-                    {c.canalTipo
-                      ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
-                      : '—'}
+                    {c.recibo
+                      ? `RC${c.recibo.receiptNumber}-${String(c.recibo.codigo).padStart(2, '0')}`
+                      : c.canalTipo
+                        ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
+                        : '—'}
                   </td>
                   <td className={td}>{fecha(c.date)}</td>
-                  <td className={cn(td, 'uppercase')}>{c.canalAnimalTipo ?? '—'}</td>
+                  <td className={cn(td, 'uppercase')}>{c.recibo ? 'RECIBIDA' : (c.canalAnimalTipo ?? '—')}</td>
                   <td className={cn(td, 'font-semibold text-red-600')}>{PIEZA[c.pieza]}</td>
                   <td className={td}>{c.cava ?? '—'}</td>
                   <td className={td}>{c.destino || '—'}</td>
@@ -233,6 +238,7 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
   // Despliegue del detalle (etiquetas) por producto al hacer clic en su fila.
   const [abierto, setAbierto] = useState<Set<string>>(new Set());
   const [trazaId, setTrazaId] = useState<string | null>(null);
+  const [postaId, setPostaId] = useState<string | null>(null);
   const toggle = (codigo: string) =>
     setAbierto((prev) => {
       const next = new Set(prev);
@@ -269,6 +275,7 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
   return (
     <section className="space-y-2">
       {trazaId && <TrazabilidadEtiquetaDialog id={trazaId} onClose={() => setTrazaId(null)} />}
+      {postaId && <TrazabilidadReciboDialog tipo="posta" id={postaId} onClose={() => setPostaId(null)} />}
       <h3 className="text-base font-semibold">Productos rotulados ({d.productos.length})</h3>
       {!d.productos.length ? (
         <p className="text-sm text-muted-foreground">No hay productos rotulados en esta bodega.</p>
@@ -324,15 +331,15 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
                                 {etiquetas.map((p) => (
                                   <tr
                                     key={p.id}
-                                    onClick={() => setTrazaId(p.id)}
-                                    title="Ver trazabilidad de la etiqueta"
+                                    onClick={() => (p.rpNumber ? setPostaId(p.id) : setTrazaId(p.id))}
+                                    title={p.rpNumber ? 'Ver trazabilidad del recibo en posta' : 'Ver trazabilidad de la etiqueta'}
                                     className="cursor-pointer odd:bg-background hover:bg-emerald-50"
                                   >
                                     <td className={cn(sub, 'font-semibold text-emerald-700 underline-offset-2 hover:underline')}>
                                       {p.codigo ?? '—'}
                                     </td>
                                     <td className={sub}>#{p.pieza}</td>
-                                    <td className={cn(sub, 'uppercase')}>{p.tiendaCodigo} - {p.tienda}</td>
+                                    <td className={cn(sub, 'uppercase')}>{p.tiendaCodigo ? `${p.tiendaCodigo} - ${p.tienda}` : p.tienda}</td>
                                     <td className={cn(sub, 'text-center')}>{p.canastilla ?? '—'}</td>
                                     <td className={cn(sub, 'text-right font-semibold text-emerald-700')}>{kg(p.netoKg)}</td>
                                     <td className={cn(sub, 'uppercase')}>{p.conservacion}</td>
@@ -342,7 +349,9 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
                                     </td>
                                     <td className={sub}>{fecha(p.fechaVencimiento)}</td>
                                     <td className={sub}>
-                                      {p.ocNumber ? (
+                                      {p.rpNumber ? (
+                                        `RP${p.rpNumber}`
+                                      ) : p.ocNumber ? (
                                         <span title={p.origenOt ? `Viene de ${formatOT(p.origenOt)}` : undefined}>
                                           {formatOC(p.ocNumber)}
                                           {p.origenOt && <span className="text-muted-foreground"> ← {formatOT(p.origenOt)}</span>}

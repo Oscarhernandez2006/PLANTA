@@ -127,16 +127,36 @@ export class DispatchOrderService {
         : {}),
     };
 
-    const [total, data] = await this.prisma.$transaction([
+    const [total, rows] = await this.prisma.$transaction([
       this.prisma.dispatchOrder.count({ where }),
       this.prisma.dispatchOrder.findMany({
         where,
         orderBy: { odNumber: 'desc' },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
-        include: { cliente: clienteSelect },
+        include: {
+          cliente: clienteSelect,
+          items: { select: { pesoCalienteKg: true, despachoKg: true } },
+        },
       }),
     ]);
+
+    // Resumen por orden: piezas, kg caliente/frío y merma de las ya pesadas en frío.
+    const data = rows.map(({ items, ...o }) => {
+      const pesadas = items.filter((i) => i.despachoKg != null);
+      const calientePesadas = pesadas.reduce((s, i) => s + Number(i.pesoCalienteKg), 0);
+      const frioKg = pesadas.reduce((s, i) => s + Number(i.despachoKg), 0);
+      return {
+        ...o,
+        piezas: items.length,
+        calienteKg: Math.round(items.reduce((s, i) => s + Number(i.pesoCalienteKg), 0) * 100) / 100,
+        frioKg: Math.round(frioKg * 100) / 100,
+        mermaPct:
+          calientePesadas > 0
+            ? Math.round(((calientePesadas - frioKg) / calientePesadas) * 10000) / 100
+            : null,
+      };
+    });
 
     return {
       data,

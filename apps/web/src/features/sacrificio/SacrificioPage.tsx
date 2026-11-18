@@ -1,15 +1,21 @@
 import { useRef, useState } from 'react';
 import {
+  ArrowLeft,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Clock,
   Inbox,
+  LayoutGrid,
+  List,
   LoaderCircle,
   Lock,
   RefreshCw,
+  Search,
   Undo2,
+  X,
 } from 'lucide-react';
 import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Button } from '@/components/ui/button';
@@ -20,6 +26,8 @@ import { FechaFiltro } from '@/components/ui/fecha-filtro';
 import { SacrificioIcon } from '@/components/icons/SacrificioIcon';
 import { cn, formatFechaDia } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
+import { formatReferencia } from '../peso-en-camion/api';
+import { formatBP } from '../peso-en-pie/api';
 import {
   useSacrificioPendientes,
   useSacrificioDetail,
@@ -27,16 +35,11 @@ import {
   useUndoLast,
   useCerrarOrden,
   type SacrificioDetail,
-  type SacrificioOrder,
+  type SacrificioOrderResumen,
 } from './api';
 import { downloadCabezaPatasTicket } from './cabeza-patas-print';
 
 type Tab = 'ordenes' | 'animales';
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'ordenes', label: 'ÓRDENES DE SERVICIO' },
-  { key: 'animales', label: 'ANIMALES' },
-];
 
 function hora(iso: string) {
   return new Date(iso).toLocaleTimeString('es-CO', {
@@ -178,60 +181,58 @@ export function SacrificioPage() {
   }
 
   return (
-    <div className="mx-auto flex h-[calc(100vh-2rem)] w-full max-w-5xl flex-col gap-2 p-2">
-      {/* Encabezado: icono, fecha y cliente */}
-      <div className="flex items-stretch gap-2">
-        <div className="flex items-center justify-center rounded-sm border-2 border-border bg-card p-2">
-          <SacrificioIcon className="size-10 text-foreground" />
-        </div>
-        <FieldBox label="Fecha:">
-          <FechaFiltro value={fechaFiltro} onChange={cambiarFecha} />
-        </FieldBox>
-        <FieldBox label="Cliente:" className="flex-1">
-          <div className="flex h-9 items-center truncate text-xl font-bold uppercase">
-            {cliente || '—'}
-          </div>
-        </FieldBox>
-      </div>
-
-      {/* Pestañas */}
-      <div className="flex overflow-hidden rounded-sm border-2 border-border">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* Avisos flotantes: no empujan el contenido */}
+      <div className="pointer-events-none fixed left-1/2 top-24 z-50 flex w-[30rem] max-w-[calc(100vw-3rem)] -translate-x-1/2 flex-col gap-2">
+        {notice && (
+          <div
             className={cn(
-              'flex-1 border-r-2 border-border px-3 py-3 text-center text-sm font-semibold uppercase tracking-wide transition-colors last:border-r-0',
-              tab === t.key
-                ? 'bg-background text-foreground shadow-[inset_0_-3px_0_0] shadow-emerald-600'
-                : 'bg-muted/40 text-muted-foreground hover:bg-muted',
+              'pointer-events-auto flex items-center gap-2 rounded-xl border bg-white px-4 py-3 text-sm font-medium shadow-lg animate-in fade-in-0 slide-in-from-top-2',
+              notice.type === 'success' ? 'border-emerald-200 text-emerald-700' : 'border-red-200 text-red-700',
             )}
           >
-            {t.label}
-          </button>
-        ))}
+            {notice.type === 'success' ? <CheckCircle2 className="size-4 shrink-0" /> : <Clock className="size-4 shrink-0" />}
+            <span className="flex-1">{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} aria-label="Cerrar" className="shrink-0 opacity-60 hover:opacity-100">
+              <X className="size-4" />
+            </button>
+          </div>
+        )}
+      </div>
+
+      {tab === 'ordenes' ? (
+        <OrdenesVista
+          loading={pendientes.isLoading}
+          ordenes={lista}
+          selectedId={selectedId}
+          onSelect={seleccionarOrden}
+          fechaFiltro={fechaFiltro}
+          onFecha={cambiarFecha}
+          refrescando={refrescando}
+          onRefresh={() => pendientes.refetch()}
+        />
+      ) : (
+        <>
+      {/* Encabezado de la orden abierta */}
+      <div className="flex shrink-0 items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+        <Button variant="outline" className="h-12 px-4 text-base" onClick={() => setTab('ordenes')}>
+          <ArrowLeft className="size-5" />
+          Órdenes
+        </Button>
+        <span className="rounded-lg bg-primary/10 px-3 py-1.5 text-xl font-bold tabular-nums text-primary">
+          {ordenSel ? formatOB(ordenSel.reference) : '—'}
+        </span>
+        <span className="min-w-0 flex-1 truncate text-lg font-semibold uppercase">{cliente || '—'}</span>
       </div>
 
       {/* Contenido */}
       <div
         ref={scrollRef}
-        className="flex-1 overflow-auto rounded-sm border-2 border-border bg-card"
+        className="scrollbar-app min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card"
       >
-        {tab === 'ordenes' && (
-          <OrdenesTab
-            loading={pendientes.isLoading}
-            ordenes={lista}
-            selectedId={selectedId}
-            onSelect={seleccionarOrden}
-            fechaFiltro={fechaFiltro}
-            notice={notice}
-          />
-        )}
-        {tab === 'animales' && (
           <AnimalesTab
             detail={d}
             loading={!!selectedId && detail.isLoading}
-            notice={notice}
             stunPending={stun.isPending}
             stunSeq={stunSeq}
             cardSelSeq={cardSel}
@@ -242,8 +243,43 @@ export function SacrificioPage() {
             cerrando={cerrar.isPending}
             onCerrar={() => setConfirmarCierre(true)}
           />
-        )}
       </div>
+
+      {/* Botones de desplazamiento */}
+      <div className="grid shrink-0 grid-cols-2 gap-2">
+        <button
+          onClick={() => scrollList(-1)}
+          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
+          aria-label="Subir"
+        >
+          <ChevronUp className="size-7" />
+        </button>
+        <button
+          onClick={() => scrollList(1)}
+          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
+          aria-label="Bajar"
+        >
+          <ChevronDown className="size-7" />
+        </button>
+      </div>
+
+      {/* Pie: O.S No. / Animal No. + acciones */}
+      <FooterSacrificio
+        detail={d}
+        stunPending={stun.isPending}
+        undoPending={undo.isPending}
+        refrescando={refrescando}
+        onStun={() => cardSel != null && stunNext(cardSel)}
+        cardSeleccionada={cardSel}
+        onUndo={() => selectedId && setUndoOpen(true)}
+        animalSeleccionado={eventoSel ? turnoAnimal(d?.consecutivoBase, eventoSel.sequence) : null}
+        onRefresh={() => {
+          pendientes.refetch();
+          if (selectedId) detail.refetch();
+        }}
+      />
+        </>
+      )}
 
       {confirmarCierre && d && (
         <Dialog open onClose={() => !cerrar.isPending && setConfirmarCierre(false)} title="Cerrar orden" className="max-w-lg">
@@ -268,24 +304,6 @@ export function SacrificioPage() {
           </div>
         </Dialog>
       )}
-
-      {/* Botones de desplazamiento */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={() => scrollList(-1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Subir"
-        >
-          <ChevronUp className="size-7" />
-        </button>
-        <button
-          onClick={() => scrollList(1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Bajar"
-        >
-          <ChevronDown className="size-7" />
-        </button>
-      </div>
 
       <DevolverTurnoDialog
         open={undoOpen}
@@ -315,22 +333,6 @@ export function SacrificioPage() {
             );
           })
         }
-      />
-
-      {/* Pie: O.S No. / Animal No. + acciones */}
-      <FooterSacrificio
-        detail={d}
-        stunPending={stun.isPending}
-        undoPending={undo.isPending}
-        refrescando={refrescando}
-        onStun={() => cardSel != null && stunNext(cardSel)}
-        cardSeleccionada={cardSel}
-        onUndo={() => selectedId && setUndoOpen(true)}
-        animalSeleccionado={eventoSel ? turnoAnimal(d?.consecutivoBase, eventoSel.sequence) : null}
-        onRefresh={() => {
-          pendientes.refetch();
-          if (selectedId) detail.refetch();
-        }}
       />
     </div>
   );
@@ -452,95 +454,330 @@ function FieldBox({
   );
 }
 
-function OrdenesTab({
+type EstadoKey = 'proceso' | 'pendiente' | 'cerrar';
+
+const ESTADOS: { key: EstadoKey; texto: string }[] = [
+  { key: 'proceso', texto: 'En proceso' },
+  { key: 'pendiente', texto: 'Sin iniciar' },
+  { key: 'cerrar', texto: 'Para cerrar' },
+];
+
+function estadoOrden(o: SacrificioOrderResumen) {
+  if (o.insensibilizados >= o.animalCount) {
+    return { key: 'cerrar' as EstadoKey, texto: 'Lista para cerrar', clase: 'bg-primary/10 text-primary ring-primary/30', punto: 'bg-primary', barra: 'bg-primary' };
+  }
+  if (o.insensibilizados > 0) {
+    return { key: 'proceso' as EstadoKey, texto: 'En proceso', clase: 'bg-amber-50 text-amber-800 ring-amber-300', punto: 'bg-amber-500', barra: 'bg-amber-500' };
+  }
+  return { key: 'pendiente' as EstadoKey, texto: 'Sin iniciar', clase: 'bg-muted text-muted-foreground ring-border', punto: 'bg-muted-foreground/60', barra: 'bg-transparent' };
+}
+
+const VISTA_KEY = 'sacrificio.vistaOrdenes';
+
+function Dato({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate text-base font-semibold tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+function OrdenesVista({
   loading,
   ordenes,
   selectedId,
   onSelect,
   fechaFiltro,
-  notice,
+  onFecha,
+  refrescando,
+  onRefresh,
 }: {
   loading: boolean;
-  ordenes: SacrificioOrder[];
+  ordenes: SacrificioOrderResumen[];
   selectedId: string | null;
   onSelect: (id: string) => void;
   fechaFiltro: string | null;
-  notice: { type: 'success' | 'error'; text: string } | null;
+  onFecha: (fecha: string | null) => void;
+  refrescando: boolean;
+  onRefresh: () => void;
 }) {
-  const aviso = notice && (
-    <div
-      className={cn(
-        'mx-2 mt-2 flex items-center gap-2 rounded-sm px-4 py-2 text-sm font-medium',
-        notice.type === 'success' ? 'bg-emerald-50 text-emerald-700' : 'bg-destructive/10 text-destructive',
-      )}
-    >
-      {notice.type === 'success' ? <CheckCircle2 className="size-4" /> : <Clock className="size-4" />}
-      {notice.text}
-    </div>
+  const [busqueda, setBusqueda] = useState('');
+  const [vista, setVista] = useState<'lista' | 'tarjetas'>(() =>
+    localStorage.getItem(VISTA_KEY) === 'tarjetas' ? 'tarjetas' : 'lista',
   );
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center gap-2 p-8 text-sm text-muted-foreground">
-        <LoaderCircle className="size-4 animate-spin" /> Cargando…
-      </div>
-    );
+  const [filtroEstado, setFiltroEstado] = useState<EstadoKey | null>(null);
+  function cambiarVista(v: 'lista' | 'tarjetas') {
+    setVista(v);
+    localStorage.setItem(VISTA_KEY, v);
   }
-  if (!ordenes.length) {
-    return (
-      <>
-        {aviso}
-        <div className="flex flex-col items-center justify-center gap-2 p-10 text-center text-sm text-muted-foreground">
-          <Inbox className="size-6" />
-          {fechaFiltro
-            ? `No hay órdenes abiertas del ${fechaFiltro}.`
-            : 'No hay órdenes abiertas. Crea una en Orden de Beneficio.'}
-        </div>
-      </>
+  const q = busqueda.trim().toUpperCase();
+  const buscadas = q
+    ? ordenes.filter((o) =>
+        [formatOB(o.reference), o.cliente, o.clienteNit ?? '', ...o.guias, ...o.lotes]
+          .join(' ')
+          .toUpperCase()
+          .includes(q),
+      )
+    : ordenes;
+  const conteo = (k: EstadoKey) => buscadas.filter((o) => estadoOrden(o).key === k).length;
+  const prioridad: Record<EstadoKey, number> = { proceso: 0, pendiente: 1, cerrar: 2 };
+  const visibles = buscadas
+    .filter((o) => !filtroEstado || estadoOrden(o).key === filtroEstado)
+    .sort(
+      (a, b) =>
+        prioridad[estadoOrden(a).key] - prioridad[estadoOrden(b).key] || a.reference - b.reference,
     );
-  }
+
   return (
     <>
-      {aviso}
-      <ul className="flex flex-col gap-2 p-2">
-      {ordenes.map((o) => {
-        const activo = o.id === selectedId;
-        return (
-          <li key={o.id}>
-            <button
-              onClick={() => onSelect(o.id)}
-              className={cn(
-                'flex w-full items-center justify-between gap-3 rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
-                activo ? 'border-emerald-500 bg-emerald-50' : 'border-border bg-card hover:bg-muted/50',
-              )}
-            >
-              <span className="min-w-0">
-                <span className="block">
-                  <span className="font-bold tabular-nums">{formatOB(o.reference)}</span>{' '}
-                  <span className="text-muted-foreground">|</span>{' '}
-                  {o.clienteNit ? `${o.clienteNit} - ` : ''}
-                  {o.cliente}
+      {/* Barra: fecha, búsqueda y actualizar */}
+      <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+        <div className="flex items-center gap-2 rounded-lg border border-input px-3">
+          <CalendarDays className="size-5 text-muted-foreground" />
+          <FechaFiltro value={fechaFiltro} onChange={onFecha} />
+        </div>
+        <div className="relative min-w-60 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar orden, cliente, guía o lote"
+            className="h-11 pl-10 text-base"
+          />
+        </div>
+        <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+          {[{ key: null, texto: 'Todas' }, ...ESTADOS].map((e) => {
+            const activo = filtroEstado === e.key;
+            const n = e.key ? conteo(e.key) : buscadas.length;
+            return (
+              <button
+                key={e.key ?? 'todas'}
+                type="button"
+                onClick={() => setFiltroEstado(e.key)}
+                className={cn(
+                  'flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors',
+                  activo ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {e.texto}
+                <span className={cn('rounded-full px-1.5 text-xs tabular-nums', activo ? 'bg-primary text-primary-foreground' : 'bg-background')}>
+                  {n}
                 </span>
-                <span className="mt-0.5 flex items-center gap-1 text-sm font-normal text-muted-foreground">
-                  <CalendarDays className="size-4" />
-                  Sacrificio: {formatFechaDia(o.date)}
-                </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2 tabular-nums text-sm text-muted-foreground">
-                {o.insensibilizados}/{o.animalCount}
-              </span>
-            </button>
-          </li>
-        );
-      })}
-      </ul>
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+          <button
+            type="button"
+            onClick={() => cambiarVista('lista')}
+            title="Ver en lista"
+            aria-pressed={vista === 'lista'}
+            className={cn('flex size-9 items-center justify-center rounded-md', vista === 'lista' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+          >
+            <List className="size-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => cambiarVista('tarjetas')}
+            title="Ver en tarjetas"
+            aria-pressed={vista === 'tarjetas'}
+            className={cn('flex size-9 items-center justify-center rounded-md', vista === 'tarjetas' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+          >
+            <LayoutGrid className="size-5" />
+          </button>
+        </div>
+        <Button variant="outline" className="size-11 p-0" onClick={onRefresh} disabled={refrescando} title="Actualizar">
+          <RefreshCw className={cn('size-5', refrescando && 'animate-spin')} />
+        </Button>
+      </div>
+
+      <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 p-10 text-sm text-muted-foreground">
+            <LoaderCircle className="size-4 animate-spin" /> Cargando…
+          </div>
+        ) : !visibles.length ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-12 text-center text-muted-foreground">
+            <Inbox className="size-8" />
+            {q || filtroEstado
+              ? 'Ninguna orden coincide con la búsqueda o el filtro.'
+              : fechaFiltro
+                ? `No hay órdenes abiertas del ${formatFechaDia(fechaFiltro)}.`
+                : 'No hay órdenes abiertas. Crea una en Orden de Beneficio.'}
+          </div>
+        ) : vista === 'lista' ? (
+          <ListaOrdenes ordenes={visibles} selectedId={selectedId} onSelect={onSelect} />
+        ) : (
+          <ul className="grid gap-3 xl:grid-cols-2">
+            {visibles.map((o) => {
+              const estado = estadoOrden(o);
+              const pct = o.animalCount ? Math.round((o.insensibilizados / o.animalCount) * 100) : 0;
+              const activo = o.id === selectedId;
+              return (
+                <li key={o.id}>
+                  <button
+                    onClick={() => onSelect(o.id)}
+                    className={cn(
+                      'group flex w-full flex-col gap-4 rounded-xl border bg-card p-5 text-left shadow-sm transition-all hover:border-primary/50 hover:shadow-md active:scale-[0.995]',
+                      activo ? 'border-primary ring-2 ring-primary/20' : 'border-border',
+                    )}
+                  >
+                    {/* Orden, cliente y estado */}
+                    <div className="flex items-start gap-3">
+                      <span className="rounded-lg bg-primary/10 px-3 py-1.5 text-2xl font-bold tabular-nums text-primary">
+                        {formatOB(o.reference)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-lg font-bold uppercase">{o.cliente}</div>
+                        <div className="text-sm text-muted-foreground">
+                          {o.clienteNit ? `NIT ${o.clienteNit} · ` : ''}Sacrificio {formatFechaDia(o.date)}
+                        </div>
+                      </div>
+                      <span className={cn('flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1 text-sm font-semibold ring-1', estado.clase)}>
+                        <span className={cn('size-2 rounded-full', estado.punto)} />
+                        {estado.texto}
+                      </span>
+                    </div>
+
+                    {/* Trazabilidad */}
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-lg bg-muted/40 px-4 py-3 sm:grid-cols-4">
+                      <Dato label={o.guias.length > 1 ? 'Guías' : 'Guía'}>{o.guias.join(', ') || '—'}</Dato>
+                      <Dato label="Báscula">
+                        {[...o.bcReferencias.map(formatReferencia), ...o.bpReferencias.map(formatBP)].join(' · ') || '—'}
+                      </Dato>
+                      <Dato label="Lote">{o.lotes.join(', ') || '—'}</Dato>
+                      <Dato label={o.corrales.length > 1 ? 'Corrales' : 'Corral'}>{o.corrales.join(', ') || '—'}</Dato>
+                    </div>
+
+                    {/* Animales */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      {o.tipos.map((t) => (
+                        <span key={t.tipo} className="rounded-md border border-border bg-background px-2.5 py-1 text-sm font-medium">
+                          <b className="tabular-nums">{t.cantidad}</b> {t.tipo}
+                        </span>
+                      ))}
+                      {o.cabezasPatas && (
+                        <span className="rounded-md bg-sky-50 px-2.5 py-1 text-sm font-medium text-sky-800 ring-1 ring-sky-200">
+                          Cabeza y patas
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Avance */}
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        <div className="mb-1.5 flex items-baseline gap-1.5 text-sm text-muted-foreground">
+                          <span className="text-xl font-bold tabular-nums text-foreground">{o.insensibilizados}</span>
+                          / {o.animalCount} sacrificados
+                        </div>
+                        <div className="h-2.5 overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                      <span className="flex items-center gap-1 rounded-lg bg-primary px-4 py-2.5 text-base font-semibold text-primary-foreground group-hover:bg-primary/90">
+                        Abrir
+                        <ChevronRight className="size-5" />
+                      </span>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
     </>
+  );
+}
+
+function ListaOrdenes({
+  ordenes,
+  selectedId,
+  onSelect,
+}: {
+  ordenes: SacrificioOrderResumen[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      <Table>
+        <THead>
+          <TR>
+            <TH className="h-10 w-28">Orden</TH>
+            <TH className="h-10">Cliente</TH>
+            <TH className="h-10">Guía / Báscula</TH>
+            <TH className="h-10">Animales</TH>
+            <TH className="h-10 w-64">Avance</TH>
+            <TH className="h-10 w-12" />
+          </TR>
+        </THead>
+        <TBody>
+          {ordenes.map((o) => {
+            const estado = estadoOrden(o);
+            const pct = o.animalCount ? Math.round((o.insensibilizados / o.animalCount) * 100) : 0;
+            const activo = o.id === selectedId;
+            const bascula = [...o.bcReferencias.map(formatReferencia), ...o.bpReferencias.map(formatBP)].join(' · ');
+            const detalle = [
+              o.clienteNit ? `NIT ${o.clienteNit}` : null,
+              o.lotes.length ? `Lote ${o.lotes.join(', ')}` : null,
+              o.corrales.length ? `Corral ${o.corrales.join(', ')}` : null,
+              o.cabezasPatas ? 'Cabeza y patas' : null,
+            ]
+              .filter(Boolean)
+              .join(' · ');
+            return (
+              <TR
+                key={o.id}
+                onClick={() => onSelect(o.id)}
+                title={detalle}
+                className={cn('h-16 cursor-pointer', activo && 'bg-primary/5')}
+              >
+                <TD className="relative py-2">
+                  <span className={cn('absolute inset-y-0 left-0 w-1', estado.barra)} />
+                  <span className="text-lg font-bold tabular-nums text-primary">{formatOB(o.reference)}</span>
+                </TD>
+                <TD className="max-w-80 py-2">
+                  <div className="truncate text-base font-semibold uppercase">{o.cliente}</div>
+                  {o.cabezasPatas && <div className="text-xs font-medium text-sky-700">Cabeza y patas</div>}
+                </TD>
+                <TD className="py-2">
+                  <div className="text-base font-medium tabular-nums">
+                    {o.guias.length > 1 ? `${o.guias.length} guías` : o.guias[0] ?? '—'}
+                  </div>
+                  <div className="text-xs text-muted-foreground">{bascula || '—'}</div>
+                </TD>
+                <TD className="py-2 text-sm">
+                  {o.tipos.map((t) => `${t.cantidad} ${t.tipo}`).join(' · ') || '—'}
+                </TD>
+                <TD className="py-2">
+                  <div className="flex items-center gap-3">
+                    <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="w-14 text-right text-sm font-semibold tabular-nums">
+                      {o.insensibilizados}/{o.animalCount}
+                    </span>
+                    <span className={cn('size-2.5 rounded-full', estado.punto)} title={estado.texto} />
+                  </div>
+                </TD>
+                <TD className="py-2 text-muted-foreground">
+                  <ChevronRight className="size-5" />
+                </TD>
+              </TR>
+            );
+          })}
+        </TBody>
+      </Table>
+    </div>
   );
 }
 
 function AnimalesTab({
   detail,
   loading,
-  notice,
   stunPending,
   stunSeq,
   cardSelSeq,
@@ -553,7 +790,6 @@ function AnimalesTab({
 }: {
   detail: ReturnType<typeof useSacrificioDetail>['data'];
   loading: boolean;
-  notice: { type: 'success' | 'error'; text: string } | null;
   stunPending: boolean;
   stunSeq: number | null;
   cardSelSeq: number | null;
@@ -596,24 +832,6 @@ function AnimalesTab({
         Orden N.º {formatOB(detail.reference)} · {detail.date}
         {detail.guias.length ? ` · ${detail.guias.join(', ')}` : ''}
       </div>
-
-      {notice && (
-        <div
-          className={cn(
-            'flex items-center gap-2 rounded-sm px-4 py-2 text-sm font-medium',
-            notice.type === 'success'
-              ? 'bg-emerald-50 text-emerald-700'
-              : 'bg-destructive/10 text-destructive',
-          )}
-        >
-          {notice.type === 'success' ? (
-            <CheckCircle2 className="size-4" />
-          ) : (
-            <Clock className="size-4" />
-          )}
-          {notice.text}
-        </div>
-      )}
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="text-sm text-muted-foreground">

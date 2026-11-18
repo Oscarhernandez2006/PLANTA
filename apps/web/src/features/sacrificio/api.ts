@@ -16,6 +16,15 @@ export interface SacrificioOrder {
   cabezasPatas: boolean;
 }
 
+/** Resumen de la orden para la lista de Sacrificio. */
+export interface SacrificioOrderResumen extends SacrificioOrder {
+  bcReferencias: number[];
+  bpReferencias: number[];
+  lotes: string[];
+  corrales: string[];
+  tipos: { tipo: string; cantidad: number }[];
+}
+
 export interface SacrificioEvento {
   sequence: number;
   stunnedAt: string;
@@ -43,7 +52,7 @@ export function useSacrificioPendientes(date: string | null = null) {
   return useQuery({
     queryKey: ['sacrificio', 'pendientes', date ?? 'activas'],
     queryFn: async () =>
-      (await api.get<SacrificioOrder[]>('/sacrificio', { params: date ? { date } : {} })).data,
+      (await api.get<SacrificioOrderResumen[]>('/sacrificio', { params: date ? { date } : {} })).data,
   });
 }
 

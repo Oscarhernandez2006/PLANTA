@@ -16,6 +16,11 @@ export interface PostaReceipt {
   processDate: string;
   status: DispatchOrderStatus;
   client: Client;
+  /** Resumen que trae el listado. */
+  registros?: number;
+  piezas?: number;
+  referencias?: number;
+  kg?: number;
 }
 
 export interface Paginated<T> {
@@ -83,14 +88,33 @@ export interface PostaReceiptItem {
   taraKg: string;
   brutoKg: string;
   netoKg: string;
+  piezas: number;
+  empaques: number;
+  lote: string | null;
+  conservacion: Conservacion | null;
+  fechaSacrificio: string | null;
+  fechaVencimiento: string | null;
   product: { id: string; codigo: string; nombre: string };
   createdAt: string;
 }
+
+export type Conservacion = 'refrigerado' | 'congelado';
+
+export const CONSERVACION_LABEL: Record<Conservacion, string> = {
+  refrigerado: 'REFRIGERADO 0 °C A 4 °C',
+  congelado: 'CONGELADO -18 °C A -25 °C',
+};
 
 export interface CreatePostaReceiptItemInput {
   productId: string;
   taraKg: number;
   brutoKg: number;
+  piezas: number;
+  empaques: number;
+  lote: string;
+  conservacion: Conservacion;
+  fechaSacrificio?: string;
+  fechaVencimiento?: string;
 }
 
 export function usePostaReceiptItems(orderId: string | null) {
@@ -113,18 +137,40 @@ export function useCreatePostaReceiptItem(orderId: string | null) {
           input,
         )
       ).data,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['posta-receipts', 'items', orderId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['posta-receipts', 'items', orderId] });
+      qc.invalidateQueries({ queryKey: ['posta-receipts', 'list'] });
+    },
   });
 }
 
+/** Eliminar un registro: lo autoriza un supervisor con su PIN. */
 export function useDeletePostaReceiptItem(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (itemId: string) =>
-      (await api.delete<{ ok: boolean }>(`/posta-receipts/items/${itemId}`))
+    mutationFn: async ({ itemId, pin }: { itemId: string; pin: string }) =>
+      (await api.delete<{ ok: boolean }>(`/posta-receipts/items/${itemId}`, { data: { pin } }))
         .data,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['posta-receipts', 'items', orderId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['posta-receipts', 'items', orderId] });
+      qc.invalidateQueries({ queryKey: ['posta-receipts', 'list'] });
+    },
   });
+}
+
+/** Cierra la orden de recibo con el PIN de un supervisor. */
+export function useCerrarPostaReceipt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
+      (await api.patch<{ ok: boolean }>(`/posta-receipts/${id}/cerrar`, { pin })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['posta-receipts'] }),
+  });
+}
+
+/** Deja constancia de la reimpresión de un rótulo; si falla no interrumpe la impresión. */
+export function registrarReimpresionPosta(itemId: string, estacion?: string | null) {
+  void api
+    .post(`/posta-receipts/items/${itemId}/reimpresion`, { estacion: estacion ?? undefined })
+    .catch(() => undefined);
 }

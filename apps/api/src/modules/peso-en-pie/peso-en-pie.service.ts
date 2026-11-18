@@ -338,6 +338,15 @@ export class PesoEnPieService {
         pesoPromedioKg: pesoKg,
       });
       const creados = [];
+      // Tipo de cada animal pendiente, en orden: por grupos si la guía es mixta.
+      const tipos = dto.grupos?.length
+        ? dto.grupos.flatMap((g) => Array.from({ length: g.cantidad }, () => g.tipoAnimal))
+        : Array.from({ length: pendientes }, () => dto.tipoAnimal);
+      if (tipos.length !== pendientes) {
+        throw new BadRequestException(
+          `La suma por tipo (${tipos.length}) debe ser igual a los ${pendientes} animales pendientes.`,
+        );
+      }
       for (let i = 1; i <= pendientes; i++) {
         creados.push(
           await tx.pesoEnPie.create({
@@ -349,6 +358,7 @@ export class PesoEnPieService {
               date: camion.date,
               createdById: ctx.userId,
               ...base,
+              tipoAnimal: tipos[i - 1].trim(),
             },
           }),
         );

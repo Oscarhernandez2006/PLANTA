@@ -26,9 +26,508 @@ const etiquetaNoDespachada = {
 };
 const dcSelect = { select: { canalDispatchOrder: { select: { dcNumber: true } } } } as const;
 
+// Canales con este número de días o más en cava salen en alertas.
+const DIAS_CANAL_ALERTA = 4;
+// Productos que vencen dentro de estos días salen en alertas.
+const DIAS_VENCE_ALERTA = 3;
+const DIA_MS = 86_400_000;
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
+// Recibos que siguen vigentes: abiertos o cerrados (cerrado = recibo terminado, el producto sigue en planta).
+const reciboVigente = { deletedAt: null, status: { not: DispatchOrderStatus.inactivo } };
+const reciboClienteSelect = {
+  select: { receiptNumber: true, processDate: true, client: { select: { nit: true, name: true, sede: true } } },
+} as const;
+/** La cava del recibo de canales se guarda como número (1-5). */
+const nombreCavaRecibo = (n: number) => `CAVA ${n}`;
+/** El NIT se compara sin dígito de verificación ni separadores. */
+const nitClave = (nit: string | null | undefined) => (nit ?? '').split('-')[0].replace(/\D/g, '');
+
 @Injectable()
 export class InventariosService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Tablero general: totales de planta, ocupación por cava, existencias por cliente y alertas
+   * (canales con muchos días en cava, productos vencidos o por vencer, canales sin cava).
+   */
+  async resumen(ctx: AuthContext) {
+    const ahora = Date.now();
+    const hoy = plantDateOnly();
+    const [canales, etiquetas, acond, subproductos, odAbiertas, dcAbiertas, recibidas, posta, bodegasNit] = await Promise.all([
+      this.prisma.canalPieza.findMany({
+        where: this.canalEnInventario(ctx),
+        select: {
+          id: true,
+          pieza: true,
+          cava: true,
+          pesoKg: true,
+          weighedAt: true,
+          evento: {
+            select: {
+              sequence: true,
+              canalAnimalTipo: true,
+              ordenBeneficio: { select: { reference: true, cliente: true } },
+            },
+          },
+          despacho: { select: { cavaOrigen: true } },
+          despachoCanal: { select: { cavaOrigen: true } },
+        },
+      }),
+      this.prisma.rotuladoEtiqueta.findMany({
+        where: { plantId: ctx.plantId, deletedAt: null, bodegaId: { not: null }, ...etiquetaNoDespachada },
+        select: {
+          netoKg: true,
+          conservacion: true,
+          fechaVencimiento: true,
+          product: { select: { codigo: true, nombre: true } },
+          bodega: { select: { nombre: true, cliente: { select: { concepto: true } } } },
+        },
+      }),
+      this.prisma.acondicionamientoEtiqueta.findMany({
+        where: { plantId: ctx.plantId, deletedAt: null, bodegaId: { not: null }, ...noDespachado },
+        select: {
+          netoKg: true,
+          conservacion: true,
+          fechaVencimiento: true,
+          product: { select: { codigo: true, nombre: true } },
+          bodega: { select: { nombre: true, cliente: { select: { concepto: true } } } },
+        },
+      }),
+      this.prisma.subproductoItem.findMany({
+        where: { cava: { not: null }, evento: { ordenBeneficio: { plantId: ctx.plantId, deletedAt: null } } },
+        select: {
+          tipo: true,
+          cava: true,
+          pesoKg: true,
+          registradoAt: true,
+          evento: { select: { ordenBeneficio: { select: { cliente: true } } } },
+        },
+      }),
+      this.prisma.dispatchOrder.count({
+        where: { plantId: ctx.plantId, deletedAt: null, status: DispatchOrderStatus.activo },
+      }),
+      this.prisma.canalDispatchOrder.count({
+        where: { plantId: ctx.plantId, deletedAt: null, status: DispatchOrderStatus.activo },
+      }),
+      this.canalesRecibidas(ctx),
+      this.productosPosta(ctx),
+      this.bodegaPorNit(),
+    ]);
+
+    type Cava = {
+      cava: string;
+      tipo: 'canal' | 'subproducto';
+      unds: number;
+      kg: number;
+      disponibles: number;
+      enOrden: number;
+      enDespacho: number;
+      clientes: Set<string>;
+      masAntiguaDias: number | null;
+    };
+    const cavas = new Map<string, Cava>();
+    const cavaDe = (nombre: string, tipo: Cava['tipo']) => {
+      let c = cavas.get(`${tipo}|${nombre}`);
+      if (!c) {
+        c = { cava: nombre, tipo, unds: 0, kg: 0, disponibles: 0, enOrden: 0, enDespacho: 0, clientes: new Set(), masAntiguaDias: null };
+        cavas.set(`${tipo}|${nombre}`, c);
+      }
+      return c;
+    };
+    type Cliente = { cliente: string; canales: number; canalesKg: number; productos: number; productosKg: number; subproductos: number; subproductosKg: number };
+    const clientes = new Map<string, Cliente>();
+    const clienteDe = (nombre: string) => {
+      let c = clientes.get(nombre);
+      if (!c) {
+        c = { cliente: nombre, canales: 0, canalesKg: 0, productos: 0, productosKg: 0, subproductos: 0, subproductosKg: 0 };
+        clientes.set(nombre, c);
+      }
+      return c;
+    };
+
+    const totCanales = { unds: 0, kg: 0, disponibles: 0, enOrden: 0, enDespacho: 0, sinCava: 0 };
+    const canalesAntiguas: {
+      piezaId: string;
+      origen: 'beneficio' | 'recibo';
+      cava: string;
+      cliente: string;
+      reference: number;
+      sequence: number;
+      pieza: string;
+      canalAnimalTipo: string | null;
+      pesoKg: number;
+      dias: number;
+    }[] = [];
+    for (const p of canales) {
+      const kg = Number(p.pesoKg);
+      const cliente = p.evento.ordenBeneficio.cliente;
+      const dias = Math.floor((ahora - p.weighedAt.getTime()) / DIA_MS);
+      const ubicacion = p.cava ?? p.despacho?.cavaOrigen ?? p.despachoCanal?.cavaOrigen ?? null;
+      totCanales.unds += 1;
+      totCanales.kg += kg;
+      const estado = p.despacho ? 'enOrden' : p.despachoCanal ? 'enDespacho' : 'disponibles';
+      totCanales[estado] += 1;
+      const cl = clienteDe(cliente);
+      cl.canales += 1;
+      cl.canalesKg += kg;
+      if (!ubicacion) {
+        totCanales.sinCava += 1;
+        continue;
+      }
+      const c = cavaDe(ubicacion, 'canal');
+      c.unds += 1;
+      c.kg += kg;
+      c[estado] += 1;
+      c.clientes.add(cliente);
+      c.masAntiguaDias = Math.max(c.masAntiguaDias ?? 0, dias);
+      if (dias >= DIAS_CANAL_ALERTA && estado === 'disponibles') {
+        canalesAntiguas.push({
+          piezaId: p.id,
+          origen: 'beneficio',
+          cava: ubicacion,
+          cliente,
+          reference: p.evento.ordenBeneficio.reference,
+          sequence: p.evento.sequence,
+          pieza: p.pieza,
+          canalAnimalTipo: p.evento.canalAnimalTipo,
+          pesoKg: kg,
+          dias,
+        });
+      }
+    }
+
+    for (const r of recibidas) {
+      const f = this.reciboCanalFila(r, bodegasNit.get(nitClave(r.receiptOrder.client.nit)));
+      const dias = Math.floor((ahora - r.createdAt.getTime()) / DIA_MS);
+      totCanales.unds += 1;
+      totCanales.kg += f.pesoKg;
+      totCanales.disponibles += 1;
+      const cl = clienteDe(f.cliente);
+      cl.canales += 1;
+      cl.canalesKg += f.pesoKg;
+      const c = cavaDe(f.cava, 'canal');
+      c.unds += 1;
+      c.kg += f.pesoKg;
+      c.disponibles += 1;
+      c.clientes.add(f.cliente);
+      c.masAntiguaDias = Math.max(c.masAntiguaDias ?? 0, dias);
+      if (dias >= DIAS_CANAL_ALERTA) {
+        canalesAntiguas.push({
+          piezaId: r.id,
+          origen: 'recibo',
+          cava: f.cava,
+          cliente: f.cliente,
+          reference: f.reference,
+          sequence: r.codigo,
+          pieza: 'canal',
+          canalAnimalTipo: null,
+          pesoKg: f.pesoKg,
+          dias,
+        });
+      }
+    }
+
+    const totProductos = { unds: 0, kg: 0, refrigeradoKg: 0, congeladoKg: 0, vencidos: 0 };
+    const porVencer = new Map<
+      string,
+      { codigo: string; producto: string; cliente: string; bodega: string; vence: string; dias: number; unds: number; kg: number }
+    >();
+    const productosTodos = [
+      ...etiquetas,
+      ...acond,
+      ...posta.map((p) => {
+        const b = bodegasNit.get(nitClave(p.receiptOrder.client.nit));
+        return {
+          netoKg: p.netoKg,
+          conservacion: p.conservacion,
+          fechaVencimiento: p.fechaVencimiento,
+          product: p.product,
+          bodega: b
+            ? { nombre: b.nombre, cliente: { concepto: b.cliente } }
+            : { nombre: 'RECIBO EN POSTA', cliente: { concepto: p.receiptOrder.client.name } },
+        };
+      }),
+    ];
+    for (const e of productosTodos) {
+      const kg = Number(e.netoKg);
+      totProductos.unds += 1;
+      totProductos.kg += kg;
+      if (/congel/i.test(e.conservacion ?? '')) totProductos.congeladoKg += kg;
+      else totProductos.refrigeradoKg += kg;
+      const cliente = e.bodega?.cliente.concepto ?? 'SIN CLIENTE';
+      const cl = clienteDe(cliente);
+      cl.productos += 1;
+      cl.productosKg += kg;
+      if (!e.fechaVencimiento) continue;
+      const dias = Math.round((e.fechaVencimiento.getTime() - hoy.getTime()) / DIA_MS);
+      if (dias < 0) totProductos.vencidos += 1;
+      if (dias > DIAS_VENCE_ALERTA) continue;
+      const vence = e.fechaVencimiento.toISOString().slice(0, 10);
+      const clave = `${e.product.codigo}|${cliente}|${e.bodega?.nombre}|${vence}`;
+      const g = porVencer.get(clave) ?? {
+        codigo: e.product.codigo,
+        producto: e.product.nombre,
+        cliente,
+        bodega: e.bodega?.nombre ?? '',
+        vence,
+        dias,
+        unds: 0,
+        kg: 0,
+      };
+      g.unds += 1;
+      g.kg += kg;
+      porVencer.set(clave, g);
+    }
+
+    const totSub = { unds: 0, kg: 0 };
+    for (const i of subproductos) {
+      const def = SUBPRODUCTO_ITEM_BY_TIPO.get(i.tipo);
+      const kg = i.pesoKg ? Number(i.pesoKg) : 0;
+      const unds = def?.unidad === 'kg' ? 0 : (def?.multiplicador ?? 1);
+      const cliente = i.evento.ordenBeneficio.cliente;
+      totSub.unds += unds;
+      totSub.kg += kg;
+      const cl = clienteDe(cliente);
+      cl.subproductos += unds;
+      cl.subproductosKg += kg;
+      const c = cavaDe(i.cava!, 'subproducto');
+      c.unds += unds;
+      c.kg += kg;
+      c.disponibles += unds;
+      c.clientes.add(cliente);
+      if (i.registradoAt) {
+        const dias = Math.floor((ahora - i.registradoAt.getTime()) / DIA_MS);
+        c.masAntiguaDias = Math.max(c.masAntiguaDias ?? 0, dias);
+      }
+    }
+
+    return {
+      generadoAt: new Date(ahora).toISOString(),
+      umbrales: { diasCanal: DIAS_CANAL_ALERTA, diasVence: DIAS_VENCE_ALERTA },
+      canales: { ...totCanales, kg: r2(totCanales.kg) },
+      productos: {
+        ...totProductos,
+        kg: r2(totProductos.kg),
+        refrigeradoKg: r2(totProductos.refrigeradoKg),
+        congeladoKg: r2(totProductos.congeladoKg),
+      },
+      subproductos: { unds: totSub.unds, kg: r2(totSub.kg) },
+      ordenesAbiertas: { od: odAbiertas, dc: dcAbiertas },
+      cavas: [...cavas.values()].map(({ clientes: cl, ...c }) => ({ ...c, kg: r2(c.kg), clientes: cl.size })),
+      clientes: [...clientes.values()]
+        .map((c) => ({
+          ...c,
+          canalesKg: r2(c.canalesKg),
+          productosKg: r2(c.productosKg),
+          subproductosKg: r2(c.subproductosKg),
+        }))
+        .sort((a, b) => b.canalesKg + b.productosKg + b.subproductosKg - (a.canalesKg + a.productosKg + a.subproductosKg)),
+      alertas: {
+        canalesAntiguas: canalesAntiguas.sort((a, b) => b.dias - a.dias).slice(0, 100),
+        productosPorVencer: [...porVencer.values()]
+          .map((g) => ({ ...g, kg: r2(g.kg) }))
+          .sort((a, b) => a.dias - b.dias)
+          .slice(0, 100),
+      },
+    };
+  }
+
+  // ---- Producto recibido de terceros (Recibo de Canales / Recibo en Posta) ----
+
+  /** Canales recibidas que siguen en planta (aún no tienen salida propia). */
+  private canalesRecibidas(ctx: AuthContext, where: Prisma.CanalReceiptItemWhereInput = {}) {
+    return this.prisma.canalReceiptItem.findMany({
+      where: { plantId: ctx.plantId, receiptOrder: reciboVigente, ...where },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        codigo: true,
+        cava: true,
+        pesoKg: true,
+        guia: true,
+        lote: true,
+        identificacion: true,
+        createdAt: true,
+        receiptOrder: reciboClienteSelect,
+      },
+    });
+  }
+
+  /** Producto recibido en posta que sigue en planta. */
+  private productosPosta(ctx: AuthContext, where: Prisma.PostaReceiptItemWhereInput = {}) {
+    return this.prisma.postaReceiptItem.findMany({
+      where: { plantId: ctx.plantId, receiptOrder: reciboVigente, ...where },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        codigo: true,
+        netoKg: true,
+        piezas: true,
+        lote: true,
+        conservacion: true,
+        fechaVencimiento: true,
+        createdAt: true,
+        product: { select: { codigo: true, nombre: true } },
+        receiptOrder: reciboClienteSelect,
+      },
+    });
+  }
+
+  /**
+   * Bodega donde queda lo recibido de un cliente: el cliente del recibo se cruza por NIT con el
+   * maestro de clientes y se usa su bodega por defecto (la que lleva su nombre, o la primera).
+   */
+  private async bodegaPorNit() {
+    const bodegas = await this.prisma.bodega.findMany({
+      where: { active: true, cliente: { nit: { not: null } } },
+      orderBy: { code: 'asc' },
+      select: { id: true, nombre: true, cliente: { select: { nit: true, concepto: true } } },
+    });
+    const m = new Map<string, { id: string; nombre: string; cliente: string }>();
+    for (const b of bodegas) {
+      const k = nitClave(b.cliente.nit);
+      if (!k) continue;
+      const actual = m.get(k);
+      if (!actual || (b.nombre === b.cliente.concepto && actual.nombre !== actual.cliente)) {
+        m.set(k, { id: b.id, nombre: b.nombre, cliente: b.cliente.concepto });
+      }
+    }
+    return m;
+  }
+
+  private reciboCanalFila(
+    r: Awaited<ReturnType<InventariosService['canalesRecibidas']>>[number],
+    bodega: { nombre: string; cliente: string } | undefined,
+  ) {
+    const o = r.receiptOrder;
+    return {
+      reference: o.receiptNumber,
+      cliente: bodega?.cliente ?? o.client.name,
+      date: o.processDate.toISOString().slice(0, 10),
+      pesoKg: Number(r.pesoKg),
+      cava: nombreCavaRecibo(r.cava),
+      recibo: {
+        receiptNumber: o.receiptNumber,
+        codigo: r.codigo,
+        guia: r.guia,
+        lote: r.lote,
+        identificacion: r.identificacion,
+        sede: o.client.sede,
+      },
+    };
+  }
+
+  private async usuarios(ids: (string | null | undefined)[]) {
+    const unicos = [...new Set(ids.filter((x): x is string => !!x))];
+    const filas = unicos.length
+      ? await this.prisma.appUser.findMany({ where: { id: { in: unicos } }, select: { id: true, fullName: true } })
+      : [];
+    const m = new Map(filas.map((u) => [u.id, u.fullName]));
+    return (id: string | null | undefined) => (id ? (m.get(id) ?? null) : null);
+  }
+
+  private ordenRecibo(
+    o: {
+      receiptNumber: number;
+      registrationDate: Date;
+      processDate: Date;
+      status: DispatchOrderStatus;
+      createdAt: Date;
+      createdById: string;
+      cerradaAt: Date | null;
+      cerradaById: string | null;
+      client: { nit: string; name: string; sede: string };
+    },
+    nombre: (id: string | null | undefined) => string | null,
+  ) {
+    return {
+      receiptNumber: o.receiptNumber,
+      registrationDate: o.registrationDate.toISOString().slice(0, 10),
+      processDate: o.processDate.toISOString().slice(0, 10),
+      status: o.status,
+      createdAt: o.createdAt.toISOString(),
+      creadaPor: nombre(o.createdById),
+      cerradaAt: o.cerradaAt?.toISOString() ?? null,
+      cerradaPor: nombre(o.cerradaById),
+      cliente: o.client,
+    };
+  }
+
+  /** Hoja de vida de una canal recibida de terceros: recibo, ingreso, cava y reimpresiones. */
+  async trazabilidadReciboCanal(ctx: AuthContext, itemId: string) {
+    const i = await this.prisma.canalReceiptItem.findFirst({
+      where: { id: itemId, plantId: ctx.plantId },
+      include: { receiptOrder: { include: { client: { select: { nit: true, name: true, sede: true } } } } },
+    });
+    if (!i) throw new NotFoundException('Canal recibida no encontrada.');
+    const [reimpresiones, bodegas] = await Promise.all([
+      this.prisma.canalReceiptReimpresion.findMany({ where: { itemId }, orderBy: { createdAt: 'asc' } }),
+      this.bodegaPorNit(),
+    ]);
+    const o = i.receiptOrder;
+    const nombre = await this.usuarios([i.createdById, o.createdById, o.cerradaById, ...reimpresiones.map((r) => r.userId)]);
+    const bodega = bodegas.get(nitClave(o.client.nit));
+    return {
+      orden: this.ordenRecibo(o, nombre),
+      bodega: bodega ? { nombre: bodega.nombre, cliente: bodega.cliente } : null,
+      enInventario: !o.deletedAt && o.status !== DispatchOrderStatus.inactivo,
+      item: {
+        id: i.id,
+        codigo: i.codigo,
+        cava: nombreCavaRecibo(i.cava),
+        pesoKg: Number(i.pesoKg),
+        guia: i.guia,
+        lote: i.lote,
+        identificacion: i.identificacion,
+        createdAt: i.createdAt.toISOString(),
+        registradoPor: nombre(i.createdById),
+      },
+      reimpresiones: reimpresiones.map((r) => ({ at: r.createdAt.toISOString(), estacion: r.estacion, usuario: nombre(r.userId) })),
+    };
+  }
+
+  /** Hoja de vida de un producto recibido en posta: recibo, pesaje, rótulo y reimpresiones. */
+  async trazabilidadReciboPosta(ctx: AuthContext, itemId: string) {
+    const i = await this.prisma.postaReceiptItem.findFirst({
+      where: { id: itemId, plantId: ctx.plantId },
+      include: {
+        product: { select: { codigo: true, nombre: true, categoria: true } },
+        receiptOrder: { include: { client: { select: { nit: true, name: true, sede: true } } } },
+      },
+    });
+    if (!i) throw new NotFoundException('Producto recibido no encontrado.');
+    const [reimpresiones, bodegas] = await Promise.all([
+      this.prisma.postaReceiptReimpresion.findMany({ where: { itemId }, orderBy: { createdAt: 'asc' } }),
+      this.bodegaPorNit(),
+    ]);
+    const o = i.receiptOrder;
+    const nombre = await this.usuarios([i.createdById, o.createdById, o.cerradaById, ...reimpresiones.map((r) => r.userId)]);
+    const bodega = bodegas.get(nitClave(o.client.nit));
+    const dia = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null);
+    return {
+      orden: this.ordenRecibo(o, nombre),
+      bodega: bodega ? { nombre: bodega.nombre, cliente: bodega.cliente } : null,
+      enInventario: !o.deletedAt && o.status !== DispatchOrderStatus.inactivo,
+      item: {
+        id: i.id,
+        codigo: i.codigo,
+        producto: i.product,
+        taraKg: Number(i.taraKg),
+        brutoKg: Number(i.brutoKg),
+        netoKg: Number(i.netoKg),
+        piezas: i.piezas,
+        empaques: i.empaques,
+        lote: i.lote,
+        conservacion: i.conservacion,
+        fechaSacrificio: dia(i.fechaSacrificio),
+        fechaVencimiento: dia(i.fechaVencimiento),
+        createdAt: i.createdAt.toISOString(),
+        registradoPor: nombre(i.createdById),
+      },
+      reimpresiones: reimpresiones.map((r) => ({ at: r.createdAt.toISOString(), estacion: r.estacion, usuario: nombre(r.userId) })),
+    };
+  }
 
   /**
    * Busca en cava la pieza del código de barras del presinto:
@@ -139,29 +638,65 @@ export class InventariosService {
       },
       take: 300,
     });
-    return piezas.map((p) => ({
-      piezaId: p.id,
-      eventoId: p.eventoId,
-      reference: p.evento.ordenBeneficio.reference,
-      cliente: p.evento.ordenBeneficio.cliente,
-      date: p.evento.ordenBeneficio.date.toISOString().slice(0, 10),
-      canalAnimalTipo: p.evento.canalAnimalTipo,
-      canalTipo: p.evento.canalTipo,
-      sequence: p.evento.sequence,
-      turno: p.turno,
-      pieza: p.pieza,
-      bodega: p.bodega,
-      destino: p.destino,
-      observaciones: p.observaciones,
-      pesoKg: Number(p.pesoKg),
-      enOrden: p.despacho
-        ? {
-            odNumber: p.despacho.dispatchOrder.odNumber,
-            opNumbers: p.despacho.dispatchOrder.productionOrders.map((o) => o.opNumber),
-          }
-        : null,
-      enDespacho: p.despachoCanal ? p.despachoCanal.canalDispatchOrder : null,
-    }));
+    const numCava = /^CAVA (\d+)$/.exec(cava)?.[1];
+    const [recibidas, bodegasNit] = numCava
+      ? await Promise.all([
+          this.canalesRecibidas(ctx, {
+            cava: Number(numCava),
+            ...(date && { receiptOrder: { ...reciboVigente, processDate: date } }),
+          }),
+          this.bodegaPorNit(),
+        ])
+      : [[], new Map<string, { id: string; nombre: string; cliente: string }>()];
+    const deRecibo = recibidas.map((r) => {
+      const f = this.reciboCanalFila(r, bodegasNit.get(nitClave(r.receiptOrder.client.nit)));
+      return {
+        piezaId: r.id,
+        eventoId: '',
+        reference: f.reference,
+        cliente: f.cliente,
+        date: f.date,
+        canalAnimalTipo: null,
+        canalTipo: null,
+        sequence: r.codigo,
+        turno: null,
+        pieza: 'canal' as const,
+        bodega: null,
+        destino: null,
+        observaciones: null,
+        pesoKg: f.pesoKg,
+        enOrden: null,
+        enDespacho: null,
+        recibo: f.recibo,
+      };
+    });
+    return [
+      ...deRecibo,
+      ...piezas.map((p) => ({
+        piezaId: p.id,
+        eventoId: p.eventoId,
+        reference: p.evento.ordenBeneficio.reference,
+        cliente: p.evento.ordenBeneficio.cliente,
+        date: p.evento.ordenBeneficio.date.toISOString().slice(0, 10),
+        canalAnimalTipo: p.evento.canalAnimalTipo,
+        canalTipo: p.evento.canalTipo,
+        sequence: p.evento.sequence,
+        turno: p.turno,
+        pieza: p.pieza,
+        bodega: p.bodega,
+        destino: p.destino,
+        observaciones: p.observaciones,
+        pesoKg: Number(p.pesoKg),
+        enOrden: p.despacho
+          ? {
+              odNumber: p.despacho.dispatchOrder.odNumber,
+              opNumbers: p.despacho.dispatchOrder.productionOrders.map((o) => o.opNumber),
+            }
+          : null,
+        enDespacho: p.despachoCanal ? p.despachoCanal.canalDispatchOrder : null,
+        recibo: null,
+      })),
+    ];
   }
 
   /**
@@ -256,9 +791,35 @@ export class InventariosService {
       canalesPor.set(clave, acc);
     }
     const subproductosPor = await this.subproductosPorBodega(ctx);
+    const [recibidas, posta, bodegasNit] = await Promise.all([
+      this.canalesRecibidas(ctx),
+      this.productosPosta(ctx),
+      this.bodegaPorNit(),
+    ]);
+    const recibosPor = new Map<string, { canales: number; canalesKg: number; productos: number; productosKg: number }>();
+    const reciboDe = (nit: string) => {
+      const b = bodegasNit.get(nitClave(nit));
+      if (!b) return null;
+      const acc = recibosPor.get(b.id) ?? { canales: 0, canalesKg: 0, productos: 0, productosKg: 0 };
+      recibosPor.set(b.id, acc);
+      return acc;
+    };
+    for (const r of recibidas) {
+      const acc = reciboDe(r.receiptOrder.client.nit);
+      if (!acc) continue;
+      acc.canales += 1;
+      acc.canalesKg += Number(r.pesoKg);
+    }
+    for (const p of posta) {
+      const acc = reciboDe(p.receiptOrder.client.nit);
+      if (!acc) continue;
+      acc.productos += 1;
+      acc.productosKg += Number(p.netoKg);
+    }
     return bodegas.map((b) => {
       const p = productos.find((x) => x.bodegaId === b.id);
       const a = acond.find((x) => x.bodegaId === b.id);
+      const rc = recibosPor.get(b.id);
       const clave = `${b.cliente.concepto}|${b.nombre}`;
       return {
         id: b.id,
@@ -267,12 +828,12 @@ export class InventariosService {
         clienteId: b.cliente.id,
         clienteNit: b.cliente.nit,
         cliente: b.cliente.concepto,
-        canales: canalesPor.get(clave)?.n ?? 0,
-        canalesKg: canalesPor.get(clave)?.kg ?? 0,
+        canales: (canalesPor.get(clave)?.n ?? 0) + (rc?.canales ?? 0),
+        canalesKg: r2((canalesPor.get(clave)?.kg ?? 0) + (rc?.canalesKg ?? 0)),
         canalesDespachadas: canalesPor.get(clave)?.despachadas ?? 0,
         canalesProcesadas: canalesPor.get(clave)?.procesadas ?? 0,
-        productos: (p?._count._all ?? 0) + (a?._count._all ?? 0),
-        productosKg: Number(p?._sum.netoKg ?? 0) + Number(a?._sum.netoKg ?? 0),
+        productos: (p?._count._all ?? 0) + (a?._count._all ?? 0) + (rc?.productos ?? 0),
+        productosKg: r2(Number(p?._sum.netoKg ?? 0) + Number(a?._sum.netoKg ?? 0) + (rc?.productosKg ?? 0)),
         subproductos: subproductosPor.get(clave) ?? 0,
       };
     });
@@ -456,13 +1017,70 @@ export class InventariosService {
     ]);
     const dia = (d: Date) => d.toISOString().slice(0, 10);
 
+    // Lo recibido de terceros cuyo cliente (por NIT) cae en esta bodega.
+    const bodegasNit = await this.bodegaPorNit();
+    const esDeEstaBodega = (nit: string) => bodegasNit.get(nitClave(nit))?.id === b.id;
+    const tieneRecibos = [...bodegasNit.values()].some((x) => x.id === b.id);
+    const [recibidas, posta] = tieneRecibos
+      ? await Promise.all([this.canalesRecibidas(ctx), this.productosPosta(ctx)])
+      : [[], []];
+    const canalesRecibo = recibidas
+      .filter((r) => esDeEstaBodega(r.receiptOrder.client.nit))
+      .map((r) => {
+        const f = this.reciboCanalFila(r, undefined);
+        return {
+          id: r.id,
+          reference: f.reference,
+          date: f.date,
+          sequence: r.codigo,
+          turno: null,
+          canalTipo: null,
+          canalAnimalTipo: null,
+          pieza: 'canal' as const,
+          cava: f.cava,
+          destino: null,
+          observaciones: null,
+          pesoKg: f.pesoKg,
+          pesoFrioKg: null,
+          enOrden: null,
+          enDespacho: null,
+          recibo: f.recibo,
+        };
+      });
+    const productosPosta = posta
+      .filter((p) => esDeEstaBodega(p.receiptOrder.client.nit))
+      .map((p) => ({
+        id: p.id,
+        codigo: `RP${p.receiptOrder.receiptNumber}-${String(p.codigo).padStart(2, '0')}`,
+        pieza: p.codigo,
+        productoCodigo: p.product.codigo,
+        productoNombre: p.product.nombre,
+        tiendaCodigo: '',
+        tienda: 'RECIBO EN POSTA',
+        canastilla: null,
+        netoKg: Number(p.netoKg),
+        conservacion: (p.conservacion ?? '').toUpperCase(),
+        sobrante: false,
+        fechaEmpaque: dia(p.createdAt),
+        fechaVencimiento: p.fechaVencimiento ? dia(p.fechaVencimiento) : null,
+        opNumber: null,
+        ocNumber: null,
+        trasladoOt: null,
+        transformadoOc: null,
+        origenOt: null,
+        despachoDc: null,
+        rpNumber: p.receiptOrder.receiptNumber as number | null,
+      }));
+
     return {
       id: b.id,
       code: b.code,
       nombre: b.nombre,
       clienteNit: b.cliente.nit,
       cliente: b.cliente.concepto,
-      canales: canales.map((c) => ({
+      canales: [
+        ...canalesRecibo,
+        ...canales.map((c) => ({
         id: c.id,
         reference: c.evento.ordenBeneficio.reference,
         date: dia(c.evento.ordenBeneficio.date),
@@ -504,7 +1122,9 @@ export class InventariosService {
               };
             })()
           : null,
+        recibo: null,
       })),
+      ],
       productos: [
         ...etiquetas.map((e) => {
           const ot = e.traslado?.transferOrder ?? e.canastilla?.traslado?.transferOrder ?? null;
@@ -531,6 +1151,7 @@ export class InventariosService {
             origenOt: null as number | null,
             despachoDc:
               (e.despacho ?? e.canastilla?.despacho)?.canalDispatchOrder.dcNumber ?? (null as number | null),
+            rpNumber: null as number | null,
           };
         }),
         ...acond.map((e) => ({
@@ -553,7 +1174,9 @@ export class InventariosService {
           transformadoOc: null,
           origenOt: e.conditioningOrder.transferOrder.otNumber,
           despachoDc: e.despacho?.canalDispatchOrder.dcNumber ?? null,
+          rpNumber: null,
         })),
+        ...productosPosta,
       ],
       subproductos: subproductos.map((i) => {
         const def = SUBPRODUCTO_ITEM_BY_TIPO.get(i.tipo);

@@ -35,6 +35,17 @@ export interface CavaAnimalRow {
   enOrden: { odNumber: number; opNumbers: number[] } | null;
   /** Orden de despacho de canales (DC) activa en la que está; sale del inventario al cerrarla. */
   enDespacho: { dcNumber: number; tipo: 'caliente' | 'frio' } | null;
+  /** Canal recibida de terceros (Recibo de Canales); null = canal de beneficio propio. */
+  recibo: CanalRecibida | null;
+}
+
+export interface CanalRecibida {
+  receiptNumber: number;
+  codigo: number;
+  guia: string | null;
+  lote: string | null;
+  identificacion: string | null;
+  sede: string;
 }
 
 export type CavaSubproductoCategoria =
@@ -64,6 +75,67 @@ export function useCava(cava: string) {
     queryFn: async () =>
       (await api.get<CavaAnimalRow[]>(`/inventarios/cavas/${cava}`)).data,
     refetchInterval: 5000,
+  });
+}
+
+export interface ResumenInventario {
+  generadoAt: string;
+  umbrales: { diasCanal: number; diasVence: number };
+  canales: { unds: number; kg: number; disponibles: number; enOrden: number; enDespacho: number; sinCava: number };
+  productos: { unds: number; kg: number; refrigeradoKg: number; congeladoKg: number; vencidos: number };
+  subproductos: { unds: number; kg: number };
+  ordenesAbiertas: { od: number; dc: number };
+  cavas: {
+    cava: string;
+    tipo: 'canal' | 'subproducto';
+    unds: number;
+    kg: number;
+    disponibles: number;
+    enOrden: number;
+    enDespacho: number;
+    clientes: number;
+    masAntiguaDias: number | null;
+  }[];
+  clientes: {
+    cliente: string;
+    canales: number;
+    canalesKg: number;
+    productos: number;
+    productosKg: number;
+    subproductos: number;
+    subproductosKg: number;
+  }[];
+  alertas: {
+    canalesAntiguas: {
+      piezaId: string;
+      origen: 'beneficio' | 'recibo';
+      cava: string;
+      cliente: string;
+      reference: number;
+      sequence: number;
+      pieza: 'canal' | 'cizq' | 'cder';
+      canalAnimalTipo: string | null;
+      pesoKg: number;
+      dias: number;
+    }[];
+    productosPorVencer: {
+      codigo: string;
+      producto: string;
+      cliente: string;
+      bodega: string;
+      vence: string;
+      dias: number;
+      unds: number;
+      kg: number;
+    }[];
+  };
+}
+
+export function useResumenInventario() {
+  return useQuery({
+    queryKey: ['inventarios', 'resumen'],
+    queryFn: async () => (await api.get<ResumenInventario>('/inventarios/resumen')).data,
+    refetchInterval: 30_000,
   });
 }
 
@@ -119,6 +191,7 @@ export interface BodegaDetalle {
       cerrada: boolean;
       cerradaAt: string | null;
     } | null;
+    recibo: CanalRecibida | null;
   }[];
   productos: {
     id: string;
@@ -143,6 +216,8 @@ export interface BodegaDetalle {
     transformadoOc: number | null;
     /** Orden DC (posta) activa en la que va; al cerrarla sale del inventario. */
     despachoDc: number | null;
+    /** Producto recibido en posta (orden RP); null = rotulado en planta. */
+    rpNumber: number | null;
   }[];
   /** Subproductos en cava de las órdenes de beneficio cuyas canales quedaron en esta bodega. */
   subproductos: {
@@ -406,6 +481,74 @@ export function useTrazabilidadCanal(piezaId: string | null) {
     queryFn: async () =>
       (await api.get<TrazabilidadCanal>(`/inventarios/canales/${piezaId}/trazabilidad`)).data,
     enabled: !!piezaId,
+  });
+}
+
+interface TrazabilidadReciboBase {
+  orden: {
+    receiptNumber: number;
+    registrationDate: string;
+    processDate: string;
+    status: string;
+    createdAt: string;
+    creadaPor: string | null;
+    cerradaAt: string | null;
+    cerradaPor: string | null;
+    cliente: { nit: string; name: string; sede: string };
+  };
+  bodega: { nombre: string; cliente: string } | null;
+  enInventario: boolean;
+  reimpresiones: { at: string; estacion: string | null; usuario: string | null }[];
+}
+
+export interface TrazabilidadReciboCanal extends TrazabilidadReciboBase {
+  item: {
+    id: string;
+    codigo: number;
+    cava: string;
+    pesoKg: number;
+    guia: string | null;
+    lote: string | null;
+    identificacion: string | null;
+    createdAt: string;
+    registradoPor: string | null;
+  };
+}
+
+export interface TrazabilidadReciboPosta extends TrazabilidadReciboBase {
+  item: {
+    id: string;
+    codigo: number;
+    producto: { codigo: string; nombre: string; categoria: string | null };
+    taraKg: number;
+    brutoKg: number;
+    netoKg: number;
+    piezas: number;
+    empaques: number;
+    lote: string | null;
+    conservacion: string | null;
+    fechaSacrificio: string | null;
+    fechaVencimiento: string | null;
+    createdAt: string;
+    registradoPor: string | null;
+  };
+}
+
+export function useTrazabilidadReciboCanal(id: string | null) {
+  return useQuery({
+    queryKey: ['inventarios', 'trazabilidad-recibo-canal', id],
+    queryFn: async () =>
+      (await api.get<TrazabilidadReciboCanal>(`/inventarios/recibos-canal/${id}/trazabilidad`)).data,
+    enabled: !!id,
+  });
+}
+
+export function useTrazabilidadReciboPosta(id: string | null) {
+  return useQuery({
+    queryKey: ['inventarios', 'trazabilidad-recibo-posta', id],
+    queryFn: async () =>
+      (await api.get<TrazabilidadReciboPosta>(`/inventarios/recibos-posta/${id}/trazabilidad`)).data,
+    enabled: !!id,
   });
 }
 

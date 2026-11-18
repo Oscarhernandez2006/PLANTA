@@ -72,9 +72,11 @@ export class InformesService {
         reference: true,
         cliente: true,
         date: true,
+        guias: true,
         eventos: {
           select: {
             sequence: true,
+            stunnedAt: true,
             canalTipo: true,
             canalAnimalTipo: true,
             canalPiezas: {
@@ -85,6 +87,9 @@ export class InformesService {
                 pesoKg: true,
                 destino: true,
                 observaciones: true,
+                cava: true,
+                weighedAt: true,
+                operatorId: true,
               },
             },
           },
@@ -92,6 +97,28 @@ export class InformesService {
       },
     });
     if (!orden) throw new NotFoundException('Orden no encontrada.');
+
+    // Peso vivo vigente (repesado si lo hubo) de cada animal y datos de las guías.
+    const [vivos, camiones, operarios] = await Promise.all([
+      this.prisma.pesoEnPie.findMany({
+        where: { ordenBeneficioId: orden.id, deletedAt: null },
+        select: { ordenSequence: true, pesoTotalKg: true },
+      }),
+      this.prisma.pesoCamion.findMany({
+        where: { plantId: ctx.plantId, deletedAt: null, guia: { in: orden.guias } },
+        select: { referenciaLote: true, procedencia: true, proveedor: true },
+      }),
+      this.prisma.appUser.findMany({
+        where: {
+          id: { in: [...new Set(orden.eventos.flatMap((e) => e.canalPiezas.map((p) => p.operatorId)))] },
+        },
+        select: { id: true, fullName: true },
+      }),
+    ]);
+    const vivoPorSeq = new Map(vivos.map((v) => [v.ordenSequence, Number(v.pesoTotalKg ?? 0)]));
+    const nombreOperario = new Map(operarios.map((u) => [u.id, u.fullName]));
+    const unicos = (xs: (string | null)[]) => [...new Set(xs.filter((x): x is string => !!x?.trim()))];
+    const horas = orden.eventos.map((e) => e.stunnedAt.getTime()).sort((a, b) => a - b);
 
     // Nombres vigentes del catálogo (si existen); si no, los por defecto.
     const productos = await this.prisma.product.findMany({
@@ -122,6 +149,10 @@ export class InformesService {
             codigo: prod.codigo,
             producto: nombrePorCodigo.get(prod.codigo) ?? prod.nombre,
             pesoKg: Number(p.pesoKg),
+            vivoKg: vivoPorSeq.get(e.sequence) ?? null,
+            cava: p.cava,
+            weighedAt: p.weighedAt.toISOString(),
+            operario: nombreOperario.get(p.operatorId) ?? null,
           };
         }),
       )
@@ -140,6 +171,12 @@ export class InformesService {
       clienteCiudad: cliente?.ciudad ?? null,
       destino: destinos(orden.eventos.flatMap((e) => e.canalPiezas)),
       date: orden.date.toISOString().slice(0, 10),
+      guias: orden.guias,
+      lotes: unicos(camiones.map((c) => c.referenciaLote)),
+      procedencias: unicos(camiones.map((c) => c.procedencia)),
+      proveedores: unicos(camiones.map((c) => c.proveedor)),
+      sacrificioDesde: horas.length ? new Date(horas[0]).toISOString() : null,
+      sacrificioHasta: horas.length ? new Date(horas[horas.length - 1]).toISOString() : null,
       piezas,
     };
   }
@@ -193,6 +230,9 @@ export class InformesService {
         opNumber: true,
         processDate: true,
         status: true,
+        updatedAt: true,
+        cerradaAt: true,
+        cerradaById: true,
         cliente: { select: { id: true, concepto: true, nit: true } },
         dispatchOrder: {
           select: {
@@ -206,7 +246,7 @@ export class InformesService {
                   select: {
                     pieza: true,
                     eventoId: true,
-                    evento: { select: { ordenBeneficio: { select: { date: true } } } },
+                    evento: { select: { ordenBeneficio: { select: { date: true, reference: true, guias: true } } } },
                   },
                 },
               },
@@ -275,20 +315,47 @@ export class InformesService {
         netoKg: true,
         empaque: true,
         sobrante: true,
+        impresa: true,
+        estacion: true,
         canastillaId: true,
         createdAt: true,
-        product: { select: { codigo: true, nombre: true } },
+        product: { select: { id: true, codigo: true, nombre: true, categoria: true } },
         tienda: { select: { codigo: true, nombre: true } },
         canastilla: { select: { numero: true } },
       },
     });
+    // Tipo del producto para el cliente (conservación); si no, por la categoría.
+    const tiposCliente = await this.prisma.clienteProducto.findMany({
+      where: { clienteId: op.cliente.id, productId: { in: [...new Set(etiquetas.map((e) => e.product.id))] } },
+      select: { productId: true, tipo: true },
+    });
+    const tipoPorProducto = new Map(tiposCliente.map((t) => [t.productId, t.tipo]));
+    const tipoDe = (p: { id: string; categoria: string | null }) =>
+      tipoPorProducto.get(p.id) ??
+      (p.categoria === 'PRODUCTO EN PROCESO'
+        ? 'EN PROCESO'
+        : p.categoria === 'RES SUBPRODUCTOS'
+          ? 'SUBPRODUCTO'
+          : p.categoria === 'RES PRODUCTOS TERMINADOS'
+            ? 'TERMINADO'
+            : 'MATERIA PRIMA');
+    const borradas = await this.prisma.rotuladoEtiqueta.count({
+      where: { productionOrderId: op.id, deletedAt: { not: null } },
+    });
+    const reimpresiones = await this.prisma.rotuladoReimpresion.count({
+      where: { productionOrderId: op.id },
+    });
+    const cerradaPor = op.cerradaById
+      ? ((await this.prisma.appUser.findUnique({ where: { id: op.cerradaById }, select: { fullName: true } }))
+          ?.fullName ?? null)
+      : null;
     // El rendimiento se calcula contra los kilos de materia prima (canales en frío).
     const kgMateriaPrima = detalle.reduce((a, r) => a + r.kg, 0);
     const rnd = (kgp: number) =>
       kgMateriaPrima > 0 ? Number(((kgp / kgMateriaPrima) * 100).toFixed(2)) : 0;
     type Empaque = {
       pieza: number;
-      codigo: string | null;
+      canastillaId: string | null;
       canastilla: number | null;
       empaque: string;
       sobrante: boolean;
@@ -300,6 +367,7 @@ export class InformesService {
       {
         codigo: string;
         producto: string;
+        tipo: string;
         tiendaCodigo: string;
         tienda: string;
         unds: number;
@@ -315,6 +383,7 @@ export class InformesService {
       const fila = porProducto.get(clave) ?? {
         codigo: e.product.codigo,
         producto: e.product.nombre,
+        tipo: tipoDe(e.product),
         tiendaCodigo: e.tienda.codigo,
         tienda: e.tienda.nombre,
         unds: 0,
@@ -329,7 +398,7 @@ export class InformesService {
       if (e.canastillaId) fila.canastillasSet.add(e.canastillaId);
       fila.empaques.push({
         pieza: e.pieza,
-        codigo: e.codigo,
+        canastillaId: e.canastillaId,
         canastilla: e.canastilla?.numero ?? null,
         empaque: e.empaque,
         sobrante: e.sobrante,
@@ -344,29 +413,43 @@ export class InformesService {
           a.codigo.localeCompare(b.codigo, 'es', { numeric: true }) ||
           a.tiendaCodigo.localeCompare(b.tiendaCodigo, 'es', { numeric: true }),
       )
-      .map(({ canastillasSet, empaques, ...f }) => ({
-        ...f,
-        canastillas: canastillasSet.size,
-        kg: Number(f.kg.toFixed(2)),
-        rendimiento: rnd(f.kg),
-        // Detalle empaque por empaque, ordenado por canastilla y luego por pieza.
-        detalle: empaques
+      .map(({ canastillasSet, empaques, ...f }) => {
+        // Detalle por canastilla: cuántas canastillas (1 por fila), sus unidades y kilos.
+        const grupos = new Map<string, Empaque[]>();
+        for (const x of empaques) {
+          const k = x.canastillaId ?? `pieza-${x.pieza}`;
+          grupos.set(k, [...(grupos.get(k) ?? []), x]);
+        }
+        const detalle = [...grupos.values()]
           .sort(
             (a, b) =>
-              (a.canastilla ?? Infinity) - (b.canastilla ?? Infinity) ||
-              a.createdAt.getTime() - b.createdAt.getTime() ||
-              a.pieza - b.pieza,
+              Math.min(...a.map((x) => x.createdAt.getTime())) -
+                Math.min(...b.map((x) => x.createdAt.getTime())) ||
+              Math.min(...a.map((x) => x.pieza)) - Math.min(...b.map((x) => x.pieza)),
           )
-          .map((x) => ({
-            pieza: x.pieza,
-            codigo: x.codigo,
-            canastilla: x.canastilla,
-            empaque: x.empaque,
-            sobrante: x.sobrante,
-            kg: Number(x.kg.toFixed(2)),
-            rendimiento: rnd(x.kg),
-          })),
-      }));
+          .map((g) => {
+            const piezas = g.map((x) => x.pieza).sort((a, b) => a - b);
+            const kgG = g.reduce((s, x) => s + x.kg, 0);
+            return {
+              canastilla: g[0].canastilla,
+              canastillas: g[0].canastillaId ? 1 : 0,
+              unds: g.length,
+              piezaDesde: piezas[0],
+              piezaHasta: piezas[piezas.length - 1],
+              empaque: g[0].empaque,
+              sobrantes: g.filter((x) => x.sobrante).length,
+              kg: Number(kgG.toFixed(2)),
+              rendimiento: rnd(kgG),
+            };
+          });
+        return {
+          ...f,
+          canastillas: canastillasSet.size,
+          kg: Number(f.kg.toFixed(2)),
+          rendimiento: rnd(f.kg),
+          detalle,
+        };
+      });
 
     return {
       id: op.id,
@@ -381,6 +464,23 @@ export class InformesService {
       fechaIngreso: ingresos[0] ?? null,
       processDate: dia(op.processDate),
       status: op.status,
+      // Órdenes cerradas antes de guardar la fecha de cierre: se usa su última actualización.
+      cerradaAt: op.cerradaAt?.toISOString() ?? (op.status === 'facturado' ? op.updatedAt.toISOString() : null),
+      cerradaPor,
+      canales: new Set(items.map((i) => i.canalPieza.eventoId)).size,
+      obReferencias: [
+        ...new Set(items.map((i) => i.canalPieza.evento.ordenBeneficio.reference)),
+      ].sort((a, b) => a - b),
+      guias: [
+        ...new Set(items.flatMap((i) => i.canalPieza.evento.ordenBeneficio.guias.map((g) => g.trim()))),
+      ].filter(Boolean),
+      control: {
+        noImpresas: etiquetas.filter((e) => !e.impresa).length,
+        sobrantes: etiquetas.filter((e) => e.sobrante).length,
+        borradas,
+        reimpresiones,
+        estaciones: [...new Set(etiquetas.map((e) => e.estacion).filter((x): x is string => !!x))],
+      },
       detalle,
       etiquetado,
     };
@@ -487,6 +587,7 @@ export class InformesService {
             where: { plantId: ctx.plantId, deletedAt: null, date: orden.date, guia },
             select: {
               reference: true,
+              guia: true,
               pesoTotalKg: true,
               tipoAnimal: true,
               procedencia: true,
@@ -494,7 +595,19 @@ export class InformesService {
               ordenSequence: true,
             },
           })
-        : [],
+        : // Varias guías: solo los animales asignados a esta orden.
+          this.prisma.pesoEnPie.findMany({
+            where: { plantId: ctx.plantId, deletedAt: null, ordenBeneficioId: orden.id },
+            select: {
+              reference: true,
+              guia: true,
+              pesoTotalKg: true,
+              tipoAnimal: true,
+              procedencia: true,
+              ordenBeneficioId: true,
+              ordenSequence: true,
+            },
+          }),
       guias.length
         ? this.prisma.pesoCamion.findMany({
             where: { plantId: ctx.plantId, deletedAt: null, guia: { in: guias } },
@@ -593,8 +706,8 @@ export class InformesService {
         turno,
         // Gancho = lote de la orden + turno del día (p. ej. 3-29).
         gancho: `${orden.reference}-${turno}`,
-        guia: guia ?? (guias.join(', ') || null),
-        referencia: guia ? camionPorGuia.get(guia)?.referenciaLote ?? null : null,
+        guia: guia ?? pie?.guia ?? (guias.join(', ') || null),
+        referencia: camionPorGuia.get(guia ?? pie?.guia ?? '')?.referenciaLote ?? null,
         tipo: e.canalAnimalTipo?.toUpperCase() ?? pie?.tipoAnimal ?? null,
         canalAnimalTipo: e.canalAnimalTipo,
         canalTipo: e.canalTipo,
@@ -703,19 +816,27 @@ export class InformesService {
     if (!orden) throw new NotFoundException('Orden no encontrada.');
 
     const guia = orden.guias.length === 1 ? orden.guias[0].trim() : null;
-    const [camion, animalesPie, previas, delDia, cliente] = await Promise.all([
-      guia
-        ? this.prisma.pesoCamion.findFirst({
-            where: { plantId: ctx.plantId, deletedAt: null, date: orden.date, guia },
-          })
-        : null,
+    const [camiones, animalesPie, previas, delDia, cliente] = await Promise.all([
+      this.prisma.pesoCamion.findMany({
+        where: {
+          plantId: ctx.plantId,
+          deletedAt: null,
+          date: orden.date,
+          guia: { in: orden.guias.map((g) => g.trim()) },
+        },
+        orderBy: { reference: 'asc' },
+      }),
       guia
         ? this.prisma.pesoEnPie.findMany({
             where: { plantId: ctx.plantId, deletedAt: null, date: orden.date, guia },
             include: { repesajes: { orderBy: { ronda: 'asc' } } },
             orderBy: { reference: 'asc' },
           })
-        : [],
+        : this.prisma.pesoEnPie.findMany({
+            where: { plantId: ctx.plantId, deletedAt: null, ordenBeneficioId: orden.id },
+            include: { repesajes: { orderBy: { ronda: 'asc' } } },
+            orderBy: { ordenSequence: 'asc' },
+          }),
       guia
         ? this.prisma.ordenBeneficio.aggregate({
             _sum: { animalCount: true },
@@ -749,7 +870,7 @@ export class InformesService {
       ids.add(a.createdById);
       a.repesajes.forEach((r) => ids.add(r.operatorId));
     }
-    if (camion) ids.add(camion.createdById);
+    for (const c of camiones) ids.add(c.createdById);
     const usuarios = await this.prisma.appUser.findMany({
       where: { id: { in: [...ids] } },
       select: { id: true, fullName: true },
@@ -874,7 +995,13 @@ export class InformesService {
     const todosPie = animalesPie.map(pesosPie);
     const pieInicial = r2(todosPie.reduce((s, p) => s + p.inicial, 0));
     const pieActual = r2(todosPie.reduce((s, p) => s + p.actual, 0));
-    const neto = n(camion?.netoKg);
+    // Con varias guías, los datos del camión se suman (pesos) o se listan (textos).
+    const lista = (xs: (string | null | undefined)[]) =>
+      [...new Set(xs.map((x) => x?.trim()).filter((x): x is string => !!x))].join(', ') || null;
+    const suma = (xs: (number | null)[]) => (xs.some((x) => x != null) ? r2(xs.reduce<number>((s, x) => s + (x ?? 0), 0)) : null);
+    const neto = camiones.length ? suma(camiones.map((c) => n(c.netoKg))) : null;
+    const cantidadCamion = camiones.length ? suma(camiones.map((c) => c.cantidad)) : null;
+    const mismo = <T,>(xs: T[]) => (new Set(xs).size === 1 ? xs[0] : null);
 
     // ---- Totales de la orden ----
     const conAmbos = animales.filter((a) => a.pie?.pesoActualKg && a.canal.pecKg != null);
@@ -901,38 +1028,45 @@ export class InformesService {
         creadaPor: quien(orden.createdById),
         createdAt: orden.createdAt.toISOString(),
       },
-      guia: camion
+      guia: camiones.length
         ? {
-            guia: camion.guia,
-            bcReference: camion.reference,
-            referenciaLote: camion.referenciaLote,
-            date: camion.date.toISOString().slice(0, 10),
-            procedencia: camion.procedencia,
-            proveedor: camion.proveedor,
-            cliente: camion.cliente,
-            placa: camion.placa,
-            conductor: camion.conductor,
-            cantidad: camion.cantidad,
-            entradaKg: n(camion.entrada),
-            salidaKg: n(camion.salida),
+            guia: lista(camiones.map((c) => c.guia)),
+            bcReference: camiones[0].reference,
+            bcReferencias: camiones.map((c) => c.reference),
+            referenciaLote: lista(camiones.map((c) => c.referenciaLote)),
+            date: camiones[0].date.toISOString().slice(0, 10),
+            procedencia: lista(camiones.map((c) => c.procedencia)),
+            proveedor: lista(camiones.map((c) => c.proveedor)),
+            cliente: lista(camiones.map((c) => c.cliente)),
+            placa: lista(camiones.map((c) => c.placa)),
+            conductor: lista(camiones.map((c) => c.conductor)),
+            cantidad: cantidadCamion,
+            entradaKg: suma(camiones.map((c) => n(c.entrada))),
+            salidaKg: suma(camiones.map((c) => n(c.salida))),
             netoKg: neto,
-            promedioKg: n(camion.pesoPromedioKg),
-            estadoCamion: camion.status,
-            estadoPie: camion.pieStatus,
-            observaciones: camion.observaciones,
-            registradaPor: quien(camion.createdById),
-            createdAt: camion.createdAt.toISOString(),
+            promedioKg:
+              camiones.length === 1
+                ? n(camiones[0].pesoPromedioKg)
+                : neto != null && cantidadCamion
+                  ? r2(neto / cantidadCamion)
+                  : null,
+            estadoCamion: mismo(camiones.map((c) => c.status)) ?? camiones[0].status,
+            estadoPie: mismo(camiones.map((c) => c.pieStatus)) ?? camiones[0].pieStatus,
+            observaciones: lista(camiones.map((c) => c.observaciones)),
+            registradaPor: lista(camiones.map((c) => quien(c.createdById))),
+            createdAt: camiones[0].createdAt.toISOString(),
           }
         : null,
       pie: animalesPie.length
         ? {
             bpReference: animalesPie[0].bpReference,
+            bpReferencias: [...new Set(animalesPie.map((a) => a.bpReference))].sort((a, b) => a - b),
             animales: animalesPie.length,
             tiposPesaje: [...new Set(animalesPie.map((a) => a.tipoPesaje))],
             pesoInicialKg: pieInicial,
             pesoActualKg: pieActual,
             mermaRepesajeKg: r2(pieInicial - pieActual),
-            repesajes: camion?.repesajeRonda ?? 0,
+            repesajes: Math.max(0, ...camiones.map((c) => c.repesajeRonda)),
             diferenciaVsNetoKg: neto != null ? r2(pieActual - neto) : null,
             corrales: [...new Set(animalesPie.map((a) => a.corral).filter(Boolean))].sort(),
           }

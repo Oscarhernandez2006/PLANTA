@@ -108,7 +108,10 @@ export class CanalCalienteService {
         ],
       },
       orderBy: [{ reference: 'desc' }],
-      include: { eventos: { include: { canalPiezas: true } } },
+      include: {
+        eventos: { include: { canalPiezas: true } },
+        animales: { where: { deletedAt: null }, select: { ordenSequence: true, pesoTotalKg: true } },
+      },
     });
     const fechas = [...new Set(ordenes.map((o) => o.date.getTime()))].map(
       (t) => new Date(t),
@@ -122,12 +125,24 @@ export class CanalCalienteService {
       let pesadas = 0;
       // Animales con tipo de canal y todas sus piezas pesadas.
       let animalesPesados = 0;
+      let pesoCanalKg = 0;
+      // Rendimiento solo con animales completos (canal vs peso en pie).
+      let canalCompletosKg = 0;
+      let pieCompletosKg = 0;
+      const piePorSeq = new Map(o.animales.map((a) => [a.ordenSequence, Number(a.pesoTotalKg ?? 0)]));
       for (const e of o.eventos) {
         const req = piezasEsperadas(e.canalTipo);
         esperadas += req.length || 1;
         pesadas += e.canalPiezas.length;
+        const kgEvento = e.canalPiezas.reduce((s, p) => s + Number(p.pesoKg), 0);
+        pesoCanalKg += kgEvento;
         if (req.length && req.every((pz) => e.canalPiezas.some((p) => p.pieza === pz))) {
           animalesPesados++;
+          const pie = piePorSeq.get(e.sequence) ?? 0;
+          if (pie > 0) {
+            canalCompletosKg += kgEvento;
+            pieCompletosKg += pie;
+          }
         }
       }
       return {
@@ -142,6 +157,8 @@ export class CanalCalienteService {
         animalesPesados,
         piezasEsperadas: esperadas,
         piezasPesadas: pesadas,
+        pesoCanalKg: Math.round(pesoCanalKg * 100) / 100,
+        rendimiento: pieCompletosKg > 0 ? Math.round((canalCompletosKg / pieCompletosKg) * 1000) / 10 : null,
         cerrada: false,
       };
     });
@@ -156,9 +173,14 @@ export class CanalCalienteService {
           orderBy: { sequence: 'asc' },
           include: { canalPiezas: true },
         },
+        animales: {
+          where: { deletedAt: null },
+          select: { ordenSequence: true, pesoTotalKg: true, tipoAnimal: true },
+        },
       },
     });
     if (!o) throw new NotFoundException('Orden no encontrada.');
+    const piePorSeq = new Map(o.animales.map((a) => [a.ordenSequence, a]));
 
     const bases = await this.consecutivoBases(ctx.plantId, [o.date]);
     const base = bases.get(o.id) ?? 0;
@@ -199,6 +221,8 @@ export class CanalCalienteService {
           conCola: e.conCola,
           canalAnimalTipo: e.canalAnimalTipo,
           expendio: e.expendio,
+          pesoPieKg: piePorSeq.get(e.sequence)?.pesoTotalKg != null ? Number(piePorSeq.get(e.sequence)!.pesoTotalKg) : null,
+          tipoPie: piePorSeq.get(e.sequence)?.tipoAnimal?.trim() || null,
           piezas: esperadas.map((pz) => {
             const reg = byPieza.get(pz);
             return {

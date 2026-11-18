@@ -16,11 +16,13 @@ import {
   RefreshCw,
   Dices,
   Trash2,
+  Search,
+  Check,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input, Label } from '@/components/ui/input';
-import { Table, THead, TBody, TR, TH, TD } from '@/components/ui/table';
 import { Tabs, type TabItem } from '@/components/ui/tabs';
 import { StatValue, StatInput } from '@/components/ui/stat';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
@@ -110,6 +112,14 @@ export function PesoEnCamionPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   // Guía resaltada en la lista (para editar / imprimir / bloquear).
   const [selectedGuia, setSelectedGuia] = useState<PesoCamionGuia | null>(null);
+  // El aviso de "guía seleccionada" se muestra unos segundos y se oculta solo.
+  const [avisoSeleccion, setAvisoSeleccion] = useState(false);
+  useEffect(() => {
+    if (!selectedGuia) return setAvisoSeleccion(false);
+    setAvisoSeleccion(true);
+    const t = window.setTimeout(() => setAvisoSeleccion(false), 4000);
+    return () => window.clearTimeout(t);
+  }, [selectedGuia?.id]);
 
   const abiertas = usePesoCamionAbiertas();
   const createGuia = useCreatePesoCamion();
@@ -441,7 +451,21 @@ export function PesoEnCamionPage() {
     void downloadReciboPdf(data);
   }
 
-  const guiasAbiertas = abiertas.data ?? [];
+  // En orden de llegada: la primera guía registrada arriba.
+  const guiasAbiertas = [...(abiertas.data ?? [])].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.reference - b.reference,
+  );
+  const [busqueda, setBusqueda] = useState('');
+  const q = busqueda.trim().toLowerCase();
+  const guiasVisibles = q
+    ? guiasAbiertas.filter((g) =>
+        [formatReferencia(g.reference), g.referenciaLote, g.placa, g.guia, g.procedencia, g.proveedor, g.cliente, g.conductor]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(q),
+      )
+    : guiasAbiertas;
   const tabs: TabItem[] = [
     { value: 'guias', label: `Guías abiertas (${guiasAbiertas.length})` },
     { value: 'observaciones', label: 'Observaciones' },
@@ -548,30 +572,38 @@ export function PesoEnCamionPage() {
         </div>
       </div>
 
-      {/* Aviso de guardado / edición / error */}
-      {saveError && (
-        <div className="shrink-0 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-          {saveError}
-        </div>
-      )}
-      {notice && (
-        <div className="flex shrink-0 items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">
-          <Save className="size-4" />
-          {notice}
-        </div>
-      )}
-      {editingId && (
-        <div className="shrink-0 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-700">
-          Editando la guía {selectedGuia ? nombreGuia(selectedGuia) : '—'}. Guardá para
-          aplicar los cambios.
-        </div>
-      )}
-      {!editingId && selectedGuia && (
-        <div className="shrink-0 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-medium text-sky-700">
-          Guía {nombreGuia(selectedGuia)} seleccionada. Usá el lápiz para
-          editarla, el botón imprimir, o la papelera para borrarla.
-        </div>
-      )}
+      {/* Avisos flotantes: no empujan el formulario ni la tabla */}
+      <div className="pointer-events-none fixed left-1/2 top-24 z-50 flex w-[30rem] max-w-[calc(100vw-3rem)] -translate-x-1/2 flex-col gap-2">
+        {saveError && (
+          <div className="pointer-events-auto flex items-start gap-3 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-medium text-red-700 shadow-lg animate-in fade-in-0 slide-in-from-top-2">
+            <span className="flex-1">{saveError}</span>
+            <button type="button" onClick={() => setSaveError(null)} aria-label="Cerrar" className="shrink-0 text-red-400 hover:text-red-700">
+              <X className="size-4" />
+            </button>
+          </div>
+        )}
+        {notice && (
+          <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-emerald-200 bg-white px-4 py-3 text-sm font-medium text-emerald-700 shadow-lg animate-in fade-in-0 slide-in-from-top-2">
+            <Save className="size-4 shrink-0" />
+            {notice}
+          </div>
+        )}
+        {editingId && (
+          <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-medium text-amber-700 shadow-lg">
+            <Pencil className="size-4 shrink-0" />
+            Editando la guía {selectedGuia ? nombreGuia(selectedGuia) : '—'}. Guardá para aplicar los cambios.
+          </div>
+        )}
+        {!editingId && selectedGuia && avisoSeleccion && (
+          <div className="pointer-events-auto flex items-center gap-2 rounded-xl border border-border bg-white px-4 py-3 text-sm font-medium text-foreground shadow-lg animate-in fade-in-0 slide-in-from-top-2">
+            <Check className="size-4 shrink-0 text-primary" />
+            <span>
+              Guía {nombreGuia(selectedGuia)} seleccionada. Usá el lápiz para editarla, imprimir o la papelera para
+              borrarla.
+            </span>
+          </div>
+        )}
+      </div>
 
       {/* Datos de la guía */}
       <Card className="shrink-0 p-4">
@@ -731,53 +763,120 @@ export function PesoEnCamionPage() {
         </div>
 
         {tab === 'guias' ? (
-          <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
-            <Table>
-            <THead>
-              <TR>
-                <TH className="w-28 whitespace-nowrap">N.º Registro</TH>
-                <TH className="w-32 whitespace-nowrap">Ref.</TH>
-                <TH>Placa</TH>
-                <TH>Guía</TH>
-                <TH>Procedencia</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {guiasAbiertas.length === 0 ? (
-                <TR className="hover:bg-transparent">
-                  <TD colSpan={5} className="py-16">
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="flex shrink-0 items-center gap-3 px-4 py-3">
+              <div className="relative w-full max-w-md">
+                <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={busqueda}
+                  onChange={(e) => setBusqueda(e.target.value)}
+                  placeholder="Buscar placa, guía, proveedor, cliente…"
+                  className="h-10 pl-9"
+                />
+              </div>
+              <span className="ml-auto text-sm text-muted-foreground">
+                {q ? `${guiasVisibles.length} de ${guiasAbiertas.length}` : guiasAbiertas.length} guía
+                {guiasAbiertas.length === 1 ? '' : 's'} abierta{guiasAbiertas.length === 1 ? '' : 's'}
+              </span>
+            </div>
+          <div className="scrollbar-app min-h-0 flex-1 overflow-auto border-t border-border">
+            <table className="w-full text-sm">
+            <thead className="sticky top-0 z-10 bg-muted/80 backdrop-blur">
+              <tr className="border-b border-border text-left text-[0.8rem] font-semibold text-foreground/70 [&>th]:h-10 [&>th]:px-3 [&>th]:whitespace-nowrap">
+                <th className="w-10" />
+                <th>Registro</th>
+                <th>Placa</th>
+                <th>Procedencia / proveedor</th>
+                <th>Cliente</th>
+                <th className="text-right">Animales</th>
+                <th className="text-right">Entrada</th>
+                <th className="text-right">Salida</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {guiasVisibles.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-16">
                     <div className="flex flex-col items-center gap-2 text-center text-muted-foreground">
                       <Inbox className="size-8" />
                       <p className="text-sm font-medium">
-                        No hay guías abiertas
+                        {q ? 'Ninguna guía coincide con la búsqueda' : 'No hay guías abiertas'}
                       </p>
-                      <p className="text-sm">
-                        Guardá una guía y aparecerá acá para seleccionarla.
-                      </p>
+                      {!q && <p className="text-sm">Guardá una guía y aparecerá acá para seleccionarla.</p>}
                     </div>
-                  </TD>
-                </TR>
+                  </td>
+                </tr>
               ) : (
-                guiasAbiertas.map((g) => (
-                  <TR
-                    key={g.id}
-                    onClick={() => toggleSelect(g)}
-                    className={cn(
-                      'cursor-pointer',
-                      g.id === selectedGuia?.id &&
-                        'bg-sky-100 hover:bg-sky-100',
-                    )}
-                  >
-                    <TD className="whitespace-nowrap font-medium tabular-nums">{formatReferencia(g.reference)}</TD>
-                    <TD className="whitespace-nowrap font-medium">{g.referenciaLote ?? '—'}</TD>
-                    <TD>{g.placa ?? '—'}</TD>
-                    <TD>{g.guia ?? '—'}</TD>
-                    <TD>{g.procedencia ?? '—'}</TD>
-                  </TR>
-                ))
+                guiasVisibles.map((g) => {
+                  const sel = g.id === selectedGuia?.id;
+                  const falta = g.salida == null;
+                  return (
+                    <tr
+                      key={g.id}
+                      onClick={() => toggleSelect(g)}
+                      className={cn(
+                        'cursor-pointer border-b border-border transition-colors even:bg-muted/25 [&>td]:px-3 [&>td]:py-2.5',
+                        sel ? 'bg-primary/10 even:bg-primary/10 shadow-[inset_4px_0_0_var(--color-primary)]' : 'hover:bg-muted/60',
+                      )}
+                    >
+                      <td>
+                        <span
+                          className={cn(
+                            'flex size-6 items-center justify-center rounded-full border-2',
+                            sel ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+                          )}
+                        >
+                          {sel && <Check className="size-3.5" strokeWidth={3} />}
+                        </span>
+                      </td>
+                      <td className="whitespace-nowrap">
+                        <p className="font-semibold tabular-nums">{formatReferencia(g.reference)}</p>
+                        <p className="text-xs text-muted-foreground">{g.referenciaLote ?? 'Sin referencia'}</p>
+                      </td>
+                      <td>
+                        {g.placa ? (
+                          <span className="inline-block rounded-md border-2 border-[#1a1a1a] bg-[#FFD100] px-2 py-0.5 font-mono text-[0.95rem] font-bold tracking-wider text-[#1a1a1a] shadow-sm">
+                            {g.placa}
+                          </span>
+                        ) : (
+                          '—'
+                        )}
+                        {g.guia && <p className="mt-0.5 text-xs text-muted-foreground">Guía {g.guia}</p>}
+                      </td>
+                      <td className="max-w-72">
+                        <p className="truncate font-medium">{g.procedencia ?? '—'}</p>
+                        <p className="truncate text-xs text-muted-foreground">{g.proveedor ?? 'Sin proveedor'}</p>
+                      </td>
+                      <td className="max-w-56">
+                        <p className="truncate">{g.cliente ?? '—'}</p>
+                        {g.conductor && <p className="truncate text-xs text-muted-foreground">{g.conductor}</p>}
+                      </td>
+                      <td className="text-right font-semibold tabular-nums">{g.cantidad ?? '—'}</td>
+                      <td className="whitespace-nowrap text-right tabular-nums">
+                        {g.entrada != null ? `${kg(g.entrada)} kg` : '—'}
+                      </td>
+                      <td className="whitespace-nowrap text-right tabular-nums">
+                        {g.salida != null ? `${kg(g.salida)} kg` : <span className="text-muted-foreground">—</span>}
+                      </td>
+                      <td className="whitespace-nowrap">
+                        <span
+                          className={cn(
+                            'inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold',
+                            falta ? 'bg-amber-100 text-amber-900' : 'bg-primary/10 text-primary',
+                          )}
+                        >
+                          <span className={cn('size-1.5 rounded-full', falta ? 'bg-amber-500' : 'bg-primary')} />
+                          {falta ? 'Falta salida' : 'Listo para cerrar'}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
-            </TBody>
-            </Table>
+            </tbody>
+            </table>
+          </div>
           </div>
         ) : (
           <div className="scrollbar-app min-h-0 flex-1 overflow-auto p-4">

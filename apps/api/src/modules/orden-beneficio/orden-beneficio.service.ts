@@ -228,12 +228,11 @@ export class OrdenBeneficioService {
     return list;
   }
 
-  /** Próximo consecutivo de referencia para la planta en la fecha dada. */
-  async nextReference(ctx: AuthContext, dateStr?: string) {
-    const { date } = dateOnly(dateStr);
+  /** Próximo consecutivo de OB de la planta (global, no se reinicia por día). */
+  async nextReference(ctx: AuthContext, _dateStr?: string) {
     const agg = await this.prisma.ordenBeneficio.aggregate({
       _max: { reference: true },
-      where: { plantId: ctx.plantId, date, deletedAt: null },
+      where: { plantId: ctx.plantId },
     });
     return { next: (agg._max.reference ?? 0) + 1 };
   }
@@ -284,8 +283,8 @@ export class OrdenBeneficioService {
     if (!guia) throw new BadRequestException('Guía requerida.');
 
     return this.prisma.$transaction(async (tx) => {
-      // Serializa la creación de lotes por planta y día (referencia y cupos).
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:${str}:ob`}))`;
+      // Serializa la creación de lotes por planta (consecutivo global y cupos).
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${ctx.plantId}:ob`}))`;
 
       // La guía debe pertenecer al cliente en Peso en Camión.
       const camion = await tx.pesoCamion.findFirst({
@@ -353,9 +352,10 @@ export class OrdenBeneficioService {
         );
       }
 
+      // Incluye borradas: el número de una OB borrada no se reutiliza.
       const agg = await tx.ordenBeneficio.aggregate({
         _max: { reference: true },
-        where: { plantId: ctx.plantId, date, deletedAt: null },
+        where: { plantId: ctx.plantId },
       });
       const primera = (agg._max.reference ?? 0) + 1;
       const refPie = new Map(animalesPie.map((a) => [a.id, a.reference]));

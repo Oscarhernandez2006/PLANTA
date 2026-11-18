@@ -5,7 +5,8 @@ import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { api } from '@/lib/api';
 import { printRaw } from '@/lib/device';
 import { cn } from '@/lib/utils';
-import { formatOP } from '../registrar/orden-produccion-api';
+import { formatOP, registrarReimpresion } from '../registrar/orden-produccion-api';
+import { useDevice } from '../device/device-context';
 import { EtiquetaDespostePreview } from './EtiquetaDespostePreview';
 import {
   generarEtiquetaDesposteZpl,
@@ -71,6 +72,7 @@ export function ReimpresionDesposte() {
   const [buscando, setBuscando] = useState(false);
   const [imprimiendo, setImprimiendo] = useState(false);
   const impresora = useImpresoraEtiquetas();
+  const equipo = useDevice();
   const keyboard = useKeyboard();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -110,6 +112,7 @@ export function ReimpresionDesposte() {
     try {
       const logo = await obtenerLogoEtiquetaZpl();
       const resultado = await printRaw(impresora, generarEtiquetaDesposteZpl(datosEtiqueta(etiqueta), logo));
+      if (resultado.ok) registrarReimpresion(etiqueta.codigo ?? codigo.trim(), equipo.hostname);
       setMensaje(
         resultado.ok
           ? { ok: true, texto: 'Etiqueta reimpresa.' }

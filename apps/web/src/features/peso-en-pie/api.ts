@@ -130,7 +130,12 @@ export function useCreatePesoEnPie() {
 export function useRegistrarPromediado() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { pesoCamionId: string; corral: string; tipoAnimal: string }) =>
+    mutationFn: async (input: {
+      pesoCamionId: string;
+      corral: string;
+      tipoAnimal: string;
+      grupos?: { tipoAnimal: string; cantidad: number }[];
+    }) =>
       (
         await api.post<{
           creados: number;

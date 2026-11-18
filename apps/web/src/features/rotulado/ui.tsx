@@ -32,7 +32,7 @@ export function useImpresoraEtiquetas() {
   return impresora;
 }
 
-/** Caja con la etiqueta sobre el borde (estilo FrigoAPP). */
+/** Caja con la etiqueta sobre el borde. */
 export function FieldBox({
   label,
   children,
@@ -45,12 +45,12 @@ export function FieldBox({
   return (
     <div
       className={cn(
-        'relative rounded-sm border-2 border-border bg-card px-3 pb-1 pt-1',
+        'relative rounded-lg border border-input bg-card px-3 pb-1 pt-2 transition-colors focus-within:border-primary',
         className,
       )}
     >
-      <span className="absolute -top-3 left-3 bg-background px-1.5 text-sm font-medium">
-        {label}
+      <span className="absolute -top-2 left-2.5 max-w-[90%] truncate bg-card px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+        {typeof label === 'string' ? label.replace(/:\s*$/, '') : label}
       </span>
       {children}
     </div>

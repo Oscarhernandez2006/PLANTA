@@ -81,6 +81,9 @@ export interface CanalLote {
   animalesPesados: number;
   piezasEsperadas: number;
   piezasPesadas: number;
+  pesoCanalKg?: number;
+  /** % canal / pie de los animales completos. */
+  rendimiento?: number | null;
 }
 
 export interface CanalPiezaEstado {
@@ -106,6 +109,8 @@ export interface CanalAnimal {
   conCola: boolean | null;
   canalAnimalTipo: CanalAnimalTipo | null;
   expendio: string | null;
+  pesoPieKg?: number | null;
+  tipoPie?: string | null;
   piezas: CanalPiezaEstado[];
 }
 

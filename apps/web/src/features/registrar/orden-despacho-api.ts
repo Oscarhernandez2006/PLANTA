@@ -10,6 +10,10 @@ export interface OrdenDespacho {
   processDate: string;
   status: OrdenDespachoStatus;
   cliente: { id: string; nit: string | null; concepto: string };
+  piezas?: number;
+  calienteKg?: number;
+  frioKg?: number;
+  mermaPct?: number | null;
 }
 
 export interface ClienteOpcion {

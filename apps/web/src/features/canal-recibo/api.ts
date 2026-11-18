@@ -16,6 +16,9 @@ export interface CanalReceipt {
   processDate: string;
   status: DispatchOrderStatus;
   client: Client;
+  /** Canales recibidas y kilos (solo en la lista). */
+  piezas?: number;
+  kg?: number;
 }
 
 export interface Paginated<T> {
@@ -91,9 +94,9 @@ export interface CanalReceiptItem {
 export interface CreateCanalReceiptItemInput {
   cava: number;
   pesoKg: number;
-  guia?: string;
-  lote?: string;
-  identificacion?: string;
+  guia: string;
+  lote: string;
+  identificacion: string;
 }
 
 export function useCanalReceiptItems(orderId: string | null) {
@@ -116,18 +119,40 @@ export function useCreateCanalReceiptItem(orderId: string | null) {
           input,
         )
       ).data,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['canal-receipts', 'items', orderId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['canal-receipts', 'items', orderId] });
+      qc.invalidateQueries({ queryKey: ['canal-receipts', 'list'] });
+    },
   });
 }
 
+/** Eliminar una canal recibida: lo autoriza un supervisor con su PIN. */
 export function useDeleteCanalReceiptItem(orderId: string | null) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (itemId: string) =>
-      (await api.delete<{ ok: boolean }>(`/canal-receipts/items/${itemId}`))
+    mutationFn: async ({ itemId, pin }: { itemId: string; pin: string }) =>
+      (await api.delete<{ ok: boolean }>(`/canal-receipts/items/${itemId}`, { data: { pin } }))
         .data,
-    onSuccess: () =>
-      qc.invalidateQueries({ queryKey: ['canal-receipts', 'items', orderId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['canal-receipts', 'items', orderId] });
+      qc.invalidateQueries({ queryKey: ['canal-receipts', 'list'] });
+    },
   });
+}
+
+/** Cierra la orden de recibo con el PIN de un supervisor. */
+export function useCerrarCanalReceipt() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, pin }: { id: string; pin: string }) =>
+      (await api.patch<{ ok: boolean }>(`/canal-receipts/${id}/cerrar`, { pin })).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['canal-receipts'] }),
+  });
+}
+
+/** Deja constancia de la reimpresión de un rótulo; si falla no interrumpe la impresión. */
+export function registrarReimpresionRecibo(itemId: string, estacion?: string | null) {
+  void api
+    .post(`/canal-receipts/items/${itemId}/reimpresion`, { estacion: estacion ?? undefined })
+    .catch(() => undefined);
 }

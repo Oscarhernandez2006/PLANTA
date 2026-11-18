@@ -32,12 +32,14 @@ export interface PielLote {
   animalCount: number;
   caidos: number;
   pesados: number;
+  pesoTotalKg?: number;
 }
 
 export interface PielAnimal {
   eventoId: string;
   sequence: number;
   consecutivo: number;
+  tipoAnimal?: string | null;
   stunnedAt: string;
   pesado: boolean;
   pesoKg: number | null;

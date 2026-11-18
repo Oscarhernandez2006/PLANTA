@@ -16,12 +16,14 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
   AsignarTiendaDto,
   CerrarCanastillaDto,
+  CerrarOrdenDto,
   CreateProductionOrderDto,
   EstadoRotuladoDto,
   PresenciaRotuladoDto,
   GuardarEtiquetaDto,
   QueryEtiquetasDto,
   QueryProductionOrderDto,
+  RegistrarReimpresionDto,
   ReservarEtiquetaDto,
 } from './production-order.dto';
 import { ProductionOrderService } from './production-order.service';
@@ -164,10 +166,19 @@ export class ProductionOrderController {
     return this.service.findAll(user, query);
   }
 
-  /** Cierra la orden (la web pide antes el código de autorización de un autorizador). */
+  /** Cierra la orden con el PIN de un supervisor (queda registrado quién y cuándo). */
   @Patch(':id/cerrar')
-  cerrar(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.cerrar(user, id);
+  cerrar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CerrarOrdenDto,
+  ) {
+    return this.service.cerrar(user, id, dto.pin);
+  }
+
+  @Post('reimpresiones')
+  registrarReimpresion(@CurrentUser() user: AuthContext, @Body() dto: RegistrarReimpresionDto) {
+    return this.service.registrarReimpresion(user, dto);
   }
 
   @Get(':id')

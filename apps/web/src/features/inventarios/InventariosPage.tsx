@@ -8,7 +8,9 @@ import { formatDC } from '../registrar/despacho-canales-api';
 import { BodegasTab } from './BodegasTab';
 import { ClientesView } from './ClientesView';
 import { FiltroSelect } from './FiltroSelect';
+import { TableroInventario } from './TableroInventario';
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
+import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
 import {
   useCava,
   useCavaSubproducto,
@@ -20,7 +22,7 @@ import {
 } from './api';
 
 type Tab = `cava-${string}` | `sub-${string}` | 'bodegas';
-type Vista = 'clientes' | 'cava';
+type Vista = 'tablero' | 'clientes' | 'cava';
 
 function hora(iso: string | null) {
   if (!iso) return '—';
@@ -62,25 +64,28 @@ export function InventariosPage() {
     { key: 'bodegas', label: 'BODEGAS' },
   ];
   const [tab, setTab] = useState<Tab>(tabs[0].key);
-  const [vista, setVista] = useState<Vista>('clientes');
+  const [vista, setVista] = useState<Vista>('tablero');
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-2">
-      <div className="flex flex-wrap items-center gap-2 rounded-sm border-2 border-border bg-card p-3">
-        <Warehouse className="size-8 text-foreground" />
+      <div className="flex flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+        <Warehouse className="size-8 text-primary" />
         <div>
           <h1 className="text-lg font-bold">Inventarios</h1>
           <p className="text-sm text-muted-foreground">
-            {vista === 'clientes'
-              ? 'Existencias por cliente, bodega y orden.'
-              : 'Existencias por cava de canales y subproductos, y por bodega de cada cliente.'}
+            {vista === 'tablero'
+              ? 'Resumen de planta: ocupación de cavas, existencias por cliente y alertas.'
+              : vista === 'clientes'
+                ? 'Existencias por cliente, bodega y orden.'
+                : 'Existencias por cava de canales y subproductos, y por bodega de cada cliente.'}
           </p>
         </div>
-        <div role="radiogroup" className="ml-auto flex rounded-full border-2 border-border bg-muted/40 p-1">
+        <div role="radiogroup" className="ml-auto flex items-center gap-1 rounded-lg bg-muted p-1">
           {(
             [
-              { key: 'clientes', label: 'Vista por clientes' },
-              { key: 'cava', label: 'Vista por cava' },
+              { key: 'tablero', label: 'Tablero' },
+              { key: 'clientes', label: 'Por clientes' },
+              { key: 'cava', label: 'Por cava' },
             ] as const
           ).map((v) => (
             <button
@@ -89,9 +94,9 @@ export function InventariosPage() {
               aria-checked={vista === v.key}
               onClick={() => setVista(v.key)}
               className={cn(
-                'rounded-full px-4 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors',
+                'flex h-10 items-center rounded-md px-4 text-sm font-semibold transition-colors',
                 vista === v.key
-                  ? 'bg-emerald-600 text-white shadow'
+                  ? 'bg-card text-primary shadow-sm'
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
@@ -101,7 +106,16 @@ export function InventariosPage() {
         </div>
       </div>
 
-      {vista === 'clientes' ? (
+      {vista === 'tablero' ? (
+        <div className="min-h-0 flex-1">
+          <TableroInventario
+            onAbrirCava={(tipo, cava) => {
+              setTab(tipo === 'canal' ? `cava-${cava}` : `sub-${cava}`);
+              setVista('cava');
+            }}
+          />
+        </div>
+      ) : vista === 'clientes' ? (
         <div className="min-h-0 flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
           <ClientesView />
         </div>
@@ -154,6 +168,7 @@ function CavaTab({ cava }: { cava: string }) {
   const [pieza, setPieza] = useState('');
   const [estado, setEstado] = useState('');
   const [trazaId, setTrazaId] = useState<string | null>(null);
+  const [reciboId, setReciboId] = useState<string | null>(null);
   const rows = data ?? [];
 
   const clientes = useMemo(
@@ -232,7 +247,35 @@ function CavaTab({ cava }: { cava: string }) {
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
-        {filtradas.map((r: CavaAnimalRow) => (
+        {filtradas.map((r: CavaAnimalRow) => r.recibo ? (
+          <tr
+            key={r.piezaId}
+            onClick={() => setReciboId(r.piezaId)}
+            title="Ver trazabilidad del recibo"
+            className="cursor-pointer hover:bg-muted/50 [&>td]:px-3 [&>td]:py-2"
+          >
+            <td className="tabular-nums">RC{r.recibo.receiptNumber}</td>
+            <td className="tabular-nums">—</td>
+            <td className="tabular-nums">—</td>
+            <td className="font-mono tabular-nums">RC{r.recibo.receiptNumber}-{String(r.recibo.codigo).padStart(2, '0')}</td>
+            <td className="min-w-48 whitespace-normal">{r.cliente}</td>
+            <td className="tabular-nums">{r.date}</td>
+            <td>
+              <span className="rounded-sm bg-violet-100 px-1.5 py-0.5 text-[10px] font-bold text-violet-800">RECIBIDA</span>
+            </td>
+            <td className="text-xs font-semibold uppercase text-red-600">canal</td>
+            <td>
+              <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>
+            </td>
+            <td className="whitespace-normal">{r.recibo.guia ? `Guía ${r.recibo.guia}` : '—'}</td>
+            <td className="min-w-40 whitespace-normal uppercase">
+              {[r.recibo.lote && `Lote ${r.recibo.lote}`, r.recibo.identificacion && `Ident. ${r.recibo.identificacion}`]
+                .filter(Boolean)
+                .join(' · ') || '—'}
+            </td>
+            <td className="text-right font-semibold tabular-nums">{r.pesoKg.toFixed(2)}</td>
+          </tr>
+        ) : (
           <tr
             key={r.piezaId}
             onClick={() => setTrazaId(r.piezaId)}
@@ -295,6 +338,7 @@ function CavaTab({ cava }: { cava: string }) {
     </div>
       )}
       {trazaId && <TrazabilidadCanalDialog piezaId={trazaId} onClose={() => setTrazaId(null)} />}
+      {reciboId && <TrazabilidadReciboDialog tipo="canal" id={reciboId} onClose={() => setReciboId(null)} />}
     </div>
   );
 }

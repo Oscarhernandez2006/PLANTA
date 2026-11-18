@@ -91,6 +91,25 @@ export class CerrarCanastillaDto {
   taraKg?: number;
 }
 
+export class CerrarOrdenDto {
+  /** PIN de cualquier usuario activo con rol supervisor. */
+  @IsString()
+  @Matches(/^\d{4,12}$/, { message: 'El PIN debe tener entre 4 y 12 dígitos.' })
+  pin!: string;
+}
+
+export class RegistrarReimpresionDto {
+  /** Código de barras de la pieza o canastilla reimpresa. */
+  @IsString()
+  @MaxLength(60)
+  codigo!: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(80)
+  estacion?: string;
+}
+
 const texto = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().toUpperCase() : value;
 

@@ -1,22 +1,28 @@
 import { useRef, useState } from 'react';
 import { isAxiosError } from 'axios';
 import {
-  ChevronDown,
-  ChevronUp,
+  ArrowLeft,
+  CheckCircle2,
+  ChevronRight,
   Gauge,
   Inbox,
+  LayoutGrid,
+  List,
   LoaderCircle,
   Lock,
   RefreshCw,
   Save,
+  ScanBarcode,
+  Search,
   Trash2,
+  TriangleAlert,
   X,
 } from 'lucide-react';
-import { CanalFriaIcon } from '@/components/icons/CanalFriaIcon';
 import { useBascula } from '@/components/bascula/Bascula';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
-import { cn, soloDecimal } from '@/lib/utils';
+import { Input } from '@/components/ui/input';
+import { cn, formatFechaDia, soloDecimal } from '@/lib/utils';
 import { formatOB } from '../registrar/orden-beneficio-api';
 import {
   useAgregarItemDespacho,
@@ -32,14 +38,6 @@ import {
   useOrdenesDespachoActivas,
   type OrdenDespacho,
 } from '../registrar/orden-despacho-api';
-
-type Tab = 'ordenes' | 'registro' | 'totales';
-
-const TABS: { key: Tab; label: string }[] = [
-  { key: 'ordenes', label: 'Órdenes de despacho' },
-  { key: 'registro', label: 'Registro' },
-  { key: 'totales', label: 'Totales' },
-];
 
 export function FieldBox({
   label,
@@ -365,10 +363,9 @@ export function TotalesTab({ items }: { items: ItemDespacho[] }) {
 }
 
 export function CanalFriaPage() {
-  const [tab, setTab] = useState<Tab>('ordenes');
+  const [tab, setTab] = useState<VistaFria>('ordenes');
   const [orden, setOrden] = useState<OrdenDespacho | null>(null);
   const ordenes = useOrdenesDespachoActivas();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const barcodeRef = useRef<HTMLInputElement>(null);
   const [barcode, setBarcode] = useState('');
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
@@ -381,12 +378,21 @@ export function CanalFriaPage() {
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [seleccionadoId, setSeleccionadoId] = useState<string | null>(null);
   const seleccionado = items.find((i) => i.itemId === seleccionadoId) ?? null;
-  const [scanError, setScanError] = useState<string | null>(null);
+  const [ultimo, setUltimo] = useState<ItemDespacho | null>(null);
   const buscando = agregar.isPending;
   const pesoKg = Number(peso.replace(',', '.'));
   const hayPeso = Number.isFinite(pesoKg) && pesoKg > 0;
   const sinPesar = items.filter((i) => i.despachoKg === null).length;
-  const totalFrio = items.reduce((s, i) => s + (i.despachoKg ?? 0), 0);
+  const totales = resumen(items);
+
+  // Aviso flotante (éxito o error); uno nuevo reinicia el temporizador.
+  const [notice, setNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const noticeTimer = useRef<number | undefined>(undefined);
+  function flash(type: 'success' | 'error', text: string) {
+    setNotice({ type, text });
+    window.clearTimeout(noticeTimer.current);
+    noticeTimer.current = window.setTimeout(() => setNotice(null), 4000);
+  }
 
   const mensajeApi = (err: unknown, porDefecto: string) => {
     const m = isAxiosError(err) ? err.response?.data?.message : null;
@@ -396,224 +402,214 @@ export function CanalFriaPage() {
   function seleccionar(item: ItemDespacho | null) {
     setSeleccionadoId(item?.itemId ?? null);
     setPeso('0.0');
-    setScanError(null);
   }
 
   /** Lee la báscula y deja listo el código de barras para pistolear. */
   async function tomarPeso() {
-    setScanError(null);
     await leerBascula();
-    barcodeRef.current?.focus();
+    if (!seleccionado) barcodeRef.current?.focus();
   }
 
   /** Corrige el peso en frío de la fila seleccionada y pasa a la siguiente sin pesar. */
   async function guardarPeso() {
     if (!seleccionado || pesar.isPending) return;
     if (!hayPeso) {
-      setScanError('Toma un peso mayor a 0 antes de guardar.');
+      flash('error', 'Toma un peso mayor a 0 antes de guardar la corrección.');
       return;
     }
-    setScanError(null);
     try {
       await pesar.mutateAsync({ itemId: seleccionado.itemId, despachoKg: pesoKg });
+      flash('success', `Peso del gancho ${seleccionado.turno ?? seleccionado.sequence} corregido: ${num(pesoKg)} kg.`);
       const siguiente = items.find(
         (i) => i.itemId !== seleccionado.itemId && i.despachoKg === null,
       );
       seleccionar(siguiente ?? null);
     } catch (err) {
-      setScanError(mensajeApi(err, 'No se pudo guardar el peso.'));
+      flash('error', mensajeApi(err, 'No se pudo guardar el peso.'));
     }
   }
 
-  /** Pistolea la canal y la guarda en la orden con el peso en frío que marca la báscula. */
+  /** Pistolea la canal: lee la báscula, muestra el peso y la inserta en la orden con ese peso en frío. */
   async function escanear() {
     const codigo = barcode.trim();
-    if (!codigo || !orden || buscando) return;
-    if (!hayPeso) {
-      setScanError('Primero toma el peso de la báscula y luego pistolea la canal.');
+    if (!codigo || !orden || buscando || leyendo) return;
+    // Si la báscula no responde, se usa el peso digitado a mano (si hay).
+    const leido = await leerBascula();
+    const kg = leido != null && leido > 0 ? leido : hayPeso ? pesoKg : null;
+    if (kg == null) {
+      flash('error', 'No se pudo leer un peso de la báscula. Revisa la báscula o digita el peso y vuelve a pistolear.');
+      barcodeRef.current?.focus();
       return;
     }
-    setScanError(null);
     try {
-      await agregar.mutateAsync({ barcode: codigo, despachoKg: pesoKg });
+      const item = await agregar.mutateAsync({ barcode: codigo, despachoKg: kg });
       setBarcode('');
-      // Cada canal lleva su propio pesaje: el peso se limpia para no repetirlo en la siguiente.
-      setPeso('0.0');
       setSeleccionadoId(null);
-      setTab('registro');
+      setUltimo(item);
+      flash('success', `Gancho ${item.turno ?? item.sequence} (${PIEZA_LABEL[item.pieza]}) agregado: ${num(item.pesoKg)} → ${num(kg)} kg.`);
     } catch (err) {
-      setScanError(mensajeApi(err, 'No se pudo despachar la canal.'));
+      flash('error', mensajeApi(err, 'No se pudo despachar la canal.'));
+    } finally {
+      barcodeRef.current?.focus();
     }
   }
 
-  function quitarItem(itemId: string) {
-    setScanError(null);
-    quitar.mutate(itemId, {
-      onError: (err) => setScanError(mensajeApi(err, 'No se pudo quitar la canal.')),
+  function quitarItem(item: ItemDespacho) {
+    quitar.mutate(item.itemId, {
+      onSuccess: () => {
+        seleccionar(null);
+        flash('success', `Gancho ${item.turno ?? item.sequence} quitado de la orden: vuelve a ${item.cavaOrigen}.`);
+      },
+      onError: (err) => flash('error', mensajeApi(err, 'No se pudo quitar la canal.')),
     });
   }
 
   function elegirOrden(o: OrdenDespacho | null) {
     setOrden(o);
     setSeleccionadoId(null);
-    setScanError(null);
+    setUltimo(null);
   }
 
   function cerrarOrden() {
     if (!orden) return;
+    const od = formatOD(orden.odNumber);
     cerrar.mutate(orden.id, {
       onSuccess: () => {
         setConfirmarCierre(false);
         elegirOrden(null);
         setPeso('0.0');
         setTab('ordenes');
+        flash('success', `Orden ${od} cerrada.`);
       },
       onError: (err) => {
         setConfirmarCierre(false);
-        setScanError(mensajeApi(err, 'No se pudo cerrar la orden.'));
+        flash('error', mensajeApi(err, 'No se pudo cerrar la orden.'));
       },
     });
   }
 
-  function scrollList(dir: 1 | -1) {
-    scrollRef.current?.scrollBy({ top: dir * 220, behavior: 'smooth' });
-  }
-
   return (
-    <div className="mx-auto flex h-[calc(100vh-2rem)] max-w-5xl flex-col gap-2 p-2">
-      {/* Encabezado: icono, orden y cliente */}
-      <div className="flex items-stretch gap-2">
-        <div className="flex items-center justify-center rounded-sm border-2 border-border bg-card p-2">
-          <CanalFriaIcon className="size-10 text-foreground" />
-        </div>
-        <FieldBox label="OD No.:" className="min-w-40">
-          <div className="flex h-9 items-center text-xl font-bold tabular-nums text-red-600">
-            {orden ? formatOD(orden.odNumber) : '—'}
-          </div>
-        </FieldBox>
-        <FieldBox label="Cliente:" className="flex-1">
-          <div className="flex h-9 items-center truncate text-xl font-bold uppercase">
-            {orden?.cliente.concepto ?? '—'}
-          </div>
-        </FieldBox>
-      </div>
-
-      {/* Pestañas */}
-      <div className="flex overflow-hidden rounded-sm border-2 border-border">
-        {TABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
+    <div className="flex h-full min-h-0 flex-col gap-3">
+      {/* Avisos flotantes: no empujan el contenido */}
+      <div className="pointer-events-none fixed left-1/2 top-24 z-50 flex w-[30rem] max-w-[calc(100vw-3rem)] -translate-x-1/2 flex-col gap-2">
+        {(notice || error) && (
+          <div
             className={cn(
-              'flex-1 border-r-2 border-border px-3 py-3 text-center text-sm font-semibold uppercase tracking-wide transition-colors last:border-r-0',
-              tab === t.key
-                ? 'bg-background text-foreground shadow-[inset_0_-3px_0_0] shadow-emerald-600'
-                : 'bg-muted/40 text-muted-foreground hover:bg-muted',
+              'pointer-events-auto flex items-center gap-2 rounded-xl border bg-white px-4 py-3 text-sm font-medium shadow-lg animate-in fade-in-0 slide-in-from-top-2',
+              notice?.type === 'success' ? 'border-emerald-200 text-emerald-700' : 'border-red-200 text-red-700',
             )}
           >
-            {t.label}
-          </button>
-        ))}
+            {notice?.type === 'success' ? <CheckCircle2 className="size-4 shrink-0" /> : <TriangleAlert className="size-4 shrink-0" />}
+            <span className="flex-1">{notice?.text ?? error}</span>
+            {notice && (
+              <button type="button" onClick={() => setNotice(null)} aria-label="Cerrar" className="shrink-0 opacity-60 hover:opacity-100">
+                <X className="size-4" />
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
-      {/* Contenido */}
-      <div
-        ref={scrollRef}
-        className="flex-1 overflow-auto rounded-sm border-2 border-border bg-card"
-      >
-        {tab === 'ordenes' &&
-          (ordenes.isLoading ? (
-            <div className="flex h-full items-center justify-center text-muted-foreground">
-              <LoaderCircle className="size-6 animate-spin" />
+      {tab === 'ordenes' ? (
+        <OrdenesFria
+          loading={ordenes.isLoading}
+          ordenes={ordenes.data ?? []}
+          selectedId={orden?.id ?? null}
+          refrescando={ordenes.isFetching}
+          onRefresh={() => void ordenes.refetch()}
+          onSelect={(o) => {
+            elegirOrden(o);
+            setTab('despacho');
+          }}
+        />
+      ) : (
+        <>
+          {/* Encabezado de la orden abierta */}
+          <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
+            <Button variant="outline" className="h-12 px-4 text-base" onClick={() => setTab('ordenes')}>
+              <ArrowLeft className="size-5" />
+              Órdenes
+            </Button>
+            <span className="rounded-lg bg-primary/10 px-3 py-1.5 text-xl font-bold tabular-nums text-primary">
+              {orden ? formatOD(orden.odNumber) : '—'}
+            </span>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-lg font-semibold uppercase">{orden?.cliente.concepto ?? '—'}</div>
+              <div className="text-sm text-muted-foreground">
+                <b className="tabular-nums text-foreground">{totales.piezas}</b>{' '}
+                {totales.piezas === 1 ? 'canal' : 'canales'} · <b className="tabular-nums text-foreground">{num(totales.frio)}</b> kg frío
+                {totales.pesadas > 0 && (
+                  <>
+                    {' · Merma '}
+                    <b className={cn('tabular-nums', totales.pct > MERMA_MAX ? 'text-amber-700' : 'text-foreground')}>
+                      {num(totales.pct, 2)} %
+                    </b>
+                  </>
+                )}
+              </div>
             </div>
-          ) : !ordenes.data?.length ? (
-            <Mensaje text="No hay órdenes de despacho activas. Créalas en Administrativo → Orden de Despacho." />
-          ) : (
-            <ul className="flex flex-col gap-2 p-2">
-              {ordenes.data.map((o) => (
-                <li key={o.id}>
-                  <button
-                    onClick={() => {
-                      elegirOrden(o);
-                      setTab('registro');
-                    }}
-                    className={cn(
-                      'w-full rounded-sm border-2 px-4 py-4 text-left text-lg font-medium transition-colors',
-                      orden?.id === o.id
-                        ? 'border-emerald-500 bg-emerald-50'
-                        : 'border-border bg-card hover:bg-muted/50',
-                    )}
-                  >
-                    <span className="font-bold tabular-nums">{formatOD(o.odNumber)}</span>
-                    <span className="mx-2 text-muted-foreground">|</span>
-                    {o.cliente.nit ? `${o.cliente.nit} - ` : ''}
-                    {o.cliente.concepto} ({TIPO_ORDEN_DESPACHO})
-                  </button>
-                </li>
+            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+              {(['despacho', 'totales'] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTab(t)}
+                  className={cn(
+                    'flex h-10 items-center rounded-md px-4 text-sm font-semibold transition-colors',
+                    tab === t ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {t === 'despacho' ? 'Despacho' : 'Totales'}
+                </button>
               ))}
-            </ul>
-          ))}
-        {tab === 'registro' &&
-          (!orden ? (
-            <Mensaje text="Selecciona una orden en la pestaña ÓRDENES DE DESPACHO." />
-          ) : (
-            <RegistroTab
-              items={items}
-              seleccionadoId={seleccionadoId}
-              onSeleccionar={seleccionar}
-              onQuitar={quitarItem}
-              quitando={quitar.isPending}
-            />
-          ))}
-        {tab === 'totales' &&
-          (!orden ? (
-            <Mensaje text="Selecciona una orden en la pestaña ÓRDENES DE DESPACHO." />
-          ) : (
-            <TotalesTab items={items} />
-          ))}
-      </div>
-
-      {/* Botones de desplazamiento */}
-      <div className="grid grid-cols-2 gap-2">
-        <button
-          onClick={() => scrollList(-1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Subir"
-        >
-          <ChevronUp className="size-7" />
-        </button>
-        <button
-          onClick={() => scrollList(1)}
-          className="flex items-center justify-center rounded-sm border-2 border-border bg-card py-3 hover:bg-muted"
-          aria-label="Bajar"
-        >
-          <ChevronDown className="size-7" />
-        </button>
-      </div>
-
-      {/* Totales: cierre de la orden */}
-      {tab === 'totales' && orden && (
-        <div className="flex items-stretch gap-2">
-          <FieldBox label="Total piezas:" className="w-40">
-            <div className="flex h-10 items-center justify-end text-3xl font-bold tabular-nums">
-              {items.length}
             </div>
-          </FieldBox>
-          <FieldBox label="Total frío (kg):" className="w-52">
-            <div className="flex h-10 items-center justify-end text-3xl font-bold tabular-nums text-emerald-700">
-              {num(totalFrio)}
+            <Button
+              variant="outline"
+              className="h-12 px-5 text-base"
+              onClick={() => setConfirmarCierre(true)}
+              disabled={!items.length || cerrar.isPending}
+              title={items.length ? 'Cerrar la orden de despacho' : 'La orden no tiene canales'}
+            >
+              {cerrar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Lock className="size-5" />}
+              Cerrar orden
+            </Button>
+          </div>
+
+          {tab === 'despacho' ? (
+            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_400px]">
+              <TablaDespacho
+                items={items}
+                loading={itemsQuery.isLoading}
+                seleccionadoId={seleccionadoId}
+                onSeleccionar={(i) => seleccionar(seleccionadoId === i.itemId ? null : i)}
+              />
+              <PanelFria
+                orden={!!orden}
+                seleccionado={seleccionado}
+                ultimo={ultimo}
+                peso={peso}
+                setPeso={setPeso}
+                hayPeso={hayPeso}
+                leyendo={leyendo}
+                onLeer={() => void tomarPeso()}
+                barcode={barcode}
+                setBarcode={setBarcode}
+                barcodeRef={barcodeRef}
+                buscando={buscando || leyendo}
+                onEscanear={() => void escanear()}
+                guardando={pesar.isPending}
+                onGuardarCorreccion={() => void guardarPeso()}
+                quitando={quitar.isPending}
+                onQuitar={() => seleccionado && quitarItem(seleccionado)}
+                onCancelar={() => seleccionar(null)}
+              />
             </div>
-          </FieldBox>
-          <button
-            onClick={() => setConfirmarCierre(true)}
-            disabled={!items.length || cerrar.isPending}
-            title={items.length ? 'Cerrar la orden de despacho' : 'La orden no tiene canales'}
-            className="ml-auto flex items-center gap-3 self-center rounded-md border-2 border-foreground/70 bg-card px-5 py-3 text-base font-bold uppercase hover:bg-muted disabled:opacity-40"
-          >
-            <Lock className="size-7" />
-            Cerrar orden
-          </button>
-        </div>
+          ) : (
+            <div className="scrollbar-app min-h-0 flex-1 overflow-auto rounded-xl border border-border bg-card">
+              <TotalesFria items={items} />
+            </div>
+          )}
+        </>
       )}
 
       {confirmarCierre && orden && (
@@ -623,7 +619,7 @@ export function CanalFriaPage() {
               ¿Está seguro de cerrar la orden con consecutivo <b>{formatOD(orden.odNumber)}</b>?
             </p>
             <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-              Las {items.length} canales ({num(totalFrio)} kg en frío) quedan en proceso y ya no se
+              Las {items.length} canales ({num(totales.frio)} kg en frío) quedan en proceso y ya no se
               podrán agregar ni quitar canales. La orden de producción y el rotulado siguen
               funcionando con esta orden.
               {sinPesar > 0 &&
@@ -641,100 +637,585 @@ export function CanalFriaPage() {
           </div>
         </Dialog>
       )}
+    </div>
+  );
+}
 
-      {/* Pie: báscula y pistoleo (primero el peso, luego el código) */}
-      <div className="flex flex-wrap items-stretch gap-2">
-        <FieldBox label="Peso frío (kg):" className="w-40">
-          <input
-            value={peso}
-            onChange={(e) => setPeso(soloDecimal(e.target.value))}
-            onKeyDown={(e) => {
-              if (e.key !== 'Enter') return;
-              if (seleccionado) void guardarPeso();
-              else barcodeRef.current?.focus();
-            }}
-            inputMode="decimal"
-            disabled={!orden}
-            title={
-              seleccionado
-                ? 'Enter para corregir el peso de la fila seleccionada'
-                : 'Peso con el que se guardará la próxima canal'
-            }
-            className="h-10 w-full bg-transparent text-center text-3xl font-bold text-emerald-700 outline-none disabled:opacity-50"
+type VistaFria = 'ordenes' | 'despacho' | 'totales';
+
+// Merma de oreo por encima de este % se resalta.
+const MERMA_MAX = 3;
+
+const VISTA_KEY = 'canalFria.vistaOrdenes';
+
+function mermaDe(i: ItemDespacho) {
+  if (i.despachoKg === null || i.pesoKg <= 0) return null;
+  const kg = i.pesoKg - i.despachoKg;
+  return { kg, pct: (kg / i.pesoKg) * 100 };
+}
+
+function Dato({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate text-base font-semibold tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+function OrdenesFria({
+  loading,
+  ordenes,
+  selectedId,
+  refrescando,
+  onRefresh,
+  onSelect,
+}: {
+  loading: boolean;
+  ordenes: OrdenDespacho[];
+  selectedId: string | null;
+  refrescando: boolean;
+  onRefresh: () => void;
+  onSelect: (o: OrdenDespacho) => void;
+}) {
+  const [busqueda, setBusqueda] = useState('');
+  const [vista, setVista] = useState<'lista' | 'tarjetas'>(() =>
+    localStorage.getItem(VISTA_KEY) === 'tarjetas' ? 'tarjetas' : 'lista',
+  );
+  const [filtro, setFiltro] = useState<'proceso' | 'pendiente' | null>(null);
+  function cambiarVista(v: 'lista' | 'tarjetas') {
+    setVista(v);
+    localStorage.setItem(VISTA_KEY, v);
+  }
+  const estado = (o: OrdenDespacho) => ((o.piezas ?? 0) > 0 ? 'proceso' : 'pendiente');
+  const q = busqueda.trim().toUpperCase();
+  const buscadas = q
+    ? ordenes.filter((o) => [formatOD(o.odNumber), o.cliente.concepto, o.cliente.nit ?? ''].join(' ').toUpperCase().includes(q))
+    : ordenes;
+  const visibles = buscadas
+    .filter((o) => !filtro || estado(o) === filtro)
+    .sort((a, b) => (estado(a) === estado(b) ? b.odNumber - a.odNumber : estado(a) === 'proceso' ? -1 : 1));
+  const filtros = [
+    { key: null, texto: 'Todas', n: buscadas.length },
+    { key: 'proceso' as const, texto: 'En proceso', n: buscadas.filter((o) => estado(o) === 'proceso').length },
+    { key: 'pendiente' as const, texto: 'Sin iniciar', n: buscadas.filter((o) => estado(o) === 'pendiente').length },
+  ];
+  const merma = (o: OrdenDespacho) =>
+    o.mermaPct != null ? (
+      <span className={cn(o.mermaPct > MERMA_MAX && 'font-semibold text-amber-700')}>{num(o.mermaPct, 2)} %</span>
+    ) : (
+      '—'
+    );
+
+  return (
+    <>
+      <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+        <div className="relative min-w-60 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={busqueda}
+            onChange={(e) => setBusqueda(e.target.value)}
+            placeholder="Buscar orden o cliente"
+            className="h-11 pl-10 text-base"
           />
-        </FieldBox>
-        <button
-          onClick={() => void tomarPeso()}
-          disabled={leyendo || !orden}
-          title="Leer báscula"
-          className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
+        </div>
+        <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+          {filtros.map((f) => (
+            <button
+              key={f.key ?? 'todas'}
+              type="button"
+              onClick={() => setFiltro(f.key)}
+              className={cn(
+                'flex h-9 items-center gap-1.5 rounded-md px-3 text-sm font-medium transition-colors',
+                filtro === f.key ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {f.texto}
+              <span className={cn('rounded-full px-1.5 text-xs tabular-nums', filtro === f.key ? 'bg-primary text-primary-foreground' : 'bg-background')}>
+                {f.n}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+          <button
+            type="button"
+            onClick={() => cambiarVista('lista')}
+            title="Ver en lista"
+            className={cn('flex size-9 items-center justify-center rounded-md', vista === 'lista' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+          >
+            <List className="size-5" />
+          </button>
+          <button
+            type="button"
+            onClick={() => cambiarVista('tarjetas')}
+            title="Ver en tarjetas"
+            className={cn('flex size-9 items-center justify-center rounded-md', vista === 'tarjetas' ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+          >
+            <LayoutGrid className="size-5" />
+          </button>
+        </div>
+        <Button variant="outline" className="size-11 p-0" onClick={onRefresh} disabled={refrescando} title="Actualizar">
+          <RefreshCw className={cn('size-5', refrescando && 'animate-spin')} />
+        </Button>
+      </div>
+
+      <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
+        {loading ? (
+          <div className="flex items-center justify-center p-10 text-muted-foreground">
+            <LoaderCircle className="size-6 animate-spin" />
+          </div>
+        ) : !visibles.length ? (
+          <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-12 text-center text-muted-foreground">
+            <Inbox className="size-8" />
+            {q || filtro
+              ? 'Ninguna orden coincide con la búsqueda o el filtro.'
+              : 'No hay órdenes de despacho activas. Créalas en Administrativo → Orden de Despacho.'}
+          </div>
+        ) : vista === 'lista' ? (
+          <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/40 text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="[&>th]:h-10 [&>th]:px-4">
+                  <th className="w-28">Orden</th>
+                  <th>Cliente</th>
+                  <th>Proceso</th>
+                  <th className="text-right">Canales</th>
+                  <th className="text-right">Kg frío</th>
+                  <th className="text-right">Merma</th>
+                  <th className="w-12" />
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {visibles.map((o) => (
+                  <tr
+                    key={o.id}
+                    onClick={() => onSelect(o)}
+                    className={cn('h-16 cursor-pointer transition-colors hover:bg-muted/40 [&>td]:px-4', o.id === selectedId && 'bg-primary/5')}
+                  >
+                    <td className="relative">
+                      <span className={cn('absolute inset-y-0 left-0 w-1', estado(o) === 'proceso' ? 'bg-amber-500' : 'bg-transparent')} />
+                      <span className="text-lg font-bold tabular-nums text-primary">{formatOD(o.odNumber)}</span>
+                    </td>
+                    <td className="max-w-80">
+                      <div className="truncate text-base font-semibold uppercase">{o.cliente.concepto}</div>
+                      <div className="text-xs text-muted-foreground">{o.cliente.nit ? `NIT ${o.cliente.nit} · ` : ''}{TIPO_ORDEN_DESPACHO}</div>
+                    </td>
+                    <td className="tabular-nums">{formatFechaDia(o.processDate.slice(0, 10))}</td>
+                    <td className="text-right text-base font-semibold tabular-nums">{o.piezas ?? 0}</td>
+                    <td className="text-right text-base font-semibold tabular-nums">{num(o.frioKg ?? 0)}</td>
+                    <td className="text-right tabular-nums">{merma(o)}</td>
+                    <td className="text-muted-foreground">
+                      <ChevronRight className="size-5" />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <ul className="grid gap-3 xl:grid-cols-2">
+            {visibles.map((o) => (
+              <li key={o.id}>
+                <button
+                  onClick={() => onSelect(o)}
+                  className={cn(
+                    'group flex w-full flex-col gap-4 rounded-xl border bg-card p-5 text-left shadow-sm transition-all hover:border-primary/50 hover:shadow-md',
+                    o.id === selectedId ? 'border-primary ring-2 ring-primary/20' : 'border-border',
+                  )}
+                >
+                  <div className="flex items-start gap-3">
+                    <span className="rounded-lg bg-primary/10 px-3 py-1.5 text-2xl font-bold tabular-nums text-primary">
+                      {formatOD(o.odNumber)}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate text-lg font-bold uppercase">{o.cliente.concepto}</div>
+                      <div className="text-sm text-muted-foreground">{TIPO_ORDEN_DESPACHO}</div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-4 rounded-lg bg-muted/40 px-4 py-3">
+                    <Dato label="Canales">{o.piezas ?? 0}</Dato>
+                    <Dato label="Kg frío">{num(o.frioKg ?? 0)}</Dato>
+                    <Dato label="Merma">{merma(o)}</Dato>
+                  </div>
+                  <span className="flex items-center gap-1 self-end rounded-lg bg-primary px-4 py-2.5 text-base font-semibold text-primary-foreground group-hover:bg-primary/90">
+                    Abrir
+                    <ChevronRight className="size-5" />
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </>
+  );
+}
+
+function TablaDespacho({
+  items,
+  loading,
+  seleccionadoId,
+  onSeleccionar,
+}: {
+  items: ItemDespacho[];
+  loading: boolean;
+  seleccionadoId: string | null;
+  onSeleccionar: (i: ItemDespacho) => void;
+}) {
+  // El más reciente arriba.
+  const filas = [...items].sort((a, b) => b.despachadoAt.localeCompare(a.despachadoAt));
+  return (
+    <div className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
+      <div className="flex items-baseline justify-between px-4 pb-2 pt-3">
+        <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+          Canales despachadas <span className="tabular-nums text-foreground">({items.length})</span>
+        </h3>
+        {items.length > 0 && <span className="text-xs text-muted-foreground">Tocá una fila para corregir el peso o quitarla</span>}
+      </div>
+      {loading ? (
+        <div className="flex flex-1 items-center justify-center text-muted-foreground">
+          <LoaderCircle className="size-6 animate-spin" />
+        </div>
+      ) : !items.length ? (
+        <div className="m-4 flex flex-1 flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border text-center text-sm text-muted-foreground">
+          <Inbox className="size-7" />
+          Toma el peso y pistolea la primera canal.
+        </div>
+      ) : (
+        <div className="scrollbar-app min-h-0 flex-1 overflow-auto">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <tr className="[&>th]:h-10 [&>th]:px-4">
+                <th>Gancho</th>
+                <th>Código de barras</th>
+                <th>Pieza</th>
+                <th>Tipo</th>
+                <th>Cava origen</th>
+                <th className="text-right">Caliente</th>
+                <th className="text-right">Frío</th>
+                <th className="text-right">Merma</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-border">
+              {filas.map((i) => {
+                const m = mermaDe(i);
+                const sel = i.itemId === seleccionadoId;
+                return (
+                  <tr
+                    key={i.itemId}
+                    onClick={() => onSeleccionar(i)}
+                    title={[i.destino && `Destino ${i.destino}`, i.observaciones].filter(Boolean).join(' · ') || undefined}
+                    className={cn(
+                      'h-12 cursor-pointer transition-colors [&>td]:px-4',
+                      sel ? 'bg-primary text-primary-foreground' : 'hover:bg-muted/40',
+                    )}
+                  >
+                    <td className="text-base font-bold tabular-nums">{i.turno ?? i.sequence}</td>
+                    <td className={cn('font-mono text-sm font-semibold tabular-nums', !sel && 'text-foreground/80')}>{i.barcode}</td>
+                    <td className="font-semibold">{PIEZA_LABEL[i.pieza]}</td>
+                    <td className="uppercase">{i.canalAnimalTipo ?? '—'}</td>
+                    <td className="uppercase">{i.cavaOrigen}</td>
+                    <td className="text-right tabular-nums">{num(i.pesoKg)}</td>
+                    <td className="text-right text-base font-semibold tabular-nums">
+                      {i.despachoKg !== null ? num(i.despachoKg) : <span className={sel ? '' : 'text-amber-700'}>Sin peso</span>}
+                    </td>
+                    <td
+                      className={cn(
+                        'text-right tabular-nums',
+                        !sel && m && m.pct > MERMA_MAX ? 'font-semibold text-amber-700' : !sel && 'text-muted-foreground',
+                      )}
+                    >
+                      {m ? `${num(m.pct, 1)} %` : '—'}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PanelFria({
+  orden,
+  seleccionado,
+  ultimo,
+  peso,
+  setPeso,
+  hayPeso,
+  leyendo,
+  onLeer,
+  barcode,
+  setBarcode,
+  barcodeRef,
+  buscando,
+  onEscanear,
+  guardando,
+  onGuardarCorreccion,
+  quitando,
+  onQuitar,
+  onCancelar,
+}: {
+  orden: boolean;
+  seleccionado: ItemDespacho | null;
+  ultimo: ItemDespacho | null;
+  peso: string;
+  setPeso: (v: string) => void;
+  hayPeso: boolean;
+  leyendo: boolean;
+  onLeer: () => void;
+  barcode: string;
+  setBarcode: (v: string) => void;
+  barcodeRef: React.RefObject<HTMLInputElement | null>;
+  buscando: boolean;
+  onEscanear: () => void;
+  guardando: boolean;
+  onGuardarCorreccion: () => void;
+  quitando: boolean;
+  onQuitar: () => void;
+  onCancelar: () => void;
+}) {
+  const campoPeso = (
+    <div
+      className={cn(
+        'flex items-baseline justify-center gap-2 rounded-xl border-2 bg-muted/30 px-4 py-3 transition-colors focus-within:border-primary',
+        hayPeso ? 'border-primary/40' : 'border-border',
+      )}
+    >
+      <input
+        value={peso}
+        onChange={(e) => setPeso(soloDecimal(e.target.value))}
+        onFocus={(e) => e.currentTarget.select()}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter') return;
+          if (seleccionado) onGuardarCorreccion();
+          else barcodeRef.current?.focus();
+        }}
+        inputMode="decimal"
+        disabled={!orden}
+        aria-label="Peso en frío (kg)"
+        className="w-full min-w-0 bg-transparent text-right text-5xl font-bold tabular-nums outline-none"
+      />
+      <span className="text-xl font-semibold text-muted-foreground">kg</span>
+    </div>
+  );
+
+  if (seleccionado) {
+    const m = mermaDe(seleccionado);
+    return (
+      <div className="flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border-2 border-primary/40 bg-card p-5 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-primary">Corregir peso</div>
+            <div className="text-4xl font-bold tabular-nums leading-tight">Gancho {seleccionado.turno ?? seleccionado.sequence}</div>
+            <div className="text-sm text-muted-foreground">
+              {PIEZA_LABEL[seleccionado.pieza]} · {seleccionado.canalAnimalTipo?.toUpperCase() ?? '—'} · {seleccionado.cavaOrigen}
+            </div>
+          </div>
+          <Button variant="ghost" className="size-10 p-0" onClick={onCancelar} title="Cancelar">
+            <X className="size-5" />
+          </Button>
+        </div>
+        <div className="grid grid-cols-3 gap-3 rounded-lg bg-muted/50 px-4 py-3">
+          <Dato label="Caliente">{num(seleccionado.pesoKg)}</Dato>
+          <Dato label="Frío actual">{seleccionado.despachoKg !== null ? num(seleccionado.despachoKg) : '—'}</Dato>
+          <Dato label="Merma">{m ? `${num(m.pct, 1)} %` : '—'}</Dato>
+        </div>
+        <div className="flex flex-col gap-1">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Nuevo peso en frío</span>
+          {campoPeso}
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <Button variant="outline" className="h-14 text-base" onClick={onLeer} disabled={leyendo}>
+            {leyendo ? <LoaderCircle className="size-5 animate-spin" /> : <Gauge className="size-5" />}
+            Leer báscula
+          </Button>
+          <Button className="h-14 text-base" onClick={onGuardarCorreccion} disabled={guardando}>
+            {guardando ? <LoaderCircle className="size-5 animate-spin" /> : <Save className="size-5" />}
+            Guardar corrección
+          </Button>
+        </div>
+        <Button
+          variant="outline"
+          className="mt-auto h-12 border-red-200 text-base text-red-700 hover:bg-red-50"
+          onClick={onQuitar}
+          disabled={quitando}
         >
-          {leyendo ? <LoaderCircle className="size-6 animate-spin" /> : <Gauge className="size-6" />}
-        </button>
-        <FieldBox label="Código de barras:" className="min-w-56 flex-1">
+          {quitando ? <LoaderCircle className="size-5 animate-spin" /> : <Trash2 className="size-5" />}
+          Quitar de la orden (vuelve a {seleccionado.cavaOrigen})
+        </Button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border border-border bg-card p-5 shadow-sm">
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Pistolear la canal</span>
+        <div className="relative flex items-center rounded-xl border-2 border-primary/40 bg-background px-3 transition-colors focus-within:border-primary">
+          <ScanBarcode className="size-6 shrink-0 text-muted-foreground" />
           <input
             ref={barcodeRef}
             value={barcode}
             onChange={(e) => setBarcode(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') void escanear();
+              if (e.key === 'Enter') onEscanear();
             }}
-            disabled={!orden || buscando}
+            disabled={!orden}
+            readOnly={buscando}
             autoFocus
-            placeholder={
-              !orden
-                ? 'Elige una orden'
-                : hayPeso
-                  ? 'Pistolea la canal…'
-                  : 'Primero toma el peso de la báscula'
-            }
-            className="h-10 w-full bg-transparent text-xl font-semibold outline-none disabled:opacity-50"
+            placeholder="Pistolea la canal…"
+            className="h-14 w-full min-w-0 bg-transparent px-3 text-lg font-semibold outline-none placeholder:font-normal placeholder:text-muted-foreground"
           />
-        </FieldBox>
-        <button
-          onClick={() => {
-            setBarcode('');
-            setScanError(null);
-          }}
-          title="Limpiar código"
-          className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted"
-        >
-          <Trash2 className="size-6" />
-        </button>
-        <button
-          onClick={() => {
-            setBarcode('');
-            setPeso('0.0');
-            elegirOrden(null);
-            setTab('ordenes');
-            void ordenes.refetch();
-          }}
-          title="Reiniciar"
-          className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted"
-        >
-          <RefreshCw className="size-6" />
-        </button>
-        <button
-          onClick={() => void guardarPeso()}
-          disabled={!seleccionado || pesar.isPending}
-          title="Corregir el peso en frío de la fila seleccionada"
-          className="flex size-14 items-center justify-center rounded-sm border-2 border-border bg-card hover:bg-muted disabled:opacity-50"
-        >
-          {pesar.isPending ? <LoaderCircle className="size-6 animate-spin" /> : <Save className="size-6" />}
-        </button>
-        <FieldBox label="Gancho:" className="w-28">
-          <div className="flex h-10 items-center justify-center text-2xl font-bold tabular-nums text-red-600">
-            {seleccionado ? (seleccionado.turno ?? seleccionado.sequence) : '—'}
+          {buscando ? (
+            <LoaderCircle className="size-5 shrink-0 animate-spin text-muted-foreground" />
+          ) : (
+            barcode && (
+              <button type="button" onClick={() => setBarcode('')} title="Limpiar código" className="shrink-0 text-muted-foreground hover:text-foreground">
+                <X className="size-5" />
+              </button>
+            )
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Al pistolear se lee la báscula sola y la canal se agrega con ese peso.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Peso en frío
+          {leyendo && (
+            <span className="flex items-center gap-1 normal-case text-primary">
+              <LoaderCircle className="size-3.5 animate-spin" /> leyendo báscula…
+            </span>
+          )}
+        </span>
+        {campoPeso}
+        <Button variant="outline" className="h-12 text-base" onClick={onLeer} disabled={leyendo || !orden}>
+          {leyendo ? <LoaderCircle className="size-5 animate-spin" /> : <Gauge className="size-5" />}
+          Leer báscula
+        </Button>
+      </div>
+
+      <div className="mt-auto rounded-lg bg-muted/50 px-4 py-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Última canal</div>
+        {ultimo ? (
+          <div className="mt-1 flex items-baseline justify-between gap-2">
+            <span className="text-base font-semibold">
+              Gancho {ultimo.turno ?? ultimo.sequence} · {PIEZA_LABEL[ultimo.pieza]}
+            </span>
+            <span className="tabular-nums text-sm">
+              {num(ultimo.pesoKg)} → <b>{ultimo.despachoKg !== null ? num(ultimo.despachoKg) : '—'}</b> kg
+            </span>
           </div>
-        </FieldBox>
-        <FieldBox label="Cant.(kg):" className="w-32">
-          <div className="flex h-10 items-center justify-center text-2xl font-bold tabular-nums">
-            {seleccionado ? num(seleccionado.pesoKg, 1) : '—'}
-          </div>
-        </FieldBox>
-        {(error || scanError) && (
-          <p className="w-full text-xs font-medium text-red-600">{scanError ?? error}</p>
+        ) : (
+          <div className="mt-1 text-sm text-muted-foreground">—</div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function TotalesFria({ items }: { items: ItemDespacho[] }) {
+  if (!items.length) {
+    return <Mensaje text="Esta orden aún no tiene canales. Pistoléalas en Despacho." />;
+  }
+  const total = resumen(items);
+  const faltan = total.piezas - total.pesadas;
+  const grupos = (clave: (i: ItemDespacho) => string) => {
+    const m = new Map<string, ItemDespacho[]>();
+    for (const i of items) {
+      const k = clave(i);
+      m.set(k, [...(m.get(k) ?? []), i]);
+    }
+    return [...m].map(([k, v]) => ({ k, ...resumen(v) }));
+  };
+  const porTipo = grupos((i) => (i.canalAnimalTipo ?? 'Sin tipo').toUpperCase());
+  const porCava = grupos((i) => i.cavaOrigen.toUpperCase());
+  const filas = [...items].sort((a, b) => (a.turno ?? a.sequence) - (b.turno ?? b.sequence));
+
+  return (
+    <div className="flex flex-col gap-4 p-4">
+      <div className="grid grid-cols-2 gap-3 rounded-lg bg-muted/40 px-4 py-3 md:grid-cols-5">
+        <Dato label="Canales">{total.piezas}</Dato>
+        <Dato label="Caliente (kg)">{num(total.caliente)}</Dato>
+        <Dato label="Frío (kg)">{num(total.frio)}</Dato>
+        <Dato label="Merma (kg)">{num(total.merma, 2)}</Dato>
+        <Dato label="Merma (%)">
+          <span className={cn(total.pct > MERMA_MAX && 'text-amber-700')}>{num(total.pct, 2)} %</span>
+        </Dato>
+      </div>
+      {faltan > 0 && (
+        <p className="text-sm font-medium text-amber-700">
+          {faltan} {faltan === 1 ? 'canal no tiene' : 'canales no tienen'} peso en frío: la merma solo cuenta las ya pesadas.
+        </p>
+      )}
+      <div className="flex flex-wrap gap-4">
+        {[
+          { titulo: 'Por tipo', g: porTipo },
+          { titulo: 'Por cava de origen', g: porCava },
+        ].map(({ titulo, g }) => (
+          <div key={titulo} className="flex flex-col gap-1.5">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{titulo}</span>
+            <div className="flex flex-wrap gap-1.5">
+              {g.map((x) => (
+                <span key={x.k} className="rounded-md border border-border bg-background px-2.5 py-1 text-sm">
+                  <b className="tabular-nums">{x.piezas}</b> {x.k} · {num(x.frio)} kg
+                </span>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="overflow-hidden rounded-lg border border-border">
+        <table className="w-full text-sm">
+          <thead className="bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <tr className="[&>th]:h-10 [&>th]:px-4">
+              <th>Gancho</th>
+              <th>Código de barras</th>
+              <th>Pieza</th>
+              <th>Tipo</th>
+              <th>Cava origen</th>
+              <th className="text-right">Caliente</th>
+              <th className="text-right">Frío</th>
+              <th className="text-right">Merma kg</th>
+              <th className="text-right">Merma %</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border">
+            {filas.map((i) => {
+              const m = mermaDe(i);
+              return (
+                <tr key={i.itemId} className="h-11 [&>td]:px-4">
+                  <td className="font-bold tabular-nums">{i.turno ?? i.sequence}</td>
+                  <td className="tabular-nums">{i.barcode}</td>
+                  <td className="font-semibold">{PIEZA_LABEL[i.pieza]}</td>
+                  <td className="uppercase">{i.canalAnimalTipo ?? '—'}</td>
+                  <td className="uppercase">{i.cavaOrigen}</td>
+                  <td className="text-right tabular-nums">{num(i.pesoKg, 2)}</td>
+                  <td className="text-right font-semibold tabular-nums">{i.despachoKg !== null ? num(i.despachoKg, 2) : '—'}</td>
+                  <td className="text-right tabular-nums">{m ? num(m.kg, 2) : '—'}</td>
+                  <td className={cn('text-right tabular-nums', m && m.pct > MERMA_MAX && 'font-semibold text-amber-700')}>
+                    {m ? num(m.pct, 2) : '—'}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+          <tfoot className="bg-muted/60 font-semibold tabular-nums">
+            <tr className="h-11 [&>td]:px-4">
+              <td colSpan={5}>TOTAL ({total.piezas} canales)</td>
+              <td className="text-right">{num(total.caliente, 2)}</td>
+              <td className="text-right">{num(total.frio, 2)}</td>
+              <td className="text-right">{num(total.merma, 2)}</td>
+              <td className={cn('text-right', total.pct > MERMA_MAX && 'text-amber-700')}>{num(total.pct, 2)}</td>
+            </tr>
+          </tfoot>
+        </table>
       </div>
     </div>
   );

@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { ChevronDown, ChevronRight, LoaderCircle, Lock, Store } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { AdminAuthDialog } from '@/components/ui/AdminAuthDialog';
+import { Button } from '@/components/ui/button';
+import { Dialog } from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Numpad } from '@/components/ui/numpad';
 import {
   useCerrarOrdenProduccion,
   usePreparacion,
@@ -61,17 +64,29 @@ export function ReporteDesposte({
   const cerrar = useCerrarOrdenProduccion();
   const [abiertas, setAbiertas] = useState<Set<string>>(new Set());
   const [pidiendoAuth, setPidiendoAuth] = useState(false);
+  const [pin, setPin] = useState('');
+  const [errorPin, setErrorPin] = useState<string | null>(null);
   const [errorCierre, setErrorCierre] = useState<string | null>(null);
 
   async function cerrarOrden() {
-    setPidiendoAuth(false);
+    if (pin.length < 4 || cerrar.isPending) return;
+    setErrorPin(null);
     setErrorCierre(null);
     try {
-      await cerrar.mutateAsync(orden.id);
+      await cerrar.mutateAsync({ id: orden.id, pin });
+      setPidiendoAuth(false);
+      setPin('');
       onCerrada?.();
     } catch (error) {
       const msg = (error as { response?: { data?: { message?: string | string[] } } }).response?.data?.message;
-      setErrorCierre((Array.isArray(msg) ? msg.join(' ') : msg) || 'No se pudo cerrar la orden.');
+      const texto = (Array.isArray(msg) ? msg.join(' ') : msg) || 'No se pudo cerrar la orden.';
+      setPin('');
+      // Un PIN equivocado se muestra en el diálogo; otros errores (canastillas abiertas…) abajo.
+      if (/PIN/i.test(texto)) setErrorPin(texto);
+      else {
+        setPidiendoAuth(false);
+        setErrorCierre(texto);
+      }
     }
   }
 
@@ -230,18 +245,73 @@ export function ReporteDesposte({
         Cerrar orden
       </button>
       <p className="text-center text-xs text-muted-foreground">
-        La orden deja de aceptar etiquetas y sale de Rotulado. Pide el código de autorización de un autorizador de
-        operaciones.
+        La orden deja de aceptar etiquetas y sale de Rotulado. Solo la cierra un supervisor con su PIN.
       </p>
     </div>
 
-    <AdminAuthDialog
+    <Dialog
       open={pidiendoAuth}
-      onClose={() => setPidiendoAuth(false)}
-      onAuthorized={() => void cerrarOrden()}
+      onClose={() => {
+        if (cerrar.isPending) return;
+        setPidiendoAuth(false);
+        setPin('');
+        setErrorPin(null);
+      }}
       title="Cerrar orden de producción"
-      description={`Se cerrará la orden con ${totalEtiquetas} etiqueta(s). Ingresa la cédula y PIN de un autorizador de operaciones.`}
-    />
+      className="max-w-2xl"
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void cerrarOrden();
+        }}
+        className="grid gap-4 sm:grid-cols-2"
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-muted-foreground">
+            Se cerrará la orden con <b className="text-foreground">{totalEtiquetas}</b> etiqueta(s). Ingresa el PIN de
+            un <b className="text-foreground">supervisor</b>; quedará registrado quién y cuándo la cerró.
+          </p>
+          <Input
+            autoFocus
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label="PIN de supervisor"
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 12))}
+            placeholder="PIN"
+            className="h-12 text-center text-2xl tracking-[0.5em]"
+          />
+          {errorPin && <p className="text-sm font-medium text-destructive">{errorPin}</p>}
+          <div className="mt-auto flex gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-12 flex-1"
+              disabled={cerrar.isPending}
+              onClick={() => {
+                setPidiendoAuth(false);
+                setPin('');
+                setErrorPin(null);
+              }}
+            >
+              Cancelar
+            </Button>
+            <Button type="submit" className="h-12 flex-1" disabled={cerrar.isPending || pin.length < 4}>
+              {cerrar.isPending ? <LoaderCircle className="size-4 animate-spin" /> : <Lock className="size-4" />}
+              Cerrar orden
+            </Button>
+          </div>
+        </div>
+        <Numpad
+          disabled={cerrar.isPending}
+          onDigit={(dg) => setPin((p) => (p + dg).slice(0, 12))}
+          onBackspace={() => setPin((p) => p.slice(0, -1))}
+          onClear={() => setPin('')}
+        />
+      </form>
+    </Dialog>
     </div>
   );
 }

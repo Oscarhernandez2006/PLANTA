@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DispatchOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
+import { verificarPinSupervisor } from '../../common/auth/supervisor-pin';
 import { CreatePostaReceiptDto } from './dto/create-posta-receipt.dto';
 import { CreatePostaReceiptItemDto } from './dto/create-posta-receipt-item.dto';
 import { QueryPostaReceiptDto } from './dto/query-posta-receipt.dto';
@@ -55,16 +56,27 @@ export class PostaReceiptService {
       ...(query.status ? { status: query.status } : {}),
     };
 
-    const [total, data] = await this.prisma.$transaction([
+    const [total, rows] = await this.prisma.$transaction([
       this.prisma.postaReceiptOrder.count({ where }),
       this.prisma.postaReceiptOrder.findMany({
         where,
         orderBy: { receiptNumber: 'desc' },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
-        include: { client: clientSelect },
+        include: {
+          client: clientSelect,
+          items: { select: { netoKg: true, piezas: true, productId: true } },
+        },
       }),
     ]);
+    // Resumen por orden: registros (pesadas), piezas, referencias y kilos netos.
+    const data = rows.map(({ items, ...o }) => ({
+      ...o,
+      registros: items.length,
+      piezas: items.reduce((s, i) => s + i.piezas, 0),
+      referencias: new Set(items.map((i) => i.productId)).size,
+      kg: Math.round(items.reduce((s, i) => s + Number(i.netoKg), 0) * 100) / 100,
+    }));
 
     return {
       data,
@@ -102,8 +114,24 @@ export class PostaReceiptService {
     orderId: string,
     dto: CreatePostaReceiptItemDto,
   ) {
-    await this.findOne(ctx, orderId);
-    const netoKg = dto.brutoKg - dto.taraKg;
+    const order = await this.findOne(ctx, orderId);
+    if (order.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de recibo está cerrada: no recibe más producto.');
+    }
+    const netoKg = Math.round((dto.brutoKg - dto.taraKg) * 100) / 100;
+    if (netoKg <= 0) throw new BadRequestException('El peso bruto debe ser mayor que la tara.');
+    const producto = await this.prisma.product.findFirst({
+      where: { id: dto.productId, plantId: ctx.plantId },
+      select: { id: true },
+    });
+    if (!producto) throw new BadRequestException('Producto no encontrado.');
+    if (
+      dto.fechaSacrificio &&
+      dto.fechaVencimiento &&
+      dto.fechaVencimiento.slice(0, 10) < dto.fechaSacrificio.slice(0, 10)
+    ) {
+      throw new BadRequestException('El vencimiento no puede ser anterior al sacrificio.');
+    }
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${orderId}:posta-item`}))`;
       const agg = await tx.postaReceiptItem.aggregate({
@@ -120,6 +148,12 @@ export class PostaReceiptService {
           taraKg: new Prisma.Decimal(dto.taraKg),
           brutoKg: new Prisma.Decimal(dto.brutoKg),
           netoKg: new Prisma.Decimal(netoKg),
+          piezas: dto.piezas,
+          empaques: dto.empaques,
+          lote: dto.lote.trim(),
+          conservacion: dto.conservacion,
+          fechaSacrificio: dto.fechaSacrificio ? new Date(dto.fechaSacrificio.slice(0, 10)) : null,
+          fechaVencimiento: dto.fechaVencimiento ? new Date(dto.fechaVencimiento.slice(0, 10)) : null,
           createdById: ctx.userId,
         },
         include: { product: { select: { id: true, codigo: true, nombre: true } } },
@@ -127,12 +161,53 @@ export class PostaReceiptService {
     });
   }
 
-  async deleteItem(ctx: AuthContext, itemId: string) {
+  /** Elimina un registro; lo autoriza un supervisor con su PIN. */
+  async deleteItem(ctx: AuthContext, itemId: string, pin: string) {
     const item = await this.prisma.postaReceiptItem.findFirst({
       where: { id: itemId, plantId: ctx.plantId },
+      select: { id: true, receiptOrder: { select: { status: true } } },
     });
     if (!item) throw new NotFoundException('Registro no encontrado.');
+    if (item.receiptOrder.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de recibo está cerrada: no se pueden eliminar registros.');
+    }
+    await verificarPinSupervisor(this.prisma, ctx.plantId, pin);
     await this.prisma.postaReceiptItem.delete({ where: { id: itemId } });
+    return { ok: true };
+  }
+
+  /** Cierra la orden con el PIN de un supervisor (queda registrado quién y cuándo). */
+  async cerrar(ctx: AuthContext, id: string, pin: string) {
+    const order = await this.findOne(ctx, id);
+    if (order.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de recibo ya está cerrada.');
+    }
+    const registros = await this.prisma.postaReceiptItem.count({ where: { receiptOrderId: id } });
+    if (!registros) throw new BadRequestException('La orden no tiene producto recibido; no hay nada que cerrar.');
+    const supervisorId = await verificarPinSupervisor(this.prisma, ctx.plantId, pin);
+    await this.prisma.postaReceiptOrder.update({
+      where: { id },
+      data: { status: DispatchOrderStatus.facturado, cerradaAt: new Date(), cerradaById: supervisorId },
+    });
+    return { ok: true };
+  }
+
+  /** Deja constancia de la reimpresión del rótulo de un registro. */
+  async registrarReimpresion(ctx: AuthContext, itemId: string, estacion?: string) {
+    const item = await this.prisma.postaReceiptItem.findFirst({
+      where: { id: itemId, plantId: ctx.plantId },
+      select: { id: true, receiptOrderId: true },
+    });
+    if (!item) throw new NotFoundException('Registro no encontrado.');
+    await this.prisma.postaReceiptReimpresion.create({
+      data: {
+        plantId: ctx.plantId,
+        receiptOrderId: item.receiptOrderId,
+        itemId: item.id,
+        estacion: estacion ?? null,
+        userId: ctx.userId,
+      },
+    });
     return { ok: true };
   }
 }

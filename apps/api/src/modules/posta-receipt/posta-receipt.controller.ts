@@ -5,6 +5,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -14,6 +15,10 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CreatePostaReceiptDto } from './dto/create-posta-receipt.dto';
 import { CreatePostaReceiptItemDto } from './dto/create-posta-receipt-item.dto';
+import {
+  PinSupervisorDto,
+  ReimpresionReciboDto,
+} from '../canal-receipt/dto/create-canal-receipt-item.dto';
 import { QueryPostaReceiptDto } from './dto/query-posta-receipt.dto';
 import { PostaReceiptService } from './posta-receipt.service';
 
@@ -47,8 +52,27 @@ export class PostaReceiptController {
   deleteItem(
     @CurrentUser() user: AuthContext,
     @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: PinSupervisorDto,
   ) {
-    return this.service.deleteItem(user, itemId);
+    return this.service.deleteItem(user, itemId, dto.pin);
+  }
+
+  @Post('items/:itemId/reimpresion')
+  reimpresion(
+    @CurrentUser() user: AuthContext,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: ReimpresionReciboDto,
+  ) {
+    return this.service.registrarReimpresion(user, itemId, dto.estacion);
+  }
+
+  @Patch(':id/cerrar')
+  cerrar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: PinSupervisorDto,
+  ) {
+    return this.service.cerrar(user, id, dto.pin);
   }
 
   @Get(':id/items')

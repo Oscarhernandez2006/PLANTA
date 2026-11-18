@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isAxiosError } from 'axios';
-import { Barcode, Check, Gauge, LoaderCircle, Package, Trash2, TriangleAlert } from 'lucide-react';
+import { Barcode, Check, Gauge, LoaderCircle, Package, Printer, Trash2, TriangleAlert } from 'lucide-react';
 import { useBascula } from '@/components/bascula/Bascula';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { NumericKeypad } from '@/components/keyboard/NumericKeypad';
@@ -16,6 +16,7 @@ import { useAuth } from '../auth/auth-context';
 import { useDevice } from '../device/device-context';
 import {
   formatOP,
+  registrarReimpresion,
   useBorrarEtiqueta,
   useCerrarCanastilla,
   useEstadoRotulado,
@@ -32,6 +33,15 @@ import { formatPieza, generarEtiquetaDesposteZpl, obtenerLogoEtiquetaZpl } from 
 import { FieldBox, SIN_IMPRESORA, useImpresoraEtiquetas } from './ui';
 
 type Conservacion = 'refrigerado' | 'congelado';
+
+function Dato({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate text-base font-semibold tabular-nums">{children}</div>
+    </div>
+  );
+}
 
 const horaDe = (iso: string) =>
   new Date(iso).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' });
@@ -116,9 +126,6 @@ export function EmbalajeDesposte({
   const [tara, setTara] = useState(memoria.tara ?? '0.00');
   const [tecladoTara, setTecladoTara] = useState(false);
   const [tecladoBruto, setTecladoBruto] = useState(false);
-  const [tecladoNeto, setTecladoNeto] = useState(false);
-  // Neto digitado a mano; null = se calcula como bruto − tara.
-  const [netoManual, setNetoManual] = useState<string | null>(null);
   // Número interno que digita el operario.
   const [ref, setRef] = useState(memoria.ref ?? '');
   useEffect(() => {
@@ -139,10 +146,6 @@ export function EmbalajeDesposte({
     return () => clearTimeout(t);
   }, [alerta]);
 
-  // Si cambia el bruto, la tara o el tipo de empaque, el neto vuelve a calcularse.
-  useEffect(() => {
-    setNetoManual(null);
-  }, [bruto, tara, alVacio]);
   const [bodegaId, setBodegaId] = useState('');
   const bodegas = useBodegas(orden.cliente.id);
   const bodegasActivas = useMemo(
@@ -209,8 +212,8 @@ export function EmbalajeDesposte({
   const brutoKg = Number(bruto.replace(',', '.')) || 0;
   // Al vacío la tara es la bolsa: el neto es el bruto completo y la tara se imprime aparte.
   const netoCalculado = alVacio ? brutoKg : Math.max(brutoKg - taraKg, 0);
-  const netoTexto = netoManual ?? netoCalculado.toFixed(2);
-  const netoKg = netoManual !== null ? Number(netoManual) || 0 : netoCalculado;
+  const netoTexto = netoCalculado.toFixed(2);
+  const netoKg = netoCalculado;
   const ultima = etiquetas[0] ?? null;
   // La última etiqueta impresa puede ser la de una canastilla recién cerrada.
   const ultimaCanastilla = estado?.ultimaCanastilla ?? null;
@@ -238,7 +241,6 @@ export function EmbalajeDesposte({
   async function tomarPeso() {
     setTecladoTara(false);
     setTecladoBruto(false);
-    setTecladoNeto(false);
     if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
     await leerBascula();
   }
@@ -294,6 +296,7 @@ export function EmbalajeDesposte({
         codigo: c.codigo ?? undefined,
         canastilla: { numero: c.numero, taraKg: c.taraKg, brutoKg: c.brutoKg },
       }, logo, reimpresion ? 1 : copiasCanastilla()));
+      if (reimpresion && resultado.ok) registrarReimpresion(c.codigo, equipo.hostname);
       const copias = copiasCanastilla();
       setAlerta({
         id: Date.now(),
@@ -351,6 +354,7 @@ export function EmbalajeDesposte({
         codigo: e.codigo ?? undefined,
         ...(e.empaque === 'AL VACIO' ? { taraKg: e.taraKg } : {}),
       }, logo));
+      if (resultado.ok) registrarReimpresion(e.codigo, equipo.hostname);
       setAlerta({
         id: Date.now(),
         texto: resultado.ok
@@ -531,467 +535,429 @@ export function EmbalajeDesposte({
     }
   }
 
-  const botonIcono =
-    'flex size-12 items-center justify-center rounded-md border-2 border-foreground/70 bg-card hover:bg-muted disabled:opacity-40';
+  const etiquetaDeshabilitada =
+    !alVacio ||
+    (netoKg <= 0 && !registroPendiente && !seleccionada) ||
+    (!!bloqueo && !registroPendiente && !seleccionada) ||
+    imprimiendo;
+  const filaSel = etiquetas.find((e) => e.id === seleccionada) ?? null;
+  const capacidad = estado?.capacidadCanastilla ?? 0;
+  const llena = !!canastilla && capacidad > 0 && canastilla.unds >= capacidad;
 
   return (
-    <div className="flex h-full flex-col gap-3 p-2 pt-4">
+    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
       {alerta && (
-        <div
-          key={alerta.id}
-          className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4"
-        >
+        <div key={alerta.id} className="pointer-events-none fixed inset-x-0 top-24 z-50 flex justify-center px-4">
           <div
             role="alert"
-            className="flex max-w-md items-start gap-3 rounded-md border-2 border-amber-400 bg-card px-5 py-4 shadow-2xl"
+            className="flex w-[30rem] max-w-full items-start gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 shadow-lg animate-in fade-in-0 slide-in-from-top-2"
           >
-            <TriangleAlert className="mt-0.5 size-7 shrink-0 text-amber-500" />
-            <p className="text-base font-semibold text-foreground">{alerta.texto}</p>
+            <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-500" />
+            <p className="text-sm font-medium text-foreground">{alerta.texto}</p>
           </div>
         </div>
       )}
-      {/* Tienda: la asigna el software según la preparación de la orden */}
-      <div className="grid grid-cols-[200px_1fr_1.2fr] gap-2">
-        <FieldBox label="Cód. Tienda:">
-          <div className="flex h-8 items-center justify-center truncate text-lg tabular-nums">
-            {tiendaVista ? `${prefijo}-${tiendaVista.codigo}` : ''}
-          </div>
-        </FieldBox>
-        <FieldBox label="Tienda:">
-          <div className="flex h-8 items-center gap-2 truncate text-xl font-medium uppercase text-red-600">
-            {estadoQuery.isLoading ? (
-              <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-            ) : (
-              tiendaVista?.nombre
-            )}
-            {todasCompletas && (
-              <span className="rounded-sm bg-amber-400 px-2 py-0.5 text-xs font-bold text-amber-950">
-                SOBRANTE
-              </span>
-            )}
-          </div>
-        </FieldBox>
-        <FieldBox label={`Avance (${estado?.piezasPorCanal ?? '—'} pz x canal):`}>
-          <div className="flex min-h-8 flex-wrap items-center gap-1 py-1">
-            {estado?.tiendas.map((t) => {
-              const completa = t.etiquetadas >= t.requeridas;
-              return (
-                <span
-                  key={t.tiendaId}
-                  title={`${t.nombre}: ${t.canales} canal(es)`}
-                  className={cn(
-                    'rounded-sm border px-1.5 py-0.5 text-xs font-semibold tabular-nums',
-                    completa
-                      ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
-                      : t.tiendaId === estado.siguienteTiendaId
-                        ? 'border-red-500 bg-red-50 text-red-700'
-                        : 'border-border text-muted-foreground',
-                  )}
-                >
-                  {t.codigo}: {t.etiquetadas}/{t.requeridas}
-                  {t.sobrantes > 0 && ` +${t.sobrantes}`}
-                </span>
-              );
-            })}
-          </div>
-        </FieldBox>
-      </div>
 
-      {/* Lote, código y producto */}
-      <div className="grid grid-cols-[160px_160px_1fr] gap-2">
-        <FieldBox label="Lote No.:">
-          <div className="flex h-8 items-center justify-center text-xl font-bold tabular-nums">
-            {formatOP(orden.opNumber)}
-          </div>
-        </FieldBox>
-        <FieldBox label="Código:">
-          <div className="flex h-8 items-center justify-center text-xl tabular-nums">
-            {producto.codigo}
-          </div>
-        </FieldBox>
-        <FieldBox label={<span className="truncate">Producto: {producto.nombre}</span>}>
-          <div className="flex h-8 items-center truncate text-xl font-medium uppercase text-red-600">
-            {producto.nombre}
-          </div>
-        </FieldBox>
-      </div>
-
-      {/* Fechas y conservación */}
-      <div className="grid grid-cols-[1fr_1fr_1fr_80px_1.4fr] gap-2">
-        <FieldBox label="Sacrificio:">
-          <div className="flex h-8 items-center justify-center text-xl tabular-nums">
-            {itemsOd.isLoading ? (
-              <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-            ) : sacrificio ? (
-              fechaCorta(sacrificio)
-            ) : (
-              '—'
-            )}
-          </div>
-        </FieldBox>
-        <FieldBox label="Empaque:">
-          <div className="flex h-8 items-center justify-center text-xl tabular-nums text-red-600">
-            {fechaCorta(empaque)}
-          </div>
-        </FieldBox>
-        <FieldBox label="Vencimiento:">
-          <div className="flex h-8 items-center justify-center text-xl tabular-nums text-red-600">
-            {dias > 0 ? fechaCorta(vencimiento) : '—'}
-          </div>
-        </FieldBox>
-        <FieldBox label="Días:">
-          <div className="flex h-8 items-center justify-center text-xl font-bold tabular-nums">
-            {dias}
-          </div>
-        </FieldBox>
-        <FieldBox label={`Conservación: ${temp}`}>
-          <div className="flex h-8 items-center gap-2">
-            {(['refrigerado', 'congelado'] as const).map((c) => (
-              <button
-                key={c}
-                onClick={() => setConservacion(c)}
-                aria-pressed={conservacion === c}
-                className={cn(
-                  'h-7 flex-1 select-none text-sm font-bold uppercase transition-colors',
-                  conservacion === c
-                    ? cn(
-                        'border-[3px] border-foreground',
-                        c === 'refrigerado' ? 'bg-sky-300' : 'bg-blue-600 text-white',
-                      )
-                    : 'border-2 border-foreground/60 bg-card text-foreground/70 hover:bg-muted',
+      {/* Centro: producto, configuración y etiquetas */}
+      <div className="flex min-h-0 flex-col gap-3">
+        {/* Producto y tienda (la asigna el software según la preparación) */}
+        <div className="shrink-0 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xl font-bold uppercase">{producto.nombre}</div>
+              <div className="text-sm text-muted-foreground">
+                Código <span className="tabular-nums">{producto.codigo}</span> · Lote{' '}
+                <span className="tabular-nums">{formatOP(orden.opNumber)}</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tienda</div>
+              <div className="flex items-center justify-end gap-2 text-lg font-bold uppercase text-primary">
+                {estadoQuery.isLoading ? (
+                  <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
+                ) : tiendaVista ? (
+                  <span className="truncate">
+                    <span className="tabular-nums">{prefijo}-{tiendaVista.codigo}</span> · {tiendaVista.nombre}
+                  </span>
+                ) : (
+                  '—'
                 )}
-              >
-                {c}
-              </button>
-            ))}
+                {todasCompletas && (
+                  <span className="rounded-md bg-amber-400 px-2 py-0.5 text-xs font-bold text-amber-950">SOBRANTE</span>
+                )}
+              </div>
+            </div>
           </div>
-        </FieldBox>
-      </div>
-
-      {/* Pesaje */}
-      <div className="flex items-stretch gap-2">
-        <FieldBox label="Ref:" className="min-w-0 flex-1">
-          <input
-            value={ref}
-            onChange={(e) => setRef(e.target.value.replace(/\D/g, ''))}
-            onDoubleClick={keyboard.open}
-            inputMode="numeric"
-            maxLength={30}
-            className="h-9 w-full bg-transparent text-2xl font-bold tabular-nums outline-none"
-          />
-        </FieldBox>
-        <FieldBox label="Empaque:" className="w-32 shrink-0">
-          <button
-            onClick={() => setAlVacio((v) => !v)}
-            title="Cambiar tipo de empaque"
-            className={cn(
-              'my-1 h-8 w-full border-2 border-foreground/80 text-base font-medium uppercase',
-              alVacio ? 'bg-sky-300' : 'bg-red-600 text-white',
-            )}
-          >
-            {alVacio ? 'Al vacío' : 'A granel'}
-          </button>
-        </FieldBox>
-        <FieldBox label="Tara:" className="w-28 shrink-0">
-          <input
-            value={tara}
-            onChange={(e) => setTara(soloDecimal(e.target.value))}
-            onClick={() => setTecladoTara(true)}
-            inputMode="none"
-            title={
-              canastilla?.taraPiezas != null
-                ? `Tara de la canastilla N.º ${canastilla.numero}: ${canastilla.taraPiezas.toFixed(2)} kg`
-                : undefined
-            }
-            className={cn(
-              'my-1 h-8 w-full border-2 bg-transparent text-center text-xl font-bold tabular-nums outline-none',
-              taraDistinta ? 'border-red-600 text-red-600' : 'border-foreground/80',
-            )}
-          />
-          {tecladoTara && (
-            <NumericKeypad
-              value={tara}
-              onChange={setTara}
-              onClose={() => setTecladoTara(false)}
-            />
-          )}
-        </FieldBox>
-        <FieldBox label="Bruto(kg)" className="w-28 shrink-0">
-          <input
-            value={bruto}
-            onChange={(e) => setBruto(soloDecimal(e.target.value))}
-            onClick={() => setTecladoBruto(true)}
-            inputMode="none"
-            title="Digita el peso o léelo de la báscula"
-            className="h-9 w-full bg-transparent text-center text-2xl font-bold tabular-nums text-red-600 outline-none"
-          />
-          {tecladoBruto && (
-            <NumericKeypad
-              value={bruto}
-              onChange={setBruto}
-              onClose={() => setTecladoBruto(false)}
-            />
-          )}
-        </FieldBox>
-        <FieldBox label="Neto(kg):" className="w-28 shrink-0">
-          <input
-            value={netoTexto}
-            onChange={(e) => setNetoManual(soloDecimal(e.target.value))}
-            onClick={() => setTecladoNeto(true)}
-            inputMode="none"
-            title={
-              alVacio
-                ? 'Al vacío: el neto es el bruto completo (la tara de la bolsa sale aparte en la etiqueta)'
-                : 'Se calcula como bruto − tara; también se puede digitar'
-            }
-            className="h-9 w-full bg-transparent text-center text-2xl font-bold tabular-nums text-emerald-600 outline-none"
-          />
-          {tecladoNeto && (
-            <NumericKeypad
-              value={netoTexto}
-              onChange={setNetoManual}
-              onClose={() => setTecladoNeto(false)}
-            />
-          )}
-        </FieldBox>
-        <div className="flex shrink-0 items-center gap-2">
-          <button onClick={() => void tomarPeso()} disabled={leyendo} title="Leer báscula" className={botonIcono}>
-            {leyendo ? <LoaderCircle className="size-7 animate-spin" /> : <Gauge className="size-8" />}
-          </button>
-          <button
-            onClick={() => void etiquetar()}
-            disabled={
-              !alVacio ||
-              (netoKg <= 0 && !registroPendiente && !seleccionada) ||
-              (!!bloqueo && !registroPendiente && !seleccionada) ||
-              imprimiendo
-            }
-            title={
-              !alVacio
-                ? 'A granel se usa el botón de caja'
-                : seleccionada
-                  ? 'Reimprimir la etiqueta seleccionada'
-                  : (bloqueo ?? 'Etiquetar producto')
-            }
-            className={botonIcono}
-          >
-            {imprimiendo ? <LoaderCircle className="size-7 animate-spin" /> : <Barcode className="size-8" />}
-          </button>
-          <button
-            // Al vacío: cierra una canastilla incompleta (las llenas se cierran solas).
-            // A granel: pesa la caja, la registra e imprime sus 2 etiquetas, cerrando enseguida.
-            onClick={() =>
-              alVacio
-                ? canastilla && void cerrar(canastilla.taraPiezas ?? taraKg, canastilla.id)
-                : void etiquetarCaja()
-            }
-            disabled={
-              imprimiendo ||
-              cerrarCanastilla.isPending ||
-              (alVacio ? !canastilla : netoKg <= 0 || !!bloqueo)
-            }
-            title={
-              alVacio
-                ? canastilla
-                  ? `Cerrar ya la canastilla N.º ${canastilla.numero} (${canastilla.unds} und) e imprimir su etiqueta`
-                  : 'No hay canastilla abierta'
-                : 'Registrar la caja e imprimir sus 2 etiquetas'
-            }
-            className={cn(botonIcono, bloqueo && alVacio && 'animate-pulse border-amber-500 bg-amber-100')}
-          >
-            {cerrarCanastilla.isPending || (!alVacio && imprimiendo) ? (
-              <LoaderCircle className="size-7 animate-spin" />
-            ) : (
-              <Package className="size-8" />
-            )}
-          </button>
-        </div>
-        <FieldBox label={canastilla ? `Canast. ${canastilla.numero}:` : 'Canast.:'} className="w-28 shrink-0">
-          <div
-            title={
-              estado
-                ? `Esta canastilla lleva hasta ${estado.capacidadCanastilla} (caja de ${estado.undsPorCaja}${
-                    estado.capacidadCanastilla < estado.undsPorCaja ? '; limitada por lo que pide la tienda' : ''
-                  }).`
-                : undefined
-            }
-            className="flex h-9 items-center justify-center gap-1.5"
-          >
-            <span
-              className={cn(
-                'text-2xl font-bold tabular-nums',
-                estado && canastilla && canastilla.unds >= estado.capacidadCanastilla
-                  ? 'text-red-600'
-                  : 'text-sky-700',
-              )}
-            >
-              {canastilla?.unds ?? 0}/{estado?.capacidadCanastilla ?? '—'}
-            </span>
-            {estado && estado.capacidadCanastilla < estado.undsPorCaja && (
-              <span className="text-[10px] font-semibold leading-tight text-muted-foreground">
-                caja
-                <br />
-                de {estado.undsPorCaja}
+          {!!estado?.tiendas.length && (
+            <div className="mt-2 flex flex-wrap items-center gap-1">
+              <span className="mr-1 text-xs text-muted-foreground">
+                Avance ({estado.piezasPorCanal} pz × canal):
               </span>
-            )}
-          </div>
-        </FieldBox>
-      </div>
-
-      {bloqueo && (
-        <div className="flex items-center gap-2 rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
-          <TriangleAlert className="size-5 shrink-0 text-amber-500" />
-          {bloqueo}
-        </div>
-      )}
-
-      {/* Bodega y destino */}
-      <div className="grid grid-cols-2 gap-2">
-        <FieldBox label="Bodegas:">
-          {/* Lista táctil (no desplegable); siempre queda una seleccionada. */}
-          {bodegas.isLoading ? (
-            <LoaderCircle className="my-2 size-5 animate-spin text-muted-foreground" />
-          ) : !bodegasActivas.length ? (
-            <p className="py-2 text-sm text-muted-foreground">
-              El cliente no tiene bodegas activas (Administrativo → Clientes → Bodegas).
-            </p>
-          ) : (
-            <ul className="my-1 flex max-h-[5.5rem] flex-col gap-1 overflow-auto">
-              {bodegasActivas.map((b) => {
-                const sel = bodegaSel === b.id;
+              {estado.tiendas.map((t) => {
+                const completa = t.etiquetadas >= t.requeridas;
                 return (
-                  <li key={b.id}>
+                  <span
+                    key={t.tiendaId}
+                    title={`${t.nombre}: ${t.canales} canal(es)`}
+                    className={cn(
+                      'rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums ring-1',
+                      completa
+                        ? 'bg-primary/10 text-primary ring-primary/30'
+                        : t.tiendaId === estado.siguienteTiendaId
+                          ? 'bg-amber-50 text-amber-800 ring-amber-300'
+                          : 'text-muted-foreground ring-border',
+                    )}
+                  >
+                    {t.codigo}: {t.etiquetadas}/{t.requeridas}
+                    {t.sobrantes > 0 && ` +${t.sobrantes}`}
+                  </span>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Fechas, conservación, empaque, bodega */}
+        <div className="shrink-0 space-y-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 lg:grid-cols-4">
+            <Dato label="Sacrificio">
+              {itemsOd.isLoading ? (
+                <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
+              ) : sacrificio ? (
+                fechaCorta(sacrificio)
+              ) : (
+                '—'
+              )}
+            </Dato>
+            <Dato label="Empaque">{fechaCorta(empaque)}</Dato>
+            <Dato label="Vencimiento">{dias > 0 ? fechaCorta(vencimiento) : '—'}</Dato>
+            <Dato label="Días">{dias}</Dato>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Conservación · {temp}
+              </span>
+              <div className="flex gap-1 rounded-lg bg-muted p-1">
+                {(['refrigerado', 'congelado'] as const).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setConservacion(c)}
+                    aria-pressed={conservacion === c}
+                    className={cn(
+                      'h-9 rounded-md px-3 text-sm font-semibold uppercase transition-colors',
+                      conservacion === c
+                        ? c === 'refrigerado'
+                          ? 'bg-sky-500 text-white shadow-sm'
+                          : 'bg-blue-700 text-white shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Empaque</span>
+              <div className="flex gap-1 rounded-lg bg-muted p-1">
+                {[
+                  { v: true, t: 'Al vacío' },
+                  { v: false, t: 'A granel' },
+                ].map((o) => (
+                  <button
+                    key={o.t}
+                    onClick={() => setAlVacio(o.v)}
+                    aria-pressed={alVacio === o.v}
+                    className={cn(
+                      'h-9 rounded-md px-3 text-sm font-semibold uppercase transition-colors',
+                      alVacio === o.v ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {o.t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <FieldBox label="Ref." className="w-32">
+              <input
+                value={ref}
+                onChange={(e) => setRef(e.target.value.replace(/\D/g, ''))}
+                onDoubleClick={keyboard.open}
+                inputMode="numeric"
+                maxLength={30}
+                className="h-9 w-full bg-transparent text-lg font-bold tabular-nums outline-none"
+              />
+            </FieldBox>
+            <FieldBox label="Procesado para" className="min-w-48 flex-1">
+              <select
+                value={procesadoPara}
+                onChange={(e) => setProcesadoPara(e.target.value)}
+                className="h-9 w-full bg-transparent text-base outline-none"
+              >
+                <option value="" />
+                <option value={orden.cliente.concepto}>{orden.cliente.concepto}</option>
+              </select>
+            </FieldBox>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bodega</span>
+            {/* Lista táctil (no desplegable); siempre queda una seleccionada. */}
+            {bodegas.isLoading ? (
+              <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
+            ) : !bodegasActivas.length ? (
+              <p className="text-sm text-muted-foreground">
+                El cliente no tiene bodegas activas (Administrativo → Clientes → Bodegas).
+              </p>
+            ) : (
+              <div className="flex max-h-20 flex-wrap gap-2 overflow-auto">
+                {bodegasActivas.map((b) => {
+                  const sel = bodegaSel === b.id;
+                  return (
                     <button
+                      key={b.id}
                       type="button"
                       onClick={() => setBodegaId(b.id)}
                       aria-pressed={sel}
                       className={cn(
-                        'flex h-9 w-full select-none items-center gap-2 rounded-md border-2 px-3 text-left text-sm font-semibold uppercase transition-colors',
-                        sel
-                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
-                          : 'border-border bg-card hover:bg-muted',
+                        'flex h-9 select-none items-center gap-2 rounded-lg border px-3 text-sm font-semibold uppercase transition-colors',
+                        sel ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card hover:bg-muted',
                       )}
                     >
-                      <span
-                        className={cn(
-                          'flex size-5 shrink-0 items-center justify-center rounded-full border-2',
-                          sel ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-muted-foreground/50',
-                        )}
-                      >
-                        {sel && <Check className="size-3.5" />}
-                      </span>
+                      {sel && <Check className="size-4" />}
                       <span className="tabular-nums">{b.code}</span> - {b.nombre}
                     </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </FieldBox>
-        <FieldBox label="Procesado Para:">
-          <select
-            value={procesadoPara}
-            onChange={(e) => setProcesadoPara(e.target.value)}
-            className="my-1 h-8 w-full border border-border bg-card px-2 text-base outline-none"
-          >
-            <option value="" />
-            <option value={orden.cliente.concepto}>{orden.cliente.concepto}</option>
-          </select>
-        </FieldBox>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {bloqueo && (
+          <div className="flex shrink-0 items-center gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+            <TriangleAlert className="size-5 shrink-0 text-amber-500" />
+            {bloqueo}
+          </div>
+        )}
+
+        {/* Etiquetas hechas */}
+        <div className="flex min-h-40 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 px-4 pb-2 pt-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Etiquetas <span className="tabular-nums text-foreground">({etiquetas.length})</span>
+            </h3>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input
+                type="checkbox"
+                checked={imprimir}
+                onChange={(e) => setImprimir(e.target.checked)}
+                className="size-4 accent-[var(--primary)]"
+              />
+              Imprimir etiqueta de producto
+            </label>
+            {filaSel && (
+              <Button
+                variant="outline"
+                className="ml-auto h-9 border-red-200 text-red-700 hover:bg-red-50"
+                disabled={borrarEtiqueta.isPending}
+                onClick={() => {
+                  if (filaSel.canastillaCerrada) {
+                    setConfirmarBorrado(filaSel);
+                    return;
+                  }
+                  borrar(filaSel.id, false);
+                }}
+              >
+                <Trash2 className="size-4" />
+                Borrar #{formatPieza(filaSel.pieza)}
+              </Button>
+            )}
+          </div>
+          <div className="scrollbar-app min-h-0 flex-1 overflow-auto text-sm">
+            <table className="w-full tabular-nums">
+              <thead className="sticky top-0 bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="[&>th]:h-9 [&>th]:px-3">
+                  <th>Pieza</th>
+                  <th>Código de barras</th>
+                  <th>Hora</th>
+                  <th>Tienda</th>
+                  <th>Canast.</th>
+                  <th className="text-right">Bruto</th>
+                  <th className="text-right">Tara</th>
+                  <th className="text-right">Neto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {etiquetas.map((e) => (
+                  <tr
+                    key={e.id}
+                    onClick={() => setSeleccionada((s) => (s === e.id ? null : e.id))}
+                    title="Tocá para reimprimirla o borrarla"
+                    className={cn(
+                      'h-10 cursor-pointer transition-colors [&>td]:px-3',
+                      seleccionada === e.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted/40',
+                    )}
+                  >
+                    <td className="font-semibold">#{formatPieza(e.pieza)}</td>
+                    <td className="font-mono font-semibold">{e.codigo ?? '—'}</td>
+                    <td>{horaDe(e.createdAt)}</td>
+                    <td>
+                      {e.tiendaCodigo}
+                      {e.sobrante && (
+                        <span className="ml-1.5 rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
+                          SOBRANTE
+                        </span>
+                      )}
+                    </td>
+                    <td>{e.canastillaNumero ?? ''}</td>
+                    <td className="text-right">{kg(e.brutoKg)}</td>
+                    <td className="text-right">{kg(e.taraKg)}</td>
+                    <td className="text-right font-bold">{kg(e.netoKg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!etiquetas.length && (
+              <p className="p-6 text-center text-sm text-muted-foreground">Aún no hay etiquetas de este producto.</p>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Etiquetas hechas */}
-      <FieldBox
-        className="flex min-h-16 flex-1 flex-col"
-        label={
-          <span className="flex items-center gap-1.5">
-            Producto Etiquetado:
-            <input
-              type="checkbox"
-              checked={imprimir}
-              onChange={(e) => setImprimir(e.target.checked)}
-              className="size-4 accent-sky-600"
-            />
-            <span className="text-emerald-700">Imprimir Etiqueta de Producto.</span>
-          </span>
-        }
-      >
-        <div className="min-h-0 flex-1 overflow-auto pt-2 text-sm">
-          <table className="w-full border-collapse tabular-nums">
-            <thead className="sticky top-0 bg-card">
-              <tr className="border-b-2 border-border text-left text-xs font-semibold uppercase text-muted-foreground">
-                <th className="px-2 py-1">Pieza</th>
-                <th className="px-2 py-1">Código de barras</th>
-                <th className="px-2 py-1">Hora</th>
-                <th className="px-2 py-1">Tienda</th>
-                <th className="px-2 py-1">N.º canastilla</th>
-                <th className="px-2 py-1 text-right">Bruto (kg)</th>
-                <th className="px-2 py-1 text-right">Tara (kg)</th>
-                <th className="px-2 py-1 text-right">Neto (kg)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {etiquetas.map((e) => (
-                <tr
-                  key={e.id}
-                  onClick={() => setSeleccionada((s) => (s === e.id ? null : e.id))}
-                  className={cn(
-                    'cursor-pointer border-b border-border',
-                    seleccionada === e.id
-                      ? 'bg-sky-200 outline outline-2 -outline-offset-2 outline-sky-600'
-                      : 'odd:bg-muted/30 hover:bg-muted',
-                  )}
-                >
-                  <td className="px-2 py-1 font-semibold">#{formatPieza(e.pieza)}</td>
-                  <td className="px-2 py-1 font-semibold">{e.codigo ?? '—'}</td>
-                  <td className="px-2 py-1">{horaDe(e.createdAt)}</td>
-                  <td className="px-2 py-1">
-                    {e.tiendaCodigo}
-                    {e.sobrante && (
-                      <span className="ml-1.5 rounded-sm bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
-                        SOBRANTE
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-2 py-1">{e.canastillaNumero ?? ''}</td>
-                  <td className="px-2 py-1 text-right">{kg(e.brutoKg)}</td>
-                  <td className="px-2 py-1 text-right">{kg(e.taraKg)}</td>
-                  <td className="px-2 py-1 text-right font-bold text-emerald-700">{kg(e.netoKg)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </FieldBox>
-
-      {/* Totales */}
-      <div className="grid grid-cols-[56px_200px_1fr_1fr] items-stretch gap-2">
-        <button
-          onClick={() => {
-            const fila = etiquetas.find((e) => e.id === seleccionada);
-            if (!fila) return;
-            if (fila.canastillaCerrada) {
-              setConfirmarBorrado(fila);
-              return;
-            }
-            borrar(fila.id, false);
-          }}
-          disabled={seleccionada === null || borrarEtiqueta.isPending}
+      {/* Panel de pesaje */}
+      <div className="flex min-h-0 flex-col gap-3 overflow-auto rounded-xl border border-border bg-card p-4 shadow-sm">
+        {/* Canastilla abierta */}
+        <div
+          className={cn(
+            'rounded-lg px-3 py-2',
+            llena ? 'bg-amber-50 ring-1 ring-amber-300' : 'bg-muted/50',
+          )}
           title={
-            seleccionada === null
-              ? 'Selecciona una fila de la tabla'
-              : `Borrar la pieza #${(() => { const p = etiquetas.find((e) => e.id === seleccionada)?.pieza; return p != null ? formatPieza(p) : ''; })()}`
+            estado
+              ? `Esta canastilla lleva hasta ${estado.capacidadCanastilla} (caja de ${estado.undsPorCaja}${
+                  estado.capacidadCanastilla < estado.undsPorCaja ? '; limitada por lo que pide la tienda' : ''
+                }).`
+              : undefined
           }
-          className={cn(botonIcono, 'size-auto self-stretch')}
         >
-          <Trash2 className="size-8" />
-        </button>
-        <FieldBox label="Neto canastilla(Kg):">
-          <div className="flex h-9 items-center justify-center text-2xl font-bold tabular-nums">
-            {kg(canastilla?.netoKg ?? 0)}
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              {canastilla ? `Canastilla N.º ${canastilla.numero}` : 'Canastilla'}
+            </span>
+            <span className={cn('text-lg font-bold tabular-nums', llena ? 'text-amber-700' : 'text-foreground')}>
+              {canastilla?.unds ?? 0}/{capacidad || '—'} und
+            </span>
           </div>
-        </FieldBox>
-        <FieldBox label="Última Etiqueta:">
+          <div className="mt-1 h-2 overflow-hidden rounded-full bg-background">
+            <div
+              className={cn('h-full rounded-full', llena ? 'bg-amber-500' : 'bg-primary')}
+              style={{ width: `${capacidad ? Math.min(100, ((canastilla?.unds ?? 0) / capacidad) * 100) : 0}%` }}
+            />
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            Neto <b className="tabular-nums text-foreground">{kg(canastilla?.netoKg ?? 0)}</b> kg
+            {estado && estado.capacidadCanastilla < estado.undsPorCaja && ` · caja de ${estado.undsPorCaja}`}
+          </div>
+        </div>
+
+        {/* Tara y bruto */}
+        <div className="grid grid-cols-2 gap-3">
+          <FieldBox label="Tara (kg)">
+            <input
+              value={tara}
+              onChange={(e) => setTara(soloDecimal(e.target.value))}
+              onClick={() => setTecladoTara(true)}
+              inputMode="none"
+              title={
+                canastilla?.taraPiezas != null
+                  ? `Tara de la canastilla N.º ${canastilla.numero}: ${canastilla.taraPiezas.toFixed(2)} kg`
+                  : undefined
+              }
+              className={cn(
+                'h-10 w-full bg-transparent text-center text-2xl font-bold tabular-nums outline-none',
+                taraDistinta && 'text-red-600',
+              )}
+            />
+            {tecladoTara && <NumericKeypad value={tara} onChange={setTara} onClose={() => setTecladoTara(false)} />}
+          </FieldBox>
+          <FieldBox label="Bruto (kg)">
+            <input
+              value={bruto}
+              onChange={(e) => setBruto(soloDecimal(e.target.value))}
+              onClick={() => setTecladoBruto(true)}
+              inputMode="none"
+              title="Digita el peso o léelo de la báscula"
+              className="h-10 w-full bg-transparent text-center text-2xl font-bold tabular-nums outline-none"
+            />
+            {tecladoBruto && <NumericKeypad value={bruto} onChange={setBruto} onClose={() => setTecladoBruto(false)} />}
+          </FieldBox>
+        </div>
+        {taraDistinta && (
+          <p className="-mt-1 text-xs font-medium text-red-600">La tara no coincide con la de la canastilla abierta.</p>
+        )}
+
+        {/* Neto: calculado, no se puede digitar */}
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Neto</span>
+          <div
+            title={
+              alVacio
+                ? 'Al vacío: el neto es el bruto completo (la tara de la bolsa sale aparte en la etiqueta)'
+                : 'Se calcula como bruto − tara'
+            }
+            className="mt-1 flex items-baseline justify-end gap-2 rounded-xl border-2 border-primary/40 bg-muted/30 px-4 py-3"
+          >
+            <span className="text-5xl font-bold tabular-nums">{netoTexto}</span>
+            <span className="text-xl font-semibold text-muted-foreground">kg</span>
+          </div>
+        </div>
+        {error && <p className="-mt-1 text-xs font-medium text-red-600">{error}</p>}
+
+        <Button variant="outline" className="h-12 text-base" onClick={() => void tomarPeso()} disabled={leyendo}>
+          {leyendo ? <LoaderCircle className="size-5 animate-spin" /> : <Gauge className="size-5" />}
+          Leer báscula
+        </Button>
+
+        {alVacio ? (
+          <>
+            <Button
+              className="h-14 text-base"
+              onClick={() => void etiquetar()}
+              disabled={etiquetaDeshabilitada}
+              title={seleccionada ? 'Reimprimir la etiqueta seleccionada' : (bloqueo ?? 'Etiquetar producto')}
+            >
+              {imprimiendo ? <LoaderCircle className="size-5 animate-spin" /> : <Barcode className="size-5" />}
+              {seleccionada ? 'Reimprimir etiqueta' : 'Etiqueta pieza'}
+            </Button>
+            <Button
+              variant="outline"
+              className={cn('h-12 text-base', bloqueo && 'animate-pulse border-amber-500 bg-amber-50 text-amber-900')}
+              onClick={() => canastilla && void cerrar(canastilla.taraPiezas ?? taraKg, canastilla.id)}
+              disabled={imprimiendo || cerrarCanastilla.isPending || !canastilla}
+              title={
+                canastilla
+                  ? `Cerrar ya la canastilla N.º ${canastilla.numero} (${canastilla.unds} und) e imprimir su etiqueta`
+                  : 'No hay canastilla abierta'
+              }
+            >
+              {cerrarCanastilla.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Package className="size-5" />}
+              Cerrar canastilla
+            </Button>
+          </>
+        ) : (
+          <Button
+            className="h-14 text-base"
+            onClick={() => void etiquetarCaja()}
+            disabled={imprimiendo || cerrarCanastilla.isPending || netoKg <= 0 || !!bloqueo}
+            title="Registrar la caja e imprimir sus 2 etiquetas"
+          >
+            {cerrarCanastilla.isPending || imprimiendo ? <LoaderCircle className="size-5 animate-spin" /> : <Package className="size-5" />}
+            Registrar caja
+          </Button>
+        )}
+
+        <div className="mt-auto space-y-2">
           <button
             type="button"
             onClick={() => {
@@ -999,17 +965,21 @@ export function EmbalajeDesposte({
               else if (ultima) void reimprimir(ultima);
             }}
             disabled={(!ultima && !ultimaEsCanastilla) || imprimiendo}
-            title={ultima || ultimaEsCanastilla ? 'Clic para reimprimir la última etiqueta' : undefined}
-            className="flex h-9 w-full items-center text-left text-base tabular-nums hover:text-sky-700 disabled:cursor-default disabled:hover:text-inherit"
+            title={ultima || ultimaEsCanastilla ? 'Tocá para reimprimir la última etiqueta' : undefined}
+            className="flex w-full items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-left hover:bg-muted disabled:cursor-default disabled:hover:bg-muted/50"
           >
-            {ultimaEsCanastilla && ultimaCanastilla
-              ? `Canast. ${ultimaCanastilla.numero} · ${ultimaCanastilla.unds} und · ${kg(ultimaCanastilla.netoKg)} kg · ${horaDe(ultimaCanastilla.cerradaAt!)}`
-              : ultima
-                ? `#${formatPieza(ultima.pieza)} · ${kg(ultima.netoKg)} kg · ${horaDe(ultima.createdAt)}`
-                : ''}
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Última etiqueta</span>
+              <span className="block truncate text-sm tabular-nums">
+                {ultimaEsCanastilla && ultimaCanastilla
+                  ? `Canast. ${ultimaCanastilla.numero} · ${ultimaCanastilla.unds} und · ${kg(ultimaCanastilla.netoKg)} kg · ${horaDe(ultimaCanastilla.cerradaAt!)}`
+                  : ultima
+                    ? `#${formatPieza(ultima.pieza)} · ${kg(ultima.netoKg)} kg · ${horaDe(ultima.createdAt)}`
+                    : '—'}
+              </span>
+            </span>
+            {(ultima || ultimaEsCanastilla) && <Printer className="size-4 shrink-0 text-muted-foreground" />}
           </button>
-        </FieldBox>
-        <FieldBox label="Último Empaque:">
           {(() => {
             const u = estado?.ultimaCanastilla;
             return (
@@ -1017,14 +987,20 @@ export function EmbalajeDesposte({
                 type="button"
                 onClick={() => u && void imprimirCanastilla(u, true)}
                 disabled={!u}
-                title={u ? 'Clic para reimprimir la etiqueta de la canastilla' : undefined}
-                className="flex h-9 w-full items-center text-left text-base tabular-nums hover:text-sky-700 disabled:cursor-default disabled:hover:text-inherit"
+                title={u ? 'Tocá para reimprimir la etiqueta de la canastilla' : undefined}
+                className="flex w-full items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-left hover:bg-muted disabled:cursor-default disabled:hover:bg-muted/50"
               >
-                {u ? `Canast. ${u.numero} · T${u.tiendaCodigo} · ${u.unds} und · ${kg(u.netoKg)} kg` : ''}
+                <span className="min-w-0">
+                  <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Último empaque</span>
+                  <span className="block truncate text-sm tabular-nums">
+                    {u ? `Canast. ${u.numero} · T${u.tiendaCodigo} · ${u.unds} und · ${kg(u.netoKg)} kg` : '—'}
+                  </span>
+                </span>
+                {u && <Printer className="size-4 shrink-0 text-muted-foreground" />}
               </button>
             );
           })()}
-        </FieldBox>
+        </div>
       </div>
 
       {pidiendoSobrante && estado && (

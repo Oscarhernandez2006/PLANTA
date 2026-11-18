@@ -1,7 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { DispatchOrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
+import { verificarPinSupervisor } from '../../common/auth/supervisor-pin';
 import { CreateCanalReceiptDto } from './dto/create-canal-receipt.dto';
 import { CreateCanalReceiptItemDto } from './dto/create-canal-receipt-item.dto';
 import { QueryCanalReceiptDto } from './dto/query-canal-receipt.dto';
@@ -55,16 +56,22 @@ export class CanalReceiptService {
       ...(query.status ? { status: query.status } : {}),
     };
 
-    const [total, data] = await this.prisma.$transaction([
+    const [total, rows] = await this.prisma.$transaction([
       this.prisma.canalReceiptOrder.count({ where }),
       this.prisma.canalReceiptOrder.findMany({
         where,
         orderBy: { receiptNumber: 'desc' },
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,
-        include: { client: clientSelect },
+        include: { client: clientSelect, items: { select: { pesoKg: true } } },
       }),
     ]);
+    // Resumen por orden: canales recibidas y kilos.
+    const data = rows.map(({ items, ...o }) => ({
+      ...o,
+      piezas: items.length,
+      kg: Math.round(items.reduce((s, i) => s + Number(i.pesoKg), 0) * 100) / 100,
+    }));
 
     return {
       data,
@@ -101,7 +108,10 @@ export class CanalReceiptService {
     orderId: string,
     dto: CreateCanalReceiptItemDto,
   ) {
-    await this.findOne(ctx, orderId);
+    const order = await this.findOne(ctx, orderId);
+    if (order.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de recibo está cerrada: no recibe más canales.');
+    }
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${orderId}:canal-item`}))`;
       const agg = await tx.canalReceiptItem.aggregate({
@@ -116,21 +126,62 @@ export class CanalReceiptService {
           codigo,
           cava: dto.cava,
           pesoKg: new Prisma.Decimal(dto.pesoKg),
-          guia: dto.guia?.trim() || null,
-          lote: dto.lote?.trim() || null,
-          identificacion: dto.identificacion?.trim() || null,
+          guia: dto.guia.trim(),
+          lote: dto.lote.trim(),
+          identificacion: dto.identificacion.trim(),
           createdById: ctx.userId,
         },
       });
     });
   }
 
-  async deleteItem(ctx: AuthContext, itemId: string) {
+  /** Elimina una canal recibida; lo autoriza un supervisor con su PIN. */
+  async deleteItem(ctx: AuthContext, itemId: string, pin: string) {
     const item = await this.prisma.canalReceiptItem.findFirst({
       where: { id: itemId, plantId: ctx.plantId },
+      select: { id: true, receiptOrder: { select: { status: true } } },
     });
     if (!item) throw new NotFoundException('Registro no encontrado.');
+    if (item.receiptOrder.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de recibo está cerrada: no se pueden eliminar canales.');
+    }
+    await verificarPinSupervisor(this.prisma, ctx.plantId, pin);
     await this.prisma.canalReceiptItem.delete({ where: { id: itemId } });
+    return { ok: true };
+  }
+
+  /** Cierra la orden con el PIN de un supervisor (queda registrado quién y cuándo). */
+  async cerrar(ctx: AuthContext, id: string, pin: string) {
+    const order = await this.findOne(ctx, id);
+    if (order.status !== DispatchOrderStatus.activo) {
+      throw new BadRequestException('La orden de recibo ya está cerrada.');
+    }
+    const piezas = await this.prisma.canalReceiptItem.count({ where: { receiptOrderId: id } });
+    if (!piezas) throw new BadRequestException('La orden no tiene canales recibidas; no hay nada que cerrar.');
+    const supervisorId = await verificarPinSupervisor(this.prisma, ctx.plantId, pin);
+    await this.prisma.canalReceiptOrder.update({
+      where: { id },
+      data: { status: DispatchOrderStatus.facturado, cerradaAt: new Date(), cerradaById: supervisorId },
+    });
+    return { ok: true };
+  }
+
+  /** Deja constancia de la reimpresión del rótulo de una canal. */
+  async registrarReimpresion(ctx: AuthContext, itemId: string, estacion?: string) {
+    const item = await this.prisma.canalReceiptItem.findFirst({
+      where: { id: itemId, plantId: ctx.plantId },
+      select: { id: true, receiptOrderId: true },
+    });
+    if (!item) throw new NotFoundException('Registro no encontrado.');
+    await this.prisma.canalReceiptReimpresion.create({
+      data: {
+        plantId: ctx.plantId,
+        receiptOrderId: item.receiptOrderId,
+        itemId: item.id,
+        estacion: estacion ?? null,
+        userId: ctx.userId,
+      },
+    });
     return { ok: true };
   }
 }

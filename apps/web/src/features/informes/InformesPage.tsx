@@ -18,10 +18,17 @@ import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { TBody, TD, TH, THead, TR, Table } from '@/components/ui/table';
 import { cn, plantToday as today } from '@/lib/utils';
-import { codigoBarras } from '../canal-caliente/canal-presinto-print';
 import { useAuth } from '../auth/auth-context';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
-import { descargarDespachoExcel, descargarDespachoPdf } from './despacho-canales-export';
+import { descargarDespachoPdf } from './despacho-canales-export';
+import {
+  DIF_MEDIAS_MAX_KG,
+  RANGO_RENDIMIENTO,
+  descargarInternoExcel,
+  descargarInternoPdf,
+  encabezadoInterno,
+  resumenInterno,
+} from './canal-caliente-interno';
 import { formatPieza } from '../rotulado/etiqueta-desposte-zpl';
 import { formatOB, type OrdenBeneficioStatus } from '../registrar/orden-beneficio-api';
 import { PrepararOrdenDialog } from '../registrar/PrepararOrden';
@@ -72,6 +79,7 @@ import {
   descargarProduccionExcel,
   descargarProduccionPdf,
   totalesEtiquetado,
+  analisisProduccion,
   totalesProduccion,
 } from './produccion-export';
 
@@ -261,6 +269,46 @@ function InformeProduccion() {
   );
 }
 
+function DatoInforme({
+  label,
+  children,
+  className,
+}: {
+  label: string;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn('min-w-0', className)}>
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate text-sm font-semibold tabular-nums">{children}</div>
+    </div>
+  );
+}
+
+function Kpi({ label, valor, sub, destacado }: { label: string; valor: string; sub?: string; destacado?: boolean }) {
+  return (
+    <div className={cn('rounded-xl border px-4 py-3', destacado ? 'border-primary/30 bg-primary/5' : 'border-border bg-card')}>
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className={cn('text-xl font-bold tabular-nums', destacado && 'text-primary')}>{valor}</div>
+      {sub && <div className="text-xs text-muted-foreground">{sub}</div>}
+    </div>
+  );
+}
+
+function Chip({ children, alerta }: { children: React.ReactNode; alerta?: boolean }) {
+  return (
+    <span
+      className={cn(
+        'rounded-md px-2.5 py-1 text-xs font-medium ring-1',
+        alerta ? 'bg-amber-50 text-amber-800 ring-amber-300' : 'bg-background text-muted-foreground ring-border',
+      )}
+    >
+      {children}
+    </span>
+  );
+}
+
 function DetalleProduccionDialog({
   orden,
   onClose,
@@ -277,11 +325,12 @@ function DetalleProduccionDialog({
   const d = detalle.data;
   const tot = d ? totalesProduccion(d) : { piezas: 0, kg: 0 };
   const te = d ? totalesEtiquetado(d) : { canastillas: 0, unds: 0, kg: 0, rendimiento: 0 };
+  const an = d ? analisisProduccion(d) : null;
   const generado = new Date(detalle.dataUpdatedAt || Date.now()).toLocaleString('es-CO', {
     dateStyle: 'short',
     timeStyle: 'short',
   });
-  const cab = 'border border-border bg-muted px-3 py-2 text-center text-xs font-semibold uppercase';
+  const cab = 'border border-border bg-muted px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide text-muted-foreground';
   const cel = 'border border-border px-3 py-2 text-center';
 
   async function exportar(tipo: 'pdf' | 'excel') {
@@ -348,45 +397,66 @@ function DetalleProduccionDialog({
           </Button>
         </div>
 
-        {detalle.isLoading || !d ? (
+        {detalle.isLoading || !d || !an ? (
           <p className="py-10 text-center text-sm text-muted-foreground">Cargando…</p>
         ) : (
           <>
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className={cab}>Cliente</th>
-                  <th className={cab}>Producto terminado</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr>
-                  <td className={cel}>{d.cliente}</td>
-                  <td className={cn(cel, 'font-bold text-red-600')}>{d.productoTerminado ?? '—'}</td>
-                </tr>
-              </tbody>
-            </table>
+            {/* Datos de la orden y trazabilidad */}
+            <div className="grid grid-cols-2 gap-x-6 gap-y-3 rounded-xl border border-border bg-card px-5 py-4 sm:grid-cols-4">
+              <DatoInforme label="Cliente">{d.cliente}</DatoInforme>
+              <DatoInforme label="Producto terminado">{d.productoTerminado ?? '—'}</DatoInforme>
+              <DatoInforme label="Consecutivo">
+                <span className="text-primary">{consecutivoProduccion(d)}</span>
+              </DatoInforme>
+              <DatoInforme label="Estado">{ESTADO_OP_LABEL[d.status]}</DatoInforme>
+              <DatoInforme label="Fecha de sacrificio">{d.fechaSacrificio ?? '—'}</DatoInforme>
+              <DatoInforme label="Fecha de ingreso">{d.fechaIngreso ?? '—'}</DatoInforme>
+              <DatoInforme label="Fecha de proceso">{d.processDate}</DatoInforme>
+              <DatoInforme label="Cierre">
+                {d.cerradaAt
+                  ? `${new Date(d.cerradaAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}${d.cerradaPor ? ` · ${d.cerradaPor}` : ''}`
+                  : '—'}
+              </DatoInforme>
+              <DatoInforme label="Lote">{d.opNumber}</DatoInforme>
+              <DatoInforme label="Órdenes de beneficio">
+                {d.obReferencias?.length ? d.obReferencias.map((n) => `OB${n}`).join(', ') : '—'}
+              </DatoInforme>
+              <DatoInforme label={d.guias && d.guias.length > 1 ? 'Guías' : 'Guía'} className="sm:col-span-2">
+                {d.guias?.length ? d.guias.join(', ') : '—'}
+              </DatoInforme>
+            </div>
 
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr>
-                  <th className={cab}>Consecutivo</th>
-                  <th className={cab}>Fecha de sacrificio</th>
-                  <th className={cab}>Fecha de ingreso</th>
-                  <th className={cab}>Lote</th>
-                  <th className={cab}>Estado</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr className="tabular-nums">
-                  <td className={cn(cel, 'font-bold text-red-600')}>{consecutivoProduccion(d)}</td>
-                  <td className={cel}>{d.fechaSacrificio ?? '—'}</td>
-                  <td className={cel}>{d.fechaIngreso ?? '—'}</td>
-                  <td className={cel}>{d.opNumber}</td>
-                  <td className={cel}>{ESTADO_OP_LABEL[d.status]}</td>
-                </tr>
-              </tbody>
-            </table>
+            {/* Resumen */}
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+              <Kpi label="Materia prima" valor={`${kg(an.mpKg)} kg`} sub={`${an.canales} canales`} />
+              <Kpi label="Producido" valor={`${kg(an.producidoKg)} kg`} sub={`${an.unds} unds`} />
+              <Kpi label="Rendimiento" valor={`${kg(an.rendimiento)} %`} destacado />
+              <Kpi
+                label="Diferencia"
+                valor={`${kg(an.diferenciaKg)} kg`}
+                sub="hueso, grasa y merma"
+              />
+              <Kpi label="Canastillas" valor={String(an.canastillas)} />
+              <Kpi
+                label="Prom. por canal"
+                valor={`${kg(an.canales ? an.producidoKg / an.canales : 0)} kg`}
+                sub={`${an.canales ? (an.unds / an.canales).toLocaleString('es-CO', { maximumFractionDigits: 1 }) : 0} unds`}
+              />
+            </div>
+
+            {/* Control */}
+            {d.control && (
+              <div className="flex flex-wrap items-center gap-2 text-sm">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Control:</span>
+                <Chip alerta={d.control.noImpresas > 0}>{d.control.noImpresas} etiquetas no impresas</Chip>
+                <Chip alerta={d.control.sobrantes > 0}>{d.control.sobrantes} sobrantes</Chip>
+                <Chip alerta={d.control.borradas > 0}>{d.control.borradas} etiquetas borradas</Chip>
+                <Chip alerta={(d.control.reimpresiones ?? 0) > 0}>{d.control.reimpresiones ?? 0} reimpresiones</Chip>
+                {d.control.estaciones.length > 0 && (
+                  <Chip>Estaciones: {d.control.estaciones.join(', ')}</Chip>
+                )}
+              </div>
+            )}
 
             <table className="w-full border-collapse text-sm">
               <thead>
@@ -434,99 +504,134 @@ function DetalleProduccionDialog({
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr>
-                  <th colSpan={8} className={cab}>
+                  <th colSpan={10} className={cab}>
                     Orden de producción (pesaje y etiquetado) No. {d.opNumber}
                   </th>
                 </tr>
                 <tr>
-                  <th className={cn(cab, 'w-14')}>No.</th>
-                  <th className={cn(cab, 'w-24')}>Código</th>
+                  <th className={cn(cab, 'w-12')}>No.</th>
+                  <th className={cn(cab, 'w-20')}>Código</th>
                   <th className={cab}>Producto</th>
                   <th className={cab}>Tienda</th>
-                  <th className={cn(cab, 'w-28')}>Canastillas</th>
-                  <th className={cn(cab, 'w-20')}>Unds</th>
-                  <th className={cn(cab, 'w-32')}>Cant.(kg)</th>
-                  <th className={cn(cab, 'w-24')}>RND(%)</th>
+                  <th className={cn(cab, 'w-24')}>Canastillas</th>
+                  <th className={cn(cab, 'w-16')}>Unds</th>
+                  <th className={cn(cab, 'w-28')}>Cant.(kg)</th>
+                  <th className={cn(cab, 'w-24')}>Kg/canal</th>
+                  <th className={cn(cab, 'w-36')}>% part.</th>
+                  <th className={cn(cab, 'w-20')}>RND(%)</th>
                 </tr>
               </thead>
               <tbody className="tabular-nums">
                 {d.etiquetado.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className={cn(cel, 'py-6 text-muted-foreground')}>
+                    <td colSpan={10} className={cn(cel, 'py-6 text-muted-foreground')}>
                       Aún no hay productos etiquetados en Rotulado Desposte para esta orden.
                     </td>
                   </tr>
                 ) : (
-                  d.etiquetado.map((r, i) => {
-                    const clave = `${r.codigo}-${r.tiendaCodigo}`;
-                    const abierta = abiertas.has(clave);
-                    const desplegable = r.detalle.length > 0;
-                    return (
-                      <Fragment key={clave}>
-                        <tr
-                          className={cn('even:bg-muted/30', desplegable && 'cursor-pointer hover:bg-muted/50')}
-                          onClick={
-                            desplegable
-                              ? () =>
-                                  setAbiertas((prev) => {
-                                    const next = new Set(prev);
-                                    if (next.has(clave)) next.delete(clave);
-                                    else next.add(clave);
-                                    return next;
-                                  })
-                              : undefined
-                          }
-                        >
-                          <td className={cel}>{String(i + 1).padStart(2, '0')}</td>
-                          <td className={cel}>{r.codigo}</td>
-                          <td className={cel}>{r.producto}</td>
-                          <td className={cel}>
-                            {r.tiendaCodigo} - {r.tienda}
-                            {r.sobrantes > 0 && (
-                              <span className="ml-1.5 rounded-sm bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
-                                {r.sobrantes} SOBRANTE{r.sobrantes > 1 ? 'S' : ''}
-                              </span>
-                            )}
+                  an.grupos.map((g) => (
+                    <Fragment key={g.tipo}>
+                      {an.grupos.length > 1 && (
+                        <tr>
+                          <td colSpan={10} className={cn(cel, 'bg-primary/5 text-left text-xs font-bold uppercase tracking-wide text-primary')}>
+                            {g.tipo}
                           </td>
-                          <td className={cn(cel, 'font-semibold')}>
-                            <span className="inline-flex items-center justify-center gap-1">
-                              {desplegable &&
-                                (abierta ? (
-                                  <ChevronDown className="size-3.5" />
-                                ) : (
-                                  <ChevronRight className="size-3.5" />
-                                ))}
-                              {r.canastillas}
-                            </span>
-                          </td>
-                          <td className={cel}>{r.unds}</td>
-                          <td className={cn(cel, 'text-right')}>{kg(r.kg)}</td>
-                          <td className={cel}>{kg(r.rendimiento)}</td>
                         </tr>
-                        {abierta &&
-                          r.detalle.map((c, j) => (
+                      )}
+                      {g.filas.map((r, i) => {
+                        const clave = `${r.codigo}-${r.tiendaCodigo}`;
+                        const abierta = abiertas.has(clave);
+                        const desplegable = r.detalle.length > 0;
+                        return (
+                          <Fragment key={clave}>
                             <tr
-                              key={`${clave}-${c.canastilla ?? 's'}-${c.pieza}-${j}`}
-                              className="bg-muted/10 text-xs"
+                              className={cn('even:bg-muted/30', desplegable && 'cursor-pointer hover:bg-muted/50')}
+                              onClick={
+                                desplegable
+                                  ? () =>
+                                      setAbiertas((prev) => {
+                                        const next = new Set(prev);
+                                        if (next.has(clave)) next.delete(clave);
+                                        else next.add(clave);
+                                        return next;
+                                      })
+                                  : undefined
+                              }
                             >
-                              <td className={cel} />
+                              <td className={cel}>{String(i + 1).padStart(2, '0')}</td>
                               <td className={cel}>{r.codigo}</td>
-                              <td className={cn(cel, 'text-left')}>
-                                <span className="text-muted-foreground">
-                                  Pieza #{formatPieza(c.pieza)} · {c.empaque}
-                                  {c.sobrante && ' · SOBRANTE'}
+                              <td className={cn(cel, 'text-left')}>{r.producto}</td>
+                              <td className={cel}>
+                                {r.tiendaCodigo} - {r.tienda}
+                                {r.sobrantes > 0 && (
+                                  <span className="ml-1.5 rounded-sm bg-amber-400 px-1.5 py-0.5 text-[10px] font-bold text-amber-950">
+                                    {r.sobrantes} SOBRANTE{r.sobrantes > 1 ? 'S' : ''}
+                                  </span>
+                                )}
+                              </td>
+                              <td className={cn(cel, 'font-semibold')}>
+                                <span className="inline-flex items-center justify-center gap-1">
+                                  {desplegable &&
+                                    (abierta ? <ChevronDown className="size-3.5" /> : <ChevronRight className="size-3.5" />)}
+                                  {r.canastillas}
                                 </span>
                               </td>
-                              <td className={cel}>{r.tiendaCodigo} - {r.tienda}</td>
-                              <td className={cel}>{c.canastilla ?? '—'}</td>
-                              <td className={cel}>1</td>
-                              <td className={cn(cel, 'text-right')}>{kg(c.kg)}</td>
-                              <td className={cel}>{kg(c.rendimiento)}</td>
+                              <td className={cel}>{r.unds}</td>
+                              <td className={cn(cel, 'text-right font-semibold')}>{kg(r.kg)}</td>
+                              <td className={cn(cel, 'text-right')}>{kg(r.kgCanal)}</td>
+                              <td className={cel}>
+                                <div className="flex items-center gap-2">
+                                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
+                                    <div className="h-full rounded-full bg-primary" style={{ width: `${Math.min(100, r.participacion)}%` }} />
+                                  </div>
+                                  <span className="w-12 text-right text-xs">{kg(r.participacion)}</span>
+                                </div>
+                              </td>
+                              <td className={cel}>{kg(r.rendimiento)}</td>
                             </tr>
-                          ))}
-                      </Fragment>
-                    );
-                  })
+                            {abierta &&
+                              r.detalle.map((c, j) => (
+                                <tr key={`${clave}-${c.canastilla ?? 's'}-${c.piezaDesde}-${j}`} className="bg-muted/10 text-xs">
+                                  <td className={cel} />
+                                  <td className={cel}>{r.codigo}</td>
+                                  <td className={cn(cel, 'text-left')}>
+                                    <span className="text-muted-foreground">
+                                      {c.canastilla != null ? `Canastilla N.º ${c.canastilla} · ` : ''}
+                                      {c.unds > 1
+                                        ? `Piezas #${formatPieza(c.piezaDesde)}–#${formatPieza(c.piezaHasta)}`
+                                        : `Pieza #${formatPieza(c.piezaDesde)}`}
+                                      {' · '}
+                                      {c.empaque}
+                                      {c.sobrantes > 0 && ` · ${c.sobrantes} SOBRANTE${c.sobrantes > 1 ? 'S' : ''}`}
+                                    </span>
+                                  </td>
+                                  <td className={cel}>{r.tiendaCodigo} - {r.tienda}</td>
+                                  <td className={cel}>{c.canastillas}</td>
+                                  <td className={cel}>{c.unds}</td>
+                                  <td className={cn(cel, 'text-right')}>{kg(c.kg)}</td>
+                                  <td className={cel} />
+                                  <td className={cel} />
+                                  <td className={cel}>{kg(c.rendimiento)}</td>
+                                </tr>
+                              ))}
+                          </Fragment>
+                        );
+                      })}
+                      {an.grupos.length > 1 && (
+                        <tr className="bg-muted/40 font-semibold">
+                          <td colSpan={4} className={cn(cel, 'text-right text-xs uppercase')}>
+                            Subtotal {g.tipo.toLowerCase()}
+                          </td>
+                          <td className={cel}>{g.canastillas}</td>
+                          <td className={cel}>{g.unds}</td>
+                          <td className={cn(cel, 'text-right')}>{kg(g.kg)}</td>
+                          <td className={cn(cel, 'text-right')}>{kg(an.canales ? g.kg / an.canales : 0)}</td>
+                          <td className={cel}>{kg(g.participacion)}</td>
+                          <td className={cel}>{kg(g.rendimiento)}</td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  ))
                 )}
                 <tr className="text-base font-bold">
                   <td colSpan={4} className={cn(cel, 'text-right uppercase')}>
@@ -535,10 +640,38 @@ function DetalleProduccionDialog({
                   <td className={cel}>{te.canastillas} canast.</td>
                   <td className={cel}>{te.unds}</td>
                   <td className={cn(cel, 'text-right')}>{kg(te.kg)}</td>
+                  <td className={cn(cel, 'text-right')}>{kg(an.canales ? te.kg / an.canales : 0)}</td>
+                  <td className={cel}>100,00</td>
                   <td className={cel}>{kg(te.rendimiento)}</td>
                 </tr>
               </tbody>
             </table>
+
+            {an.tiendas.length > 1 && (
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th colSpan={4} className={cab}>Resumen por tienda</th>
+                  </tr>
+                  <tr>
+                    <th className={cab}>Tienda</th>
+                    <th className={cn(cab, 'w-28')}>Canastillas</th>
+                    <th className={cn(cab, 'w-20')}>Unds</th>
+                    <th className={cn(cab, 'w-32')}>Cant.(kg)</th>
+                  </tr>
+                </thead>
+                <tbody className="tabular-nums">
+                  {an.tiendas.map((t) => (
+                    <tr key={t.tienda} className="even:bg-muted/30">
+                      <td className={cn(cel, 'text-left')}>{t.tienda}</td>
+                      <td className={cel}>{t.canastillas}</td>
+                      <td className={cel}>{t.unds}</td>
+                      <td className={cn(cel, 'text-right')}>{kg(t.kg)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
           </>
         )}
       </div>
@@ -669,17 +802,21 @@ function DetalleCanalCalienteDialog({
 }) {
   const detalle = useDetalleCanalCaliente(orden.id);
   const { user } = useAuth();
-  const [exportando, setExportando] = useState<'pdf' | 'excel' | null>(null);
+  const [exportando, setExportando] = useState<'pdf' | 'excel' | 'cliente' | null>(null);
   const piezas = detalle.data?.piezas ?? [];
-  const total = piezas.reduce((a, p) => a + p.pesoKg, 0);
-  const celda = 'border border-border px-3 py-2';
+  const r = detalle.data ? resumenInterno(detalle.data) : null;
+  const enc = detalle.data ? encabezadoInterno(detalle.data) : null;
+  const celda = 'border-b border-border px-2.5 py-2';
+  const k1 = (n: number) => n.toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+  const pc = (n: number | null) => (n == null ? '—' : `${k1(n)} %`);
 
-  async function exportar(tipo: 'pdf' | 'excel') {
+  async function exportar(tipo: 'pdf' | 'excel' | 'cliente') {
     if (!detalle.data) return;
     setExportando(tipo);
     try {
-      if (tipo === 'pdf') await descargarDespachoPdf(detalle.data, user?.fullName ?? '');
-      else await descargarDespachoExcel(detalle.data, user?.fullName ?? '');
+      if (tipo === 'pdf') await descargarInternoPdf(detalle.data, user?.fullName ?? '');
+      else if (tipo === 'excel') await descargarInternoExcel(detalle.data);
+      else await descargarDespachoPdf(detalle.data, user?.fullName ?? '');
     } finally {
       setExportando(null);
     }
@@ -689,77 +826,104 @@ function DetalleCanalCalienteDialog({
     <Dialog
       open
       onClose={onClose}
-      title={`OD No.: ${formatOB(orden.reference)}`}
-      description={clienteConDestino(detalle.data ?? orden)}
-      className="max-w-5xl"
+      title={`Canal caliente · Orden de beneficio ${formatOB(orden.reference)}`}
+      description={enc ? `${enc.sacrificio} · Reporte interno` : 'Reporte interno'}
+      className="max-w-7xl"
+      scrollInterno
     >
       <div className="space-y-4">
-        <EncabezadoInforme />
-        <div className="flex justify-end gap-2">
-          <Button
-            variant="outline"
-            className="h-9"
-            onClick={() => exportar('excel')}
-            disabled={!piezas.length || exportando !== null}
-            title="Exportar a Excel"
-          >
-            <FileSpreadsheet className="size-4 text-emerald-700" />
-            {exportando === 'excel' ? 'Generando…' : 'Excel'}
-          </Button>
-          <Button
-            variant="outline"
-            className="h-9"
-            onClick={() => exportar('pdf')}
-            disabled={!piezas.length || exportando !== null}
-            title="Exportar a PDF"
-          >
-            <FileDown className="size-4 text-red-700" />
-            {exportando === 'pdf' ? 'Generando…' : 'PDF'}
-          </Button>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <p className="max-w-3xl text-sm text-muted-foreground">{enc?.lote ?? clienteConDestino(orden)}</p>
+          <div className="flex gap-2">
+            <Button variant="outline" className="h-9" onClick={() => exportar('excel')} disabled={!piezas.length || exportando !== null}>
+              <FileSpreadsheet className="size-4 text-emerald-700" />
+              {exportando === 'excel' ? 'Generando…' : 'Excel'}
+            </Button>
+            <Button variant="outline" className="h-9" onClick={() => exportar('pdf')} disabled={!piezas.length || exportando !== null}>
+              <FileDown className="size-4 text-red-700" />
+              {exportando === 'pdf' ? 'Generando…' : 'PDF'}
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-9"
+              onClick={() => exportar('cliente')}
+              disabled={!piezas.length || exportando !== null}
+              title="Formato de despacho de canales para el cliente"
+            >
+              <FileDown className="size-4" />
+              {exportando === 'cliente' ? 'Generando…' : 'Formato cliente'}
+            </Button>
+          </div>
         </div>
-        <div className="max-h-[420px] overflow-auto rounded-md border border-border">
+
+        {r && (
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            {[
+              ['Animales', String(r.animales.length)],
+              ['Medias', String(r.piezas)],
+              ['Peso vivo', `${k1(r.vivo)} kg`],
+              ['Canal caliente', `${k1(r.canal)} kg`],
+              ['Rendimiento', pc(r.rendimiento)],
+              ['Promedio canal', `${k1(r.promCanal)} kg`],
+              ['Con alerta', String(r.conAlerta)],
+            ].map(([l, v]) => (
+              <div key={l} className="rounded-lg border border-border px-3 py-2">
+                <p className="text-xs text-muted-foreground">{l}</p>
+                <p className={cn('text-lg font-semibold tabular-nums', l === 'Con alerta' && r.conAlerta > 0 && 'text-amber-700')}>{v}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="scrollbar-app max-h-[420px] overflow-auto rounded-md border border-border">
           <table className="w-full border-collapse text-sm">
-            <thead className="sticky top-0 bg-muted text-left text-xs font-semibold uppercase">
+            <thead className="sticky top-0 z-10 bg-muted text-left text-xs font-semibold text-foreground/70">
               <tr>
-                <th className={celda}>No.</th>
-                <th className={celda}>Barcode</th>
-                <th className={celda}>Código</th>
-                <th className={celda}>Producto</th>
-                <th className={cn(celda, 'text-center')}>Unds.</th>
-                <th className={cn(celda, 'text-right')}>Cant. (kg)</th>
+                <th className={celda}>Tur.</th>
+                <th className={celda}>Tipo</th>
+                <th className={cn(celda, 'text-right')}>Vivo kg</th>
+                <th className={celda}>Izq. (con cola)</th>
+                <th className={cn(celda, 'text-right')}>kg</th>
+                <th className={celda}>Der. (sin cola)</th>
+                <th className={cn(celda, 'text-right')}>kg</th>
+                <th className={cn(celda, 'text-right')}>Canal kg</th>
+                <th className={cn(celda, 'text-right')}>Rend.</th>
+                <th className={cn(celda, 'text-right')}>Dif. I-D</th>
+                <th className={celda}>Cava</th>
+                <th className={celda}>Hora / Op.</th>
               </tr>
             </thead>
             <tbody>
               {detalle.isLoading ? (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-muted-foreground">
-                    Cargando…
-                  </td>
+                  <td colSpan={12} className="py-6 text-center text-muted-foreground">Cargando…</td>
                 </tr>
-              ) : piezas.length === 0 ? (
+              ) : !r || r.animales.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="py-6 text-center text-muted-foreground">
-                    Esta orden no tiene canales pesadas.
-                  </td>
+                  <td colSpan={12} className="py-6 text-center text-muted-foreground">Esta orden no tiene canales pesadas.</td>
                 </tr>
               ) : (
-                piezas.map((p, i) => (
-                  <tr key={p.piezaId} className="hover:bg-muted/40">
-                    <td className={cn(celda, 'tabular-nums')}>{String(i + 1).padStart(2, '0')}</td>
-                    <td className={cn(celda, 'tabular-nums')}>
-                      {p.canalTipo
-                        ? codigoBarras({
-                            lote: orden.reference,
-                            turno: p.turno ?? p.sequence,
-                            canalTipo: p.canalTipo,
-                            pieza: p.pieza,
-                          })
-                        : '—'}
+                r.animales.map((a) => (
+                  <tr key={a.turno} className={cn('even:bg-muted/25 hover:bg-muted/50', a.alertas.length && 'bg-amber-50 even:bg-amber-50')} title={a.alertas.join(' · ') || undefined}>
+                    <td className={cn(celda, 'font-semibold tabular-nums')}>{a.turno}</td>
+                    <td className={cn(celda, 'text-xs')}>{a.tipo}</td>
+                    <td className={cn(celda, 'text-right tabular-nums')}>{a.vivoKg != null ? k1(a.vivoKg) : '—'}</td>
+                    <td className={cn(celda, 'font-mono text-xs')}>{a.izq?.barcode ?? '—'}</td>
+                    <td className={cn(celda, 'text-right tabular-nums')}>{a.izq ? k1(a.izq.pesoKg) : '—'}</td>
+                    <td className={cn(celda, 'font-mono text-xs')}>{a.der?.barcode ?? '—'}</td>
+                    <td className={cn(celda, 'text-right tabular-nums')}>{a.der ? k1(a.der.pesoKg) : '—'}</td>
+                    <td className={cn(celda, 'text-right font-semibold tabular-nums')}>{k1(a.canalKg)}</td>
+                    <td className={cn(celda, 'text-right tabular-nums', a.alertas.some((x) => x.startsWith('Rendimiento')) && 'font-bold text-amber-800')}>
+                      {a.alertas.length > 0 && '⚠ '}
+                      {pc(a.rendimiento)}
                     </td>
-                    <td className={cn(celda, 'tabular-nums')}>{p.codigo}</td>
-                    <td className={celda}>{p.producto}</td>
-                    <td className={cn(celda, 'text-center tabular-nums')}>01</td>
-                    <td className={cn(celda, 'text-right tabular-nums')}>{kg(p.pesoKg)}</td>
+                    <td className={cn(celda, 'text-right tabular-nums', a.alertas.includes('Medias desiguales') && 'font-bold text-amber-800')}>
+                      {a.difKg != null ? k1(a.difKg) : '—'}
+                    </td>
+                    <td className={cn(celda, 'whitespace-nowrap text-xs')}>{a.cava}</td>
+                    <td className={cn(celda, 'whitespace-nowrap text-xs text-muted-foreground')}>
+                      {a.hora} · {a.operario}
+                    </td>
                   </tr>
                 ))
               )}
@@ -767,22 +931,44 @@ function DetalleCanalCalienteDialog({
           </table>
         </div>
 
-        <table className="w-full border-collapse text-sm">
-          <thead className="bg-muted text-left text-xs font-semibold uppercase">
-            <tr>
-              <th className={celda}>Empaques</th>
-              <th className={celda}>Unds.</th>
-              <th className={celda}>Total (kg)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr className="text-center font-semibold tabular-nums">
-              <td className={celda}>{String(piezas.length).padStart(3, '0')}</td>
-              <td className={celda}>{String(piezas.length).padStart(3, '0')}</td>
-              <td className={celda}>{kg(total)}</td>
-            </tr>
-          </tbody>
-        </table>
+        {r && r.animales.length > 0 && (
+          <div className="grid gap-3 text-sm md:grid-cols-3">
+            <div className="rounded-lg border border-border p-3">
+              <p className="mb-1.5 font-semibold">Por tipo</p>
+              {r.porTipo.map((t) => (
+                <p key={t.tipo} className="flex justify-between tabular-nums">
+                  <span>{t.tipo} · {t.n}</span>
+                  <span className="font-medium">{pc(t.rendimiento)}</span>
+                </p>
+              ))}
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="mb-1.5 font-semibold">Por cava</p>
+              {r.porCava.map((c) => (
+                <p key={c.cava} className="flex justify-between tabular-nums">
+                  <span>{c.cava} · {c.medias} medias</span>
+                  <span className="font-medium">{k1(c.kg)} kg</span>
+                </p>
+              ))}
+              <p className="mt-2 text-xs text-muted-foreground">
+                Media con cola {k1(r.promIzq)} kg · sin cola {k1(r.promDer)} kg (promedio)
+              </p>
+            </div>
+            <div className="rounded-lg border border-border p-3">
+              <p className="mb-1.5 font-semibold">Extremos y alertas</p>
+              {r.mejor && <p>Mejor: turno {r.mejor.turno} ({pc(r.mejor.rendimiento)})</p>}
+              {r.peor && <p>Más bajo: turno {r.peor.turno} ({pc(r.peor.rendimiento)})</p>}
+              <p className={cn('mt-1', r.conAlerta ? 'font-medium text-amber-800' : 'text-muted-foreground')}>
+                {r.conAlerta
+                  ? `⚠ ${r.conAlerta} animal(es) con alerta`
+                  : 'Sin alertas'}
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Alerta si el rendimiento sale de {RANGO_RENDIMIENTO.min}–{RANGO_RENDIMIENTO.max} % o las medias difieren más de {DIF_MEDIAS_MAX_KG} kg.
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </Dialog>
   );

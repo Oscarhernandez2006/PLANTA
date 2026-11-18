@@ -20,6 +20,7 @@ import { formatDC } from '../registrar/despacho-canales-api';
 import { Caja, Productos, fecha, kg } from './BodegasTab';
 import { FiltroSelect } from './FiltroSelect';
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
+import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
 import {
   useBodegaInventario,
   useBodegasInventario,
@@ -48,7 +49,7 @@ interface ClienteResumen {
 
 interface Orden {
   key: string;
-  tipo: 'ob' | 'op' | 'oc' | 'sin';
+  tipo: 'ob' | 'rc' | 'op' | 'oc' | 'rp' | 'sin';
   numero: number | null;
   date: string | null;
   canales: Canal[];
@@ -83,9 +84,11 @@ const estadoCanal = (c: Canal) =>
         ? 'orden'
         : 'libre';
 const barcodeDe = (c: Canal) =>
-  c.canalTipo
-    ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
-    : '';
+  c.recibo
+    ? `RC${c.recibo.receiptNumber}-${String(c.recibo.codigo).padStart(2, '0')}`
+    : c.canalTipo
+      ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
+      : '';
 const productoLibre = (p: Producto) => !p.despachoDc && !p.transformadoOc && !p.trasladoOt;
 const conInventario = (b: BodegaResumen, verTodo: boolean) =>
   b.canales + b.productos + b.subproductos + (verTodo ? b.canalesDespachadas + b.canalesProcesadas : 0) > 0;
@@ -102,6 +105,8 @@ function soloVigente(d: BodegaDetalle | undefined, verTodo: boolean): BodegaDeta
 
 function tituloOrden(o: Orden) {
   if (o.tipo === 'ob') return `Orden de beneficio ${formatOB(o.numero!)}`;
+  if (o.tipo === 'rc') return `Recibo de canales RC${o.numero}`;
+  if (o.tipo === 'rp') return `Recibo en posta RP${o.numero}`;
   if (o.tipo === 'op') return `Orden de producción ${formatOP(o.numero!)}`;
   if (o.tipo === 'oc') return `Orden de acondicionamiento ${formatOC(o.numero!)}`;
   return 'Productos sin orden';
@@ -119,19 +124,24 @@ function agruparOrdenes(d: BodegaDetalle | undefined): Orden[] {
     return o;
   };
   // El consecutivo de la orden de beneficio se repite entre fechas: la clave lleva ambas.
-  for (const c of d.canales) obtener(`ob|${c.date}|${c.reference}`, 'ob', c.reference, c.date).canales.push(c);
+  for (const c of d.canales) {
+    if (c.recibo) obtener(`rc|${c.recibo.receiptNumber}`, 'rc', c.recibo.receiptNumber, c.date).canales.push(c);
+    else obtener(`ob|${c.date}|${c.reference}`, 'ob', c.reference, c.date).canales.push(c);
+  }
   for (const s of d.subproductos)
     obtener(`ob|${s.date}|${s.reference}`, 'ob', s.reference, s.date).subproductos.push(s);
   for (const p of d.productos) {
-    const o = p.ocNumber
-      ? obtener(`oc|${p.ocNumber}`, 'oc', p.ocNumber, null)
-      : p.opNumber
-        ? obtener(`op|${p.opNumber}`, 'op', p.opNumber, null)
-        : obtener('sin', 'sin', null, null);
+    const o = p.rpNumber
+      ? obtener(`rp|${p.rpNumber}`, 'rp', p.rpNumber, null)
+      : p.ocNumber
+        ? obtener(`oc|${p.ocNumber}`, 'oc', p.ocNumber, null)
+        : p.opNumber
+          ? obtener(`op|${p.opNumber}`, 'op', p.opNumber, null)
+          : obtener('sin', 'sin', null, null);
     o.productos.push(p);
     if (!o.date || p.fechaEmpaque > o.date) o.date = p.fechaEmpaque;
   }
-  const prioridad = { ob: 0, op: 1, oc: 2, sin: 3 };
+  const prioridad = { ob: 0, rc: 1, op: 2, oc: 3, rp: 4, sin: 5 };
   return [...m.values()].sort(
     (a, b) =>
       prioridad[a.tipo] - prioridad[b.tipo] ||
@@ -612,6 +622,7 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
   const [cava, setCava] = useState('');
   const [estado, setEstado] = useState('');
   const [trazaId, setTrazaId] = useState<string | null>(null);
+  const [reciboId, setReciboId] = useState<string | null>(null);
 
   const tipos = useMemo(
     () => [...new Set(canales.map((c) => c.canalAnimalTipo).filter((t): t is string => !!t))].sort(),
@@ -719,18 +730,18 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
               {filtradas.map((c) => (
                 <tr
                   key={c.id}
-                  onClick={() => setTrazaId(c.id)}
-                  title="Ver trazabilidad de la canal"
+                  onClick={() => (c.recibo ? setReciboId(c.id) : setTrazaId(c.id))}
+                  title={c.recibo ? 'Ver trazabilidad del recibo' : 'Ver trazabilidad de la canal'}
                   className={cn(
                     'cursor-pointer hover:bg-muted/50 [&>td]:px-3 [&>td]:py-2',
                     canalDespachada(c) && 'bg-sky-50/60',
                   )}
                 >
-                  <td className="tabular-nums">{formatOB(c.reference)}</td>
+                  <td className="tabular-nums">{c.recibo ? `RC${c.recibo.receiptNumber}` : formatOB(c.reference)}</td>
                   <td className="tabular-nums">{c.turno ?? '—'}</td>
                   <td className="tabular-nums">{barcodeDe(c) || '—'}</td>
                   <td className="tabular-nums">{c.date}</td>
-                  <td className="text-xs uppercase">{c.canalAnimalTipo ?? '—'}</td>
+                  <td className="text-xs uppercase">{c.recibo ? 'RECIBIDA' : (c.canalAnimalTipo ?? '—')}</td>
                   <td className="text-xs font-semibold uppercase text-red-600">{PIEZA[c.pieza]}</td>
                   <td className="uppercase">{c.cava ?? '—'}</td>
                   <td>
@@ -749,6 +760,7 @@ function CanalesTabla({ canales }: { canales: Canal[] }) {
         </div>
       )}
       {trazaId && <TrazabilidadCanalDialog piezaId={trazaId} onClose={() => setTrazaId(null)} />}
+      {reciboId && <TrazabilidadReciboDialog tipo="canal" id={reciboId} onClose={() => setReciboId(null)} />}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { DispatchOrderStatus, Prisma } from '@prisma/client';
+import { verificarPinSupervisor } from '../../common/auth/supervisor-pin';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { agruparCanales } from '../../common/canales-traslado';
@@ -21,6 +22,7 @@ import {
   GuardarEtiquetaDto,
   QueryEtiquetasDto,
   QueryProductionOrderDto,
+  RegistrarReimpresionDto,
 } from './production-order.dto';
 
 const include = {
@@ -956,7 +958,7 @@ export class ProductionOrderService {
    * Cierre explícito de la orden de producción: deja de aceptar etiquetas y sale de
    * Rotulado. Exige al menos una etiqueta y ninguna canastilla abierta con piezas.
    */
-  async cerrar(ctx: AuthContext, id: string) {
+  async cerrar(ctx: AuthContext, id: string, pin: string) {
     const order = await this.prisma.productionOrder.findFirst({
       where: { id, plantId: ctx.plantId, deletedAt: null },
       select: { id: true, opNumber: true, status: true },
@@ -965,6 +967,7 @@ export class ProductionOrderService {
     if (order.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException(`La orden ${formatOP(order.opNumber)} ya está cerrada.`);
     }
+    const supervisorId = await verificarPinSupervisor(this.prisma, ctx.plantId, pin);
     const [etiquetas, abiertas] = await Promise.all([
       this.prisma.rotuladoEtiqueta.count({ where: { productionOrderId: id, deletedAt: null } }),
       this.prisma.rotuladoCanastilla.findMany({
@@ -993,7 +996,37 @@ export class ProductionOrderService {
     }
     await this.prisma.productionOrder.update({
       where: { id },
-      data: { status: DispatchOrderStatus.facturado },
+      data: { status: DispatchOrderStatus.facturado, cerradaAt: new Date(), cerradaById: supervisorId },
+    });
+    return { ok: true };
+  }
+
+  /** Deja constancia de una reimpresión (pieza o canastilla) por su código de barras. */
+  async registrarReimpresion(ctx: AuthContext, dto: RegistrarReimpresionDto) {
+    const codigo = dto.codigo.trim();
+    const etiqueta = await this.prisma.rotuladoEtiqueta.findFirst({
+      where: { codigo, plantId: ctx.plantId },
+      select: { id: true, productionOrderId: true },
+    });
+    const canastilla = etiqueta
+      ? null
+      : await this.prisma.rotuladoCanastilla.findFirst({
+          where: { codigo, plantId: ctx.plantId },
+          select: { id: true, productionOrderId: true },
+        });
+    const productionOrderId = etiqueta?.productionOrderId ?? canastilla?.productionOrderId;
+    if (!productionOrderId) throw new NotFoundException('No se encontró la etiqueta reimpresa.');
+    await this.prisma.rotuladoReimpresion.create({
+      data: {
+        plantId: ctx.plantId,
+        productionOrderId,
+        tipo: etiqueta ? 'pieza' : 'canastilla',
+        codigo,
+        etiquetaId: etiqueta?.id ?? null,
+        canastillaId: canastilla?.id ?? null,
+        estacion: dto.estacion ?? null,
+        userId: ctx.userId,
+      },
     });
     return { ok: true };
   }

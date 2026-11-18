@@ -39,6 +39,61 @@ export function totalesEtiquetado(d: DetalleProduccion) {
   };
 }
 
+const ORDEN_TIPOS = ['MATERIA PRIMA', 'EN PROCESO', 'SUBPRODUCTO', 'TERMINADO'];
+
+/** Resumen, grupos por tipo (ordenados por kg) y resumen por tienda del informe de producción. */
+export function analisisProduccion(d: DetalleProduccion) {
+  const mp = totalesProduccion(d);
+  const te = totalesEtiquetado(d);
+  const canales = d.canales ?? mp.piezas;
+  const fila = (r: DetalleProduccion['etiquetado'][number]) => ({
+    ...r,
+    kgCanal: canales > 0 ? r.kg / canales : 0,
+    undsCanal: canales > 0 ? r.unds / canales : 0,
+    participacion: te.kg > 0 ? (r.kg / te.kg) * 100 : 0,
+  });
+  const porTipo = new Map<string, ReturnType<typeof fila>[]>();
+  for (const r of d.etiquetado) {
+    const t = r.tipo ?? 'MATERIA PRIMA';
+    porTipo.set(t, [...(porTipo.get(t) ?? []), fila(r)]);
+  }
+  const grupos = [...porTipo]
+    .sort(([a], [b]) => (ORDEN_TIPOS.indexOf(a) + 99) % 99 - (ORDEN_TIPOS.indexOf(b) + 99) % 99)
+    .map(([tipo, filas]) => {
+      const ordenadas = filas.sort((a, b) => b.kg - a.kg);
+      const kgG = ordenadas.reduce((s, r) => s + r.kg, 0);
+      return {
+        tipo,
+        filas: ordenadas,
+        canastillas: ordenadas.reduce((s, r) => s + r.canastillas, 0),
+        unds: ordenadas.reduce((s, r) => s + r.unds, 0),
+        kg: kgG,
+        rendimiento: ordenadas.reduce((s, r) => s + r.rendimiento, 0),
+        participacion: te.kg > 0 ? (kgG / te.kg) * 100 : 0,
+      };
+    });
+  const tiendasMap = new Map<string, { tienda: string; canastillas: number; unds: number; kg: number }>();
+  for (const r of d.etiquetado) {
+    const k = `${r.tiendaCodigo} - ${r.tienda}`;
+    const t = tiendasMap.get(k) ?? { tienda: k, canastillas: 0, unds: 0, kg: 0 };
+    t.canastillas += r.canastillas;
+    t.unds += r.unds;
+    t.kg += r.kg;
+    tiendasMap.set(k, t);
+  }
+  return {
+    mpKg: mp.kg,
+    canales,
+    producidoKg: te.kg,
+    rendimiento: mp.kg > 0 ? (te.kg / mp.kg) * 100 : 0,
+    diferenciaKg: mp.kg - te.kg,
+    canastillas: te.canastillas,
+    unds: te.unds,
+    grupos,
+    tiendas: [...tiendasMap.values()],
+  };
+}
+
 const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -135,6 +190,42 @@ export async function descargarProduccionPdf(d: DetalleProduccion, operario: str
     ],
   });
 
+  const an = analisisProduccion(d);
+  autoTable(doc, {
+    ...base,
+    startY: finalY(doc) + 4,
+    body: [
+      ['GUÍAS', 'ÓRDENES DE BENEFICIO', 'FECHA DE PROCESO', 'CIERRE'].map((t) => ({ content: t, styles: lbl })),
+      [
+        d.guias?.join(', ') || '—',
+        d.obReferencias?.map((n) => `OB${n}`).join(', ') || '—',
+        d.processDate,
+        d.cerradaAt
+          ? `${new Date(d.cerradaAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}${d.cerradaPor ? `\n${d.cerradaPor}` : ''}`
+          : '—',
+      ],
+    ],
+  });
+
+  autoTable(doc, {
+    ...base,
+    startY: finalY(doc) + 4,
+    body: [
+      ['MATERIA PRIMA', 'PRODUCIDO', 'RENDIMIENTO', 'DIFERENCIA', 'CANASTILLAS', 'PROM. POR CANAL'].map((t) => ({
+        content: t,
+        styles: lbl,
+      })),
+      [
+        `${kg(an.mpKg)} kg\n${an.canales} canales`,
+        `${kg(an.producidoKg)} kg\n${an.unds} unds`,
+        { content: `${kg(an.rendimiento)} %`, styles: rojo },
+        `${kg(an.diferenciaKg)} kg`,
+        String(an.canastillas),
+        `${kg(an.canales ? an.producidoKg / an.canales : 0)} kg`,
+      ],
+    ],
+  });
+
   autoTable(doc, {
     ...base,
     startY: finalY(doc) + 4,
@@ -160,36 +251,86 @@ export async function descargarProduccionPdf(d: DetalleProduccion, operario: str
   });
 
   const te = totalesEtiquetado(d);
+  const porCanal = (n: number) => kg(an.canales ? n / an.canales : 0);
+  const variosTipos = an.grupos.length > 1;
   autoTable(doc, {
     ...base,
     startY: finalY(doc) + 4,
+    styles: { ...base.styles, fontSize: 8 },
     headStyles: { fillColor: GRAY, textColor: TEXT, fontStyle: 'bold', lineColor: INK, lineWidth: 0.25 },
     head: [
-      [{ content: `ORDEN DE PRODUCCIÓN (PESAJE Y ETIQUETADO) No. ${d.opNumber}`, colSpan: 8 }],
-      ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'CANASTILLAS', 'UNDS', 'CANT.(kg)', 'RND(%)'],
+      [{ content: `ORDEN DE PRODUCCIÓN (PESAJE Y ETIQUETADO) No. ${d.opNumber}`, colSpan: 10 }],
+      ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'CANAST.', 'UNDS', 'CANT.(kg)', 'KG/CANAL', '% PART.', 'RND(%)'],
     ],
     body: [
       ...(d.etiquetado.length
-        ? d.etiquetado.map((r, i) => [
-            String(i + 1).padStart(2, '0'),
-            r.codigo,
-            r.producto,
-            tiendaEtiquetado(r),
-            String(r.canastillas),
-            String(r.unds),
-            { content: kg(r.kg), styles: { halign: 'right' as const } },
-            kg(r.rendimiento),
+        ? an.grupos.flatMap((g) => [
+            ...(variosTipos ? [[{ content: g.tipo, colSpan: 10, styles: { ...lbl, halign: 'left' as const } }]] : []),
+            ...g.filas.map((r, i) => [
+              String(i + 1).padStart(2, '0'),
+              r.codigo,
+              { content: r.producto, styles: { halign: 'left' as const } },
+              tiendaEtiquetado(r),
+              String(r.canastillas),
+              String(r.unds),
+              { content: kg(r.kg), styles: { halign: 'right' as const } },
+              { content: kg(r.kgCanal), styles: { halign: 'right' as const } },
+              kg(r.participacion),
+              kg(r.rendimiento),
+            ]),
+            ...(variosTipos
+              ? [[
+                  { content: `SUBTOTAL ${g.tipo}`, colSpan: 4, styles: { ...lbl, halign: 'right' as const } },
+                  { content: String(g.canastillas), styles: lbl },
+                  { content: String(g.unds), styles: lbl },
+                  { content: kg(g.kg), styles: { ...lbl, halign: 'right' as const } },
+                  { content: porCanal(g.kg), styles: { ...lbl, halign: 'right' as const } },
+                  { content: kg(g.participacion), styles: lbl },
+                  { content: kg(g.rendimiento), styles: lbl },
+                ]]
+              : []),
           ])
-        : [[{ content: 'Aún no hay productos etiquetados.', colSpan: 8 }]]),
+        : [[{ content: 'Aún no hay productos etiquetados.', colSpan: 10 }]]),
       [
         { content: 'TOTALES', colSpan: 4, styles: { ...lbl, halign: 'right' as const } },
-        { content: `${te.canastillas} canast.`, styles: lbl },
+        { content: `${te.canastillas}`, styles: lbl },
         { content: String(te.unds), styles: lbl },
         { content: kg(te.kg), styles: { ...lbl, halign: 'right' as const } },
+        { content: porCanal(te.kg), styles: { ...lbl, halign: 'right' as const } },
+        { content: '100,00', styles: lbl },
         { content: kg(te.rendimiento), styles: lbl },
       ],
     ],
   });
+
+  // Gráfica: kg por producto (barras horizontales).
+  const barras = an.grupos.flatMap((g) => g.filas).sort((a, b) => b.kg - a.kg);
+  if (barras.length) {
+    const altoBarra = 5;
+    const alto = 10 + barras.length * altoBarra;
+    let y = finalY(doc) + 6;
+    if (y + alto > pageH - 14) {
+      doc.addPage();
+      y = margin;
+    }
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(9);
+    doc.setTextColor(...TEXT);
+    doc.text('KG POR PRODUCTO', margin, y + 4);
+    const maxKg = Math.max(...barras.map((b) => b.kg));
+    const xBarra = margin + 62;
+    const anchoMax = contentW - 62 - 22;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7);
+    barras.forEach((b, i) => {
+      const yy = y + 8 + i * altoBarra;
+      doc.setTextColor(...TEXT);
+      doc.text(b.producto.slice(0, 38), margin, yy + 3);
+      doc.setFillColor(14, 107, 92);
+      doc.rect(xBarra, yy, maxKg ? (b.kg / maxKg) * anchoMax : 0, altoBarra - 1.4, 'F');
+      doc.text(`${kg(b.kg)} kg`, xBarra + (maxKg ? (b.kg / maxKg) * anchoMax : 0) + 1.5, yy + 3);
+    });
+  }
 
   doc.setFontSize(7.5);
   doc.setFont('helvetica', 'bold');
@@ -207,11 +348,11 @@ export async function descargarProduccionExcel(d: DetalleProduccion, operario: s
   const ws = wb.addWorksheet('Informe producción', {
     pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1 },
   });
-  [8, 14, 24, 20, 14, 10, 14, 12].forEach((w, i) => (ws.getColumn(i + 1).width = w));
+  [8, 14, 24, 20, 14, 10, 14, 12, 12, 10].forEach((w, i) => (ws.getColumn(i + 1).width = w));
 
   const borde = { style: 'thin' as const };
   const gris = { type: 'pattern' as const, pattern: 'solid' as const, fgColor: { argb: 'FFF3F4F6' } };
-  const cols = 'ABCDEFGH';
+  const cols = 'ABCDEFGHIJ';
 
   function celda(
     rango: string,
@@ -267,13 +408,41 @@ export async function descargarProduccionExcel(d: DetalleProduccion, operario: s
   celda('E11:F11', d.opNumber);
   celda('G11:H11', ESTADO_OP_LABEL[d.status]);
 
-  celda('A13:H13', `ORDEN DE TRASLADO DE M.P A SALA No. ${d.odNumber}`, { label: true });
-  celda('A14', 'No.', { label: true });
-  celda('B14', 'CODIGO', { label: true });
-  celda('C14:F14', 'PRODUCTO', { label: true });
-  celda('G14', 'PIEZAS', { label: true });
-  celda('H14', 'CANT.(kg)', { label: true });
-  let row = 15;
+  const an = analisisProduccion(d);
+  celda('A13:B13', 'GUÍAS', { label: true });
+  celda('C13:D13', 'ÓRDENES DE BENEFICIO', { label: true });
+  celda('E13:F13', 'FECHA DE PROCESO', { label: true });
+  celda('G13:H13', 'CIERRE', { label: true });
+  celda('A14:B14', d.guias?.join(', ') || '—');
+  celda('C14:D14', d.obReferencias?.map((n) => `OB${n}`).join(', ') || '—');
+  celda('E14:F14', d.processDate);
+  celda(
+    'G14:H14',
+    d.cerradaAt
+      ? `${new Date(d.cerradaAt).toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' })}${d.cerradaPor ? ` · ${d.cerradaPor}` : ''}`
+      : '—',
+  );
+
+  celda('A16:B16', 'MATERIA PRIMA (kg)', { label: true });
+  celda('C16', 'PRODUCIDO (kg)', { label: true });
+  celda('D16', 'RENDIMIENTO (%)', { label: true });
+  celda('E16:F16', 'DIFERENCIA (kg)', { label: true });
+  celda('G16', 'CANASTILLAS', { label: true });
+  celda('H16', 'KG POR CANAL', { label: true });
+  celda('A17:B17', Number(an.mpKg.toFixed(2))).numFmt = '#,##0.00';
+  celda('C17', Number(an.producidoKg.toFixed(2))).numFmt = '#,##0.00';
+  celda('D17', Number(an.rendimiento.toFixed(2)), { rojo: true }).numFmt = '0.00';
+  celda('E17:F17', Number(an.diferenciaKg.toFixed(2))).numFmt = '#,##0.00';
+  celda('G17', an.canastillas);
+  celda('H17', Number((an.canales ? an.producidoKg / an.canales : 0).toFixed(2))).numFmt = '#,##0.00';
+
+  celda('A19:H19', `ORDEN DE TRASLADO DE M.P A SALA No. ${d.odNumber}`, { label: true });
+  celda('A20', 'No.', { label: true });
+  celda('B20', 'CODIGO', { label: true });
+  celda('C20:F20', 'PRODUCTO', { label: true });
+  celda('G20', 'PIEZAS', { label: true });
+  celda('H20', 'CANT.(kg)', { label: true });
+  let row = 21;
   d.detalle.forEach((r, i) => {
     celda(`A${row}`, String(i + 1).padStart(2, '0'));
     celda(`B${row}`, r.codigo);
@@ -289,28 +458,50 @@ export async function descargarProduccionExcel(d: DetalleProduccion, operario: s
   // Pesaje y etiquetado: una fila consolidada por producto + tienda.
   const te = totalesEtiquetado(d);
   row += 2;
-  celda(`A${row}:H${row}`, `ORDEN DE PRODUCCIÓN (PESAJE Y ETIQUETADO) No. ${d.opNumber}`, { label: true });
+  celda(`A${row}:J${row}`, `ORDEN DE PRODUCCIÓN (PESAJE Y ETIQUETADO) No. ${d.opNumber}`, { label: true });
   row++;
-  ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'CANASTILLAS', 'UNDS', 'CANT.(kg)', 'RND(%)'].forEach((t, i) =>
-    celda(`${cols[i]}${row}`, t, { label: true }),
+  ['No.', 'CODIGO', 'PRODUCTO', 'TIENDA', 'CANASTILLAS', 'UNDS', 'CANT.(kg)', 'KG/CANAL', '% PART.', 'RND(%)'].forEach(
+    (t, i) => celda(`${cols[i]}${row}`, t, { label: true }),
   );
   row++;
-  d.etiquetado.forEach((r, i) => {
-    celda(`A${row}`, String(i + 1).padStart(2, '0'));
-    celda(`B${row}`, r.codigo);
-    celda(`C${row}`, r.producto);
-    celda(`D${row}`, tiendaEtiquetado(r));
-    celda(`E${row}`, r.canastillas);
-    celda(`F${row}`, r.unds);
-    celda(`G${row}`, r.kg, { right: true }).numFmt = '#,##0.00';
-    celda(`H${row}`, r.rendimiento).numFmt = '0.00';
-    row++;
-  });
+  const porCanal = (n: number) => Number((an.canales ? n / an.canales : 0).toFixed(2));
+  const variosTipos = an.grupos.length > 1;
+  for (const g of an.grupos) {
+    if (variosTipos) {
+      celda(`A${row}:J${row}`, g.tipo, { label: true });
+      row++;
+    }
+    g.filas.forEach((r, i) => {
+      celda(`A${row}`, String(i + 1).padStart(2, '0'));
+      celda(`B${row}`, r.codigo);
+      celda(`C${row}`, r.producto);
+      celda(`D${row}`, tiendaEtiquetado(r));
+      celda(`E${row}`, r.canastillas);
+      celda(`F${row}`, r.unds);
+      celda(`G${row}`, r.kg, { right: true }).numFmt = '#,##0.00';
+      celda(`H${row}`, porCanal(r.kg), { right: true }).numFmt = '#,##0.00';
+      celda(`I${row}`, Number(r.participacion.toFixed(2))).numFmt = '0.00';
+      celda(`J${row}`, r.rendimiento).numFmt = '0.00';
+      row++;
+    });
+    if (variosTipos) {
+      celda(`A${row}:D${row}`, `SUBTOTAL ${g.tipo}`, { label: true, right: true });
+      celda(`E${row}`, g.canastillas, { label: true });
+      celda(`F${row}`, g.unds, { label: true });
+      celda(`G${row}`, Number(g.kg.toFixed(2)), { label: true, right: true }).numFmt = '#,##0.00';
+      celda(`H${row}`, porCanal(g.kg), { label: true, right: true }).numFmt = '#,##0.00';
+      celda(`I${row}`, Number(g.participacion.toFixed(2)), { label: true }).numFmt = '0.00';
+      celda(`J${row}`, Number(g.rendimiento.toFixed(2)), { label: true }).numFmt = '0.00';
+      row++;
+    }
+  }
   celda(`A${row}:D${row}`, 'TOTALES', { label: true, right: true });
-  celda(`E${row}`, `${te.canastillas} canast.`, { label: true });
+  celda(`E${row}`, te.canastillas, { label: true });
   celda(`F${row}`, te.unds, { label: true });
   celda(`G${row}`, Number(te.kg.toFixed(2)), { label: true, right: true }).numFmt = '#,##0.00';
-  celda(`H${row}`, Number(te.rendimiento.toFixed(2)), { label: true }).numFmt = '0.00';
+  celda(`H${row}`, porCanal(te.kg), { label: true, right: true }).numFmt = '#,##0.00';
+  celda(`I${row}`, 100, { label: true }).numFmt = '0.00';
+  celda(`J${row}`, Number(te.rendimiento.toFixed(2)), { label: true }).numFmt = '0.00';
 
   row += 2;
   ws.getCell(`A${row}`).value = 'Elaboró: © Grupo Santacruz, 2026';

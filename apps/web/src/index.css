@@ -14,9 +14,9 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.02 260);
 
-  /* Primario: rojo profundo, guiño al dominio, tratado con sobriedad */
-  --primary: oklch(0.52 0.19 25);
-  --primary-foreground: oklch(0.99 0.01 20);
+  /* Primario: verde petróleo (#0E6B5C), complementa el rojo de la carne y evoca la cadena de frío */
+  --primary: oklch(0.47 0.09 178);
+  --primary-foreground: oklch(0.99 0.005 178);
 
   --secondary: oklch(0.97 0.003 250);
   --secondary-foreground: oklch(0.28 0.02 260);
@@ -35,13 +35,14 @@
 
   --border: oklch(0.78 0.008 260);
   --input: oklch(0.78 0.008 260);
-  --ring: oklch(0.52 0.19 25);
+  --ring: oklch(0.47 0.09 178);
 
-  --sidebar: oklch(0.21 0.02 260);
-  --sidebar-foreground: oklch(0.92 0.006 250);
-  --sidebar-muted: oklch(0.6 0.015 260);
-  --sidebar-accent: oklch(0.27 0.02 260);
-  --sidebar-border: oklch(0.3 0.02 260);
+  /* Barra superior: verde petróleo oscuro, de la misma familia que el primario */
+  --sidebar: oklch(0.3 0.045 182);
+  --sidebar-foreground: oklch(0.97 0.006 182);
+  --sidebar-muted: oklch(0.78 0.025 182);
+  --sidebar-accent: oklch(0.37 0.05 182);
+  --sidebar-border: oklch(0.42 0.045 182);
 }
 
 @theme inline {
@@ -109,25 +110,39 @@
 
 /* Scrollbar visible y a juego con el diseño para listas/tablas largas
    (más ancha y fácil de agarrar con el dedo en pantallas táctiles). */
+/* "auto" deshace el scrollbar-width: none global; con otro valor Chromium ignoraría el diseño ::-webkit. */
 .scrollbar-app {
-  scrollbar-width: thin;
-  scrollbar-color: oklch(0.6 0.015 260) transparent;
+  scrollbar-width: auto;
+  scrollbar-color: auto;
 }
 .scrollbar-app::-webkit-scrollbar {
-  width: 12px;
-  height: 12px;
+  width: 8px;
+  height: 8px;
 }
 .scrollbar-app::-webkit-scrollbar-track {
-  background: transparent;
+  background-color: oklch(0.95 0.003 260);
+  border-radius: 9999px;
+  margin: 6px 0;
 }
 .scrollbar-app::-webkit-scrollbar-thumb {
-  background-color: oklch(0.6 0.015 260);
+  background-color: oklch(0.72 0.01 260);
   border-radius: 9999px;
-  border: 3px solid var(--color-card);
-  background-clip: padding-box;
 }
 .scrollbar-app::-webkit-scrollbar-thumb:hover {
-  background-color: oklch(0.48 0.015 260);
+  background-color: oklch(0.58 0.012 260);
+}
+.scrollbar-app::-webkit-scrollbar-thumb:active {
+  background-color: oklch(0.45 0.015 260);
+}
+.scrollbar-app::-webkit-scrollbar-corner {
+  background: transparent;
+}
+/* Navegadores sin ::-webkit-scrollbar (Firefox). En Chromium no se aplica: anularía el diseño de arriba. */
+@supports not selector(::-webkit-scrollbar) {
+  .scrollbar-app {
+    scrollbar-width: auto;
+    scrollbar-color: oklch(0.72 0.01 260) oklch(0.95 0.003 260);
+  }
 }
 
 @keyframes pop-in {
@@ -170,6 +185,60 @@
 .animate-check-draw {
   stroke-dasharray: 48;
   animation: check-draw 0.5s ease-out 0.25s both;
+}
+
+/* Brillo tipo diamante: un destello que recorre el texto y el logo cada pocos segundos. */
+@keyframes destello {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+@keyframes destello-barrido {
+  from {
+    transform: translateX(-150%) skewX(-20deg);
+  }
+  to {
+    transform: translateX(350%) skewX(-20deg);
+  }
+}
+.texto-diamante {
+  background-image: linear-gradient(
+    110deg,
+    #1f2937 0%,
+    #1f2937 42%,
+    #9ca3af 48%,
+    #ffffff 50%,
+    #9ca3af 52%,
+    #1f2937 58%,
+    #1f2937 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: destello 2.8s linear infinite;
+}
+.brillo-diamante {
+  position: relative;
+  overflow: hidden;
+}
+.brillo-diamante::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 0.75), transparent);
+  animation: destello-barrido 2.8s linear infinite;
+  pointer-events: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .texto-diamante,
+  .brillo-diamante::after {
+    animation: none;
+  }
 }
 
 /* Teclado en pantalla (react-simple-keyboard): teclas más grandes para táctil. */

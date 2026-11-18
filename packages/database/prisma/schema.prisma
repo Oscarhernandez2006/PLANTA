@@ -598,6 +598,9 @@ model ProductionOrder {
   dispatchOrderId  String              @map("dispatch_order_id") @db.Uuid
   status           DispatchOrderStatus @default(activo)
   createdById      String              @map("created_by") @db.Uuid
+  // Cierre explícito: lo autoriza un supervisor con su PIN.
+  cerradaAt        DateTime?           @map("cerrada_at") @db.Timestamptz(6)
+  cerradaById      String?             @map("cerrada_by") @db.Uuid
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
@@ -732,6 +735,23 @@ model RotuladoEtiqueta {
   @@map("rotulado_etiqueta")
 }
 
+// Bitácora de reimpresiones de etiquetas de Rotulado Desposte (pieza o canastilla).
+model RotuladoReimpresion {
+  id                String   @id @default(uuid()) @db.Uuid
+  plantId           String   @map("plant_id") @db.Uuid
+  productionOrderId String   @map("production_order_id") @db.Uuid
+  tipo              String
+  codigo            String
+  etiquetaId        String?  @map("etiqueta_id") @db.Uuid
+  canastillaId      String?  @map("canastilla_id") @db.Uuid
+  estacion          String?
+  userId            String   @map("user_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([productionOrderId])
+  @@map("rotulado_reimpresion")
+}
+
 // Canastilla (caja) de Rotulado Desposte: agrupa piezas de un producto para una tienda.
 // Mientras cerradaAt es null sigue abierta (máximo una abierta por orden y producto).
 model RotuladoCanastilla {
@@ -795,6 +815,9 @@ model CanalReceiptOrder {
   clientId         String              @map("client_id") @db.Uuid
   status           DispatchOrderStatus @default(activo)
   createdById      String              @map("created_by") @db.Uuid
+  // Cierre autorizado con el PIN de un supervisor.
+  cerradaAt        DateTime?           @map("cerrada_at") @db.Timestamptz(6)
+  cerradaById      String?             @map("cerrada_by") @db.Uuid
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
@@ -809,7 +832,35 @@ model CanalReceiptOrder {
   @@map("canal_receipt_order")
 }
 
-// Recibo en Posta: orden de recibo (solo registro, sin ítems). Numeración propia por planta.
+// Bitácora de reimpresiones de rótulos de Recibo de Canales.
+model CanalReceiptReimpresion {
+  id             String   @id @default(uuid()) @db.Uuid
+  plantId        String   @map("plant_id") @db.Uuid
+  receiptOrderId String   @map("receipt_order_id") @db.Uuid
+  itemId         String   @map("item_id") @db.Uuid
+  estacion       String?
+  userId         String   @map("user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([receiptOrderId])
+  @@map("canal_receipt_reimpresion")
+}
+
+// Bitácora de reimpresiones de rótulos de Recibo en Posta.
+model PostaReceiptReimpresion {
+  id             String   @id @default(uuid()) @db.Uuid
+  plantId        String   @map("plant_id") @db.Uuid
+  receiptOrderId String   @map("receipt_order_id") @db.Uuid
+  itemId         String   @map("item_id") @db.Uuid
+  estacion       String?
+  userId         String   @map("user_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([receiptOrderId])
+  @@map("posta_receipt_reimpresion")
+}
+
+// Recibo en Posta: orden de recibo. Numeración propia por planta.
 model PostaReceiptOrder {
   id               String              @id @default(uuid()) @db.Uuid
   plantId          String              @map("plant_id") @db.Uuid
@@ -819,6 +870,9 @@ model PostaReceiptOrder {
   clientId         String              @map("client_id") @db.Uuid
   status           DispatchOrderStatus @default(activo)
   createdById      String              @map("created_by") @db.Uuid
+  // Cierre autorizado con el PIN de un supervisor.
+  cerradaAt        DateTime?           @map("cerrada_at") @db.Timestamptz(6)
+  cerradaById      String?             @map("cerrada_by") @db.Uuid
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
@@ -843,6 +897,13 @@ model PostaReceiptItem {
   taraKg         Decimal  @map("tara_kg") @db.Decimal(12, 2)
   brutoKg        Decimal  @map("bruto_kg") @db.Decimal(12, 2)
   netoKg         Decimal  @map("neto_kg") @db.Decimal(12, 2)
+  piezas         Int      @default(1)
+  empaques       Int      @default(0)
+  lote           String?
+  // 'refrigerado' | 'congelado'
+  conservacion   String?
+  fechaSacrificio  DateTime? @map("fecha_sacrificio") @db.Date
+  fechaVencimiento DateTime? @map("fecha_vencimiento") @db.Date
   createdById    String   @map("created_by") @db.Uuid
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -1343,7 +1404,7 @@ model OrdenBeneficio {
   animales    PesoEnPie[]
   costoGanado CostoGanado?
 
-  @@unique([plantId, date, reference])
+  @@unique([plantId, reference])
   @@index([plantId, status])
   @@map("orden_beneficio")
 }

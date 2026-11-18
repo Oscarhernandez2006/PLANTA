@@ -59,7 +59,7 @@ export function bloquesResumen(d: DetalleProceso): { titulo: string; datos: Par[
     datos: g
       ? [
           ['Guía de movilización', g.guia ?? '—'],
-          ['Consecutivo BC', formatReferencia(g.bcReference)],
+          ['Consecutivo BC', (g.bcReferencias ?? [g.bcReference]).map(formatReferencia).join(', ')],
           ['Referencia', g.referenciaLote ?? '—'],
           ['Fecha', g.date],
           ['Finca (procedencia)', g.procedencia ?? '—'],
@@ -79,10 +79,10 @@ export function bloquesResumen(d: DetalleProceso): { titulo: string; datos: Par[
       : [['Guía', 'No se encontró la guía de la orden en Peso en Camión.']],
   });
   bloques.push({
-    titulo: 'PESO EN PIE (GUÍA COMPLETA)',
+    titulo: 'PESO EN PIE',
     datos: p
       ? [
-          ['Consecutivo BP', formatBP(p.bpReference)],
+          ['Consecutivo BP', (p.bpReferencias ?? [p.bpReference]).map(formatBP).join(', ')],
           ['Animales pesados', String(p.animales)],
           ['Tipo de pesaje', p.tiposPesaje.map((t) => (t === 'promediado' ? 'Promediado' : 'Individual')).join(', ')],
           ['Corrales', p.corrales.join(', ') || '—'],

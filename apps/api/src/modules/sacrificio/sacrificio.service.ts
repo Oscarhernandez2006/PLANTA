@@ -78,7 +78,13 @@ export class SacrificioService {
         ...(dia ? { date: dia } : {}),
       },
       orderBy: [{ date: 'asc' }, { reference: 'asc' }],
-      include: { _count: { select: { eventos: true } } },
+      include: {
+        _count: { select: { eventos: true } },
+        animales: {
+          where: { deletedAt: null },
+          select: { bpReference: true, bcReference: true, tipoAnimal: true, corral: true },
+        },
+      },
       take: 1000,
     });
     const bases = await this.consecutivoBases(
@@ -86,19 +92,44 @@ export class SacrificioService {
       [...new Set(rows.map((r) => r.date.getTime()))].map((t) => new Date(t)),
     );
     const nits = await this.nitsPorCliente(rows.map((r) => r.cliente));
-    return rows.map((r) => ({
-      id: r.id,
-      reference: r.reference,
-      date: r.date.toISOString().slice(0, 10),
-      cliente: r.cliente,
-      clienteNit: nits.get(r.cliente) ?? null,
-      guias: r.guias,
-      animalCount: r.animalCount,
-      consecutivoBase: bases.get(r.id) ?? 0,
-      status: r.status,
-      insensibilizados: r._count.eventos,
-      cabezasPatas: r.cabezasPatas,
-    }));
+    const bcRefs = [
+      ...new Set(rows.flatMap((r) => r.animales.map((a) => a.bcReference)).filter((x): x is number => x != null)),
+    ];
+    const camiones = bcRefs.length
+      ? await this.prisma.pesoCamion.findMany({
+          where: { plantId: ctx.plantId, deletedAt: null, reference: { in: bcRefs } },
+          select: { reference: true, referenciaLote: true },
+        })
+      : [];
+    const lotePorBc = new Map(camiones.map((c) => [c.reference, c.referenciaLote?.trim() || null]));
+    const unicos = <T,>(xs: (T | null | undefined)[]) =>
+      [...new Set(xs.filter((x): x is T => x != null && x !== ''))];
+    return rows.map((r) => {
+      const tipos = new Map<string, number>();
+      for (const a of r.animales) {
+        const t = a.tipoAnimal?.trim().toUpperCase() || 'SIN TIPO';
+        tipos.set(t, (tipos.get(t) ?? 0) + 1);
+      }
+      const bcs = unicos(r.animales.map((a) => a.bcReference)).sort((a, b) => a - b);
+      return {
+        id: r.id,
+        reference: r.reference,
+        date: r.date.toISOString().slice(0, 10),
+        cliente: r.cliente,
+        clienteNit: nits.get(r.cliente) ?? null,
+        guias: r.guias,
+        animalCount: r.animalCount,
+        consecutivoBase: bases.get(r.id) ?? 0,
+        status: r.status,
+        insensibilizados: r._count.eventos,
+        cabezasPatas: r.cabezasPatas,
+        bcReferencias: bcs,
+        bpReferencias: unicos(r.animales.map((a) => a.bpReference)).sort((a, b) => a - b),
+        lotes: unicos(bcs.map((b) => lotePorBc.get(b))),
+        corrales: unicos(r.animales.map((a) => a.corral?.trim())),
+        tipos: [...tipos].map(([tipo, cantidad]) => ({ tipo, cantidad })),
+      };
+    });
   }
 
   /** Detalle de una orden con su registro de eventos. */

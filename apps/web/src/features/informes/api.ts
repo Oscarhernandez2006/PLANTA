@@ -35,6 +35,11 @@ export interface DetallePieza {
   codigo: string;
   producto: string;
   pesoKg: number;
+  /** Peso vivo vigente del animal (repesado si lo hubo). */
+  vivoKg: number | null;
+  cava: string | null;
+  weighedAt: string;
+  operario: string | null;
 }
 
 export interface DetalleCanalCaliente {
@@ -46,6 +51,12 @@ export interface DetalleCanalCaliente {
   clienteCiudad: string | null;
   destino: string | null;
   date: string;
+  guias: string[];
+  lotes: string[];
+  procedencias: string[];
+  proveedores: string[];
+  sacrificioDesde: string | null;
+  sacrificioHasta: string | null;
   piezas: DetallePieza[];
 }
 
@@ -76,11 +87,19 @@ export interface DetalleProduccion extends InformeProduccionRow {
   productoTerminado: string | null;
   fechaSacrificio: string | null;
   fechaIngreso: string | null;
+  cerradaAt?: string | null;
+  cerradaPor?: string | null;
+  /** Animales (canales) de la materia prima. */
+  canales?: number;
+  obReferencias?: number[];
+  guias?: string[];
+  control?: { noImpresas: number; sobrantes: number; borradas: number; reimpresiones?: number; estaciones: string[] };
   detalle: { codigo: string; producto: string; piezas: number; kg: number }[];
   /** Productos etiquetados en Rotulado Desposte, consolidados por producto y tienda. */
   etiquetado: {
     codigo: string;
     producto: string;
+    tipo?: string;
     tiendaCodigo: string;
     tienda: string;
     canastillas: number;
@@ -88,13 +107,17 @@ export interface DetalleProduccion extends InformeProduccionRow {
     sobrantes: number;
     kg: number;
     rendimiento: number;
-    /** Detalle empaque por empaque, para desplegar la fila consolidada. */
+    /** Detalle por canastilla (o pieza suelta sin canastilla), para desplegar la fila consolidada. */
     detalle: {
-      pieza: number;
-      codigo: string | null;
+      /** N.º de la canastilla (referencia); null si la pieza no tiene canastilla. */
       canastilla: number | null;
+      /** Cantidad de canastillas de la fila (1, o 0 si no tiene). */
+      canastillas: number;
+      unds: number;
+      piezaDesde: number;
+      piezaHasta: number;
       empaque: string;
-      sobrante: boolean;
+      sobrantes: number;
       kg: number;
       rendimiento: number;
     }[];
@@ -277,6 +300,7 @@ export interface DetalleProceso {
   guia: {
     guia: string | null;
     bcReference: number;
+    bcReferencias: number[];
     referenciaLote: string | null;
     date: string;
     procedencia: string | null;
@@ -297,6 +321,7 @@ export interface DetalleProceso {
   } | null;
   pie: {
     bpReference: number;
+    bpReferencias: number[];
     animales: number;
     tiposPesaje: string[];
     pesoInicialKg: number;

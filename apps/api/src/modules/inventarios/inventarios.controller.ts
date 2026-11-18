@@ -21,6 +21,11 @@ export class InventariosController {
     return this.service.piezaPorBarcode(user, barcode);
   }
 
+  @Get('resumen')
+  resumen(@CurrentUser() user: AuthContext) {
+    return this.service.resumen(user);
+  }
+
   @Get('cavas/:cava')
   cava(
     @CurrentUser() user: AuthContext,
@@ -51,6 +56,16 @@ export class InventariosController {
   @Get('etiquetas/:id/trazabilidad')
   trazabilidadEtiqueta(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.trazabilidadEtiqueta(user, id);
+  }
+
+  @Get('recibos-canal/:id/trazabilidad')
+  trazabilidadReciboCanal(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.trazabilidadReciboCanal(user, id);
+  }
+
+  @Get('recibos-posta/:id/trazabilidad')
+  trazabilidadReciboPosta(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.trazabilidadReciboPosta(user, id);
   }
 
   @Get('cavas-subproducto/:cava')
