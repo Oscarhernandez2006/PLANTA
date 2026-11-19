@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { isAxiosError } from 'axios';
-import { Barcode, Check, Gauge, LoaderCircle, Trash2, TriangleAlert } from 'lucide-react';
+import { Barcode, Check, Gauge, LoaderCircle, Printer, Trash2, TriangleAlert } from 'lucide-react';
 import { useBascula } from '@/components/bascula/Bascula';
 import { useKeyboard } from '@/components/keyboard/keyboard-context';
 import { NumericKeypad } from '@/components/keyboard/NumericKeypad';
+import { Button } from '@/components/ui/button';
 import { printRaw } from '@/lib/device';
 import { cn, plantToday as today, soloDecimal } from '@/lib/utils';
 import { useBodegas, type Tienda } from '../clientes/api';
@@ -224,351 +225,315 @@ export function EmbalajeAcondicionamiento({
     }
   }
 
-  const botonIcono =
-    'flex size-12 items-center justify-center rounded-md border-2 border-foreground/70 bg-card hover:bg-muted disabled:opacity-40';
+  const filaSel = etiquetas.find((e) => e.id === seleccionada) ?? null;
 
   return (
-    <div className="flex h-full flex-col gap-3 p-2 pt-4">
+    <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[minmax(0,1fr)_340px]">
       {alerta && (
-        <div
-          key={alerta.id}
-          className="pointer-events-none fixed inset-x-0 top-4 z-50 flex justify-center px-4"
-        >
+        <div key={alerta.id} className="pointer-events-none fixed inset-x-0 top-24 z-50 flex justify-center px-4">
           <div
             role="alert"
-            className="flex max-w-md items-start gap-3 rounded-md border-2 border-amber-400 bg-card px-5 py-4 shadow-2xl"
+            className="flex w-[30rem] max-w-full items-start gap-3 rounded-xl border border-amber-200 bg-white px-4 py-3 shadow-lg animate-in fade-in-0 slide-in-from-top-2"
           >
-            <TriangleAlert className="mt-0.5 size-7 shrink-0 text-amber-500" />
-            <p className="text-base font-semibold text-foreground">{alerta.texto}</p>
+            <TriangleAlert className="mt-0.5 size-5 shrink-0 text-amber-500" />
+            <p className="text-sm font-medium text-foreground">{alerta.texto}</p>
           </div>
         </div>
       )}
 
-      {/* Tienda */}
-      <div className="grid grid-cols-[200px_1fr] gap-2">
-        <FieldBox label="Cód. Tienda:">
-          <div className="flex h-8 items-center justify-center truncate text-lg tabular-nums">
-            {prefijo ? `${prefijo}-${tienda.codigo}` : tienda.codigo}
+      {/* Centro: producto, configuración y etiquetas */}
+      <div className="flex min-h-0 flex-col gap-3">
+        <div className="shrink-0 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <div className="truncate text-xl font-bold uppercase">{producto.nombre}</div>
+              <div className="text-sm text-muted-foreground">
+                Código <span className="tabular-nums">{producto.codigo}</span> · Lote{' '}
+                <span className="tabular-nums">{formatOC(orden.ocNumber)}</span>
+              </div>
+            </div>
+            <div className="text-right">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tienda</div>
+              <div className="truncate text-lg font-bold uppercase text-primary">
+                <span className="tabular-nums">{prefijo ? `${prefijo}-${tienda.codigo}` : tienda.codigo}</span> · {tienda.nombre}
+              </div>
+            </div>
           </div>
-        </FieldBox>
-        <FieldBox label="Tienda:">
-          <div className="flex h-8 items-center truncate text-xl font-medium uppercase text-red-600">
-            {tienda.nombre}
-          </div>
-        </FieldBox>
-      </div>
-
-      {/* Lote, código y producto */}
-      <div className="grid grid-cols-[160px_160px_1fr] gap-2">
-        <FieldBox label="Lote No.:">
-          <div className="flex h-8 items-center justify-center text-xl font-bold tabular-nums">
-            {formatOC(orden.ocNumber)}
-          </div>
-        </FieldBox>
-        <FieldBox label="Código:">
-          <div className="flex h-8 items-center justify-center text-xl tabular-nums">
-            {producto.codigo}
-          </div>
-        </FieldBox>
-        <FieldBox label={<span className="truncate">Producto: {producto.nombre}</span>}>
-          <div className="flex h-8 items-center truncate text-xl font-medium uppercase text-red-600">
-            {producto.nombre}
-          </div>
-        </FieldBox>
-      </div>
-
-      {/* Fechas y conservación */}
-      <div className="grid grid-cols-[1fr_1fr_1fr_80px_1.4fr] gap-2">
-        <FieldBox label="Sacrificio:">
-          <div
-            title="La fecha de sacrificio más antigua de lo trasladado en la orden de traslado"
-            className="flex h-8 items-center justify-center text-xl tabular-nums"
-          >
-            {resumen.isLoading ? (
-              <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-            ) : sacrificio ? (
-              fechaCorta(sacrificio)
-            ) : (
-              '—'
-            )}
-          </div>
-        </FieldBox>
-        <FieldBox label="Empaque:">
-          <div className="flex h-8 items-center justify-center text-xl tabular-nums text-red-600">
-            {fechaCorta(empaque)}
-          </div>
-        </FieldBox>
-        <FieldBox label="Vencimiento:">
-          <div className="flex h-8 items-center justify-center text-xl tabular-nums text-red-600">
-            {dias > 0 ? fechaCorta(vencimiento) : '—'}
-          </div>
-        </FieldBox>
-        <FieldBox label="Días:">
-          <div className="flex h-8 items-center justify-center text-xl font-bold tabular-nums">
-            {dias}
-          </div>
-        </FieldBox>
-        <FieldBox label={`Conservación: ${temp}`}>
-          <div className="flex h-8 items-center gap-2">
-            {(['refrigerado', 'congelado'] as const).map((c) => (
-              <button
-                key={c}
-                onClick={() => setConservacion(c)}
-                aria-pressed={conservacion === c}
-                className={cn(
-                  'h-7 flex-1 select-none text-sm font-bold uppercase transition-colors',
-                  conservacion === c
-                    ? cn(
-                        'border-[3px] border-foreground',
-                        c === 'refrigerado' ? 'bg-sky-300' : 'bg-blue-600 text-white',
-                      )
-                    : 'border-2 border-foreground/60 bg-card text-foreground/70 hover:bg-muted',
-                )}
-              >
-                {c}
-              </button>
-            ))}
-          </div>
-        </FieldBox>
-      </div>
-
-      {/* Pesaje */}
-      <div className="flex items-stretch gap-2">
-        <FieldBox label="Ref:" className="min-w-0 flex-1">
-          <input
-            value={ref}
-            onChange={(e) => setRef(e.target.value.replace(/\D/g, ''))}
-            onDoubleClick={keyboard.open}
-            inputMode="numeric"
-            maxLength={30}
-            className="h-9 w-full bg-transparent text-2xl font-bold tabular-nums outline-none"
-          />
-        </FieldBox>
-        <FieldBox label="Empaque:" className="w-32 shrink-0">
-          <button
-            onClick={() => setAlVacio((v) => !v)}
-            title="Cambiar tipo de empaque"
-            className={cn(
-              'my-1 h-8 w-full border-2 border-foreground/80 text-base font-medium uppercase',
-              alVacio ? 'bg-sky-300' : 'bg-red-600 text-white',
-            )}
-          >
-            {alVacio ? 'Al vacío' : 'A granel'}
-          </button>
-        </FieldBox>
-        <FieldBox label="Tara:" className="w-28 shrink-0">
-          <input
-            value={tara}
-            onChange={(e) => setTara(soloDecimal(e.target.value))}
-            onClick={() => setTecladoTara(true)}
-            inputMode="none"
-            className="my-1 h-8 w-full border-2 border-foreground/80 bg-transparent text-center text-xl font-bold tabular-nums outline-none"
-          />
-          {tecladoTara && (
-            <NumericKeypad value={tara} onChange={setTara} onClose={() => setTecladoTara(false)} />
-          )}
-        </FieldBox>
-        <FieldBox label="Bruto(kg)" className="w-28 shrink-0">
-          <input
-            value={bruto}
-            onChange={(e) => setBruto(soloDecimal(e.target.value))}
-            onClick={() => setTecladoBruto(true)}
-            inputMode="none"
-            title="Digita el peso o léelo de la báscula"
-            className="h-9 w-full bg-transparent text-center text-2xl font-bold tabular-nums text-red-600 outline-none"
-          />
-          {tecladoBruto && (
-            <NumericKeypad value={bruto} onChange={setBruto} onClose={() => setTecladoBruto(false)} />
-          )}
-        </FieldBox>
-        <FieldBox label="Neto(kg):" className="w-28 shrink-0">
-          <input
-            value={netoTexto}
-            onChange={(e) => setNetoManual(soloDecimal(e.target.value))}
-            onClick={() => setTecladoNeto(true)}
-            inputMode="none"
-            title="Se calcula como bruto − tara; también se puede digitar"
-            className="h-9 w-full bg-transparent text-center text-2xl font-bold tabular-nums text-emerald-600 outline-none"
-          />
-          {tecladoNeto && (
-            <NumericKeypad
-              value={netoTexto}
-              onChange={setNetoManual}
-              onClose={() => setTecladoNeto(false)}
-            />
-          )}
-        </FieldBox>
-        <div className="flex shrink-0 items-center gap-2">
-          <button onClick={leerBascula} disabled={leyendo} title="Leer báscula" className={botonIcono}>
-            {leyendo ? <LoaderCircle className="size-7 animate-spin" /> : <Gauge className="size-8" />}
-          </button>
-          <button
-            onClick={() => void etiquetar()}
-            disabled={(netoKg <= 0 && !seleccionada) || imprimiendo}
-            title={seleccionada ? 'Reimprimir la etiqueta seleccionada' : 'Etiquetar producto'}
-            className={botonIcono}
-          >
-            {imprimiendo ? <LoaderCircle className="size-7 animate-spin" /> : <Barcode className="size-8" />}
-          </button>
         </div>
-      </div>
 
-      {/* Bodega y destino */}
-      <div className="grid grid-cols-2 gap-2">
-        <FieldBox label="Bodegas:">
-          {bodegas.isLoading ? (
-            <LoaderCircle className="my-2 size-5 animate-spin text-muted-foreground" />
-          ) : !bodegasActivas.length ? (
-            <p className="py-2 text-sm text-muted-foreground">
-              El cliente no tiene bodegas activas (Administrativo → Clientes → Bodegas).
-            </p>
-          ) : (
-            <ul className="my-1 flex max-h-[5.5rem] flex-col gap-1 overflow-auto">
-              {bodegasActivas.map((b) => {
-                const sel = bodegaSel === b.id;
-                return (
-                  <li key={b.id}>
+        <div className="shrink-0 space-y-3 rounded-xl border border-border bg-card px-4 py-3 shadow-sm">
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2 lg:grid-cols-4">
+            <Dato label="Sacrificio">
+              {resumen.isLoading ? (
+                <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
+              ) : sacrificio ? (
+                fechaCorta(sacrificio)
+              ) : (
+                '—'
+              )}
+            </Dato>
+            <Dato label="Empaque">{fechaCorta(empaque)}</Dato>
+            <Dato label="Vencimiento">{dias > 0 ? fechaCorta(vencimiento) : '—'}</Dato>
+            <Dato label="Días">{dias}</Dato>
+          </div>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Conservación · {temp}</span>
+              <div className="flex gap-1 rounded-lg bg-muted p-1">
+                {(['refrigerado', 'congelado'] as const).map((c) => (
+                  <button
+                    key={c}
+                    onClick={() => setConservacion(c)}
+                    aria-pressed={conservacion === c}
+                    className={cn(
+                      'h-9 rounded-md px-3 text-sm font-semibold uppercase transition-colors',
+                      conservacion === c
+                        ? c === 'refrigerado'
+                          ? 'bg-sky-500 text-white shadow-sm'
+                          : 'bg-blue-700 text-white shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {c}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Empaque</span>
+              <div className="flex gap-1 rounded-lg bg-muted p-1">
+                {[
+                  { v: true, t: 'Al vacío' },
+                  { v: false, t: 'A granel' },
+                ].map((o) => (
+                  <button
+                    key={o.t}
+                    onClick={() => setAlVacio(o.v)}
+                    aria-pressed={alVacio === o.v}
+                    className={cn(
+                      'h-9 rounded-md px-3 text-sm font-semibold uppercase transition-colors',
+                      alVacio === o.v ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
+                    )}
+                  >
+                    {o.t}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <FieldBox label="Ref." className="w-32">
+              <input
+                value={ref}
+                onChange={(e) => setRef(e.target.value.replace(/\D/g, ''))}
+                onDoubleClick={keyboard.open}
+                inputMode="numeric"
+                maxLength={30}
+                className="h-9 w-full bg-transparent text-lg font-bold tabular-nums outline-none"
+              />
+            </FieldBox>
+            <FieldBox label="Procesado para" className="min-w-48 flex-1">
+              <select
+                value={procesadoPara}
+                onChange={(e) => setProcesadoPara(e.target.value)}
+                className="h-9 w-full bg-transparent text-base outline-none"
+              >
+                <option value="" />
+                <option value={orden.cliente.concepto}>{orden.cliente.concepto}</option>
+              </select>
+            </FieldBox>
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Bodega</span>
+            {bodegas.isLoading ? (
+              <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
+            ) : !bodegasActivas.length ? (
+              <p className="text-sm text-muted-foreground">El cliente no tiene bodegas activas (Administrativo → Clientes → Bodegas).</p>
+            ) : (
+              <div className="flex max-h-20 flex-wrap gap-2 overflow-auto">
+                {bodegasActivas.map((b) => {
+                  const sel = bodegaSel === b.id;
+                  return (
                     <button
+                      key={b.id}
                       type="button"
                       onClick={() => setBodegaId(b.id)}
                       aria-pressed={sel}
                       className={cn(
-                        'flex h-9 w-full select-none items-center gap-2 rounded-md border-2 px-3 text-left text-sm font-semibold uppercase transition-colors',
-                        sel
-                          ? 'border-emerald-600 bg-emerald-50 text-emerald-800'
-                          : 'border-border bg-card hover:bg-muted',
+                        'flex h-9 select-none items-center gap-2 rounded-lg border px-3 text-sm font-semibold uppercase transition-colors',
+                        sel ? 'border-primary bg-primary/10 text-primary' : 'border-border bg-card hover:bg-muted',
                       )}
                     >
-                      <span
-                        className={cn(
-                          'flex size-5 shrink-0 items-center justify-center rounded-full border-2',
-                          sel ? 'border-emerald-600 bg-emerald-600 text-white' : 'border-muted-foreground/50',
-                        )}
-                      >
-                        {sel && <Check className="size-3.5" />}
-                      </span>
+                      {sel && <Check className="size-4" />}
                       <span className="tabular-nums">{b.code}</span> - {b.nombre}
                     </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </FieldBox>
-        <FieldBox label="Procesado Para:">
-          <select
-            value={procesadoPara}
-            onChange={(e) => setProcesadoPara(e.target.value)}
-            className="my-1 h-8 w-full border border-border bg-card px-2 text-base outline-none"
-          >
-            <option value="" />
-            <option value={orden.cliente.concepto}>{orden.cliente.concepto}</option>
-          </select>
-        </FieldBox>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Etiquetas hechas */}
+        <div className="flex min-h-40 flex-1 flex-col rounded-xl border border-border bg-card shadow-sm">
+          <div className="flex flex-wrap items-center gap-3 px-4 pb-2 pt-3">
+            <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Etiquetas <span className="tabular-nums text-foreground">({etiquetas.length})</span> ·{' '}
+              <span className="tabular-nums text-foreground">{kg(totalNeto)}</span> kg
+            </h3>
+            <label className="flex items-center gap-2 text-sm font-medium">
+              <input type="checkbox" checked={imprimir} onChange={(e) => setImprimir(e.target.checked)} className="size-4 accent-[var(--primary)]" />
+              Imprimir etiqueta de producto
+            </label>
+            {filaSel && (
+              <Button
+                variant="outline"
+                className="ml-auto h-9 border-red-200 text-red-700 hover:bg-red-50"
+                disabled={borrarEtiqueta.isPending}
+                onClick={() =>
+                  borrarEtiqueta.mutate(filaSel.id, {
+                    onSuccess: () => setSeleccionada(null),
+                    onError: (err) => setAlerta({ id: Date.now(), texto: mensajeApi(err, 'No se pudo borrar la etiqueta.') }),
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
+                Borrar #{filaSel.pieza}
+              </Button>
+            )}
+          </div>
+          <div className="scrollbar-app min-h-0 flex-1 overflow-auto text-sm">
+            <table className="w-full tabular-nums">
+              <thead className="sticky top-0 bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                <tr className="[&>th]:h-9 [&>th]:px-3">
+                  <th>Pieza</th>
+                  <th>Código de barras</th>
+                  <th>Hora</th>
+                  <th>Tienda</th>
+                  <th className="text-right">Bruto</th>
+                  <th className="text-right">Tara</th>
+                  <th className="text-right">Neto</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {etiquetas.map((e) => (
+                  <tr
+                    key={e.id}
+                    onClick={() => setSeleccionada((s) => (s === e.id ? null : e.id))}
+                    title="Tocá para reimprimirla o borrarla"
+                    className={cn(
+                      'h-10 cursor-pointer transition-colors [&>td]:px-3',
+                      seleccionada === e.id ? 'bg-primary text-primary-foreground' : 'hover:bg-muted/40',
+                    )}
+                  >
+                    <td className="font-semibold">#{e.pieza}</td>
+                    <td className="font-mono font-semibold">{e.codigo}</td>
+                    <td>{horaDe(e.createdAt)}</td>
+                    <td>{e.tiendaCodigo}</td>
+                    <td className="text-right">{kg(e.brutoKg)}</td>
+                    <td className="text-right">{kg(e.taraKg)}</td>
+                    <td className="text-right font-bold">{kg(e.netoKg)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!etiquetas.length && <p className="p-6 text-center text-sm text-muted-foreground">Aún no hay etiquetas de este producto.</p>}
+          </div>
+        </div>
       </div>
 
-      {/* Etiquetas hechas */}
-      <FieldBox
-        className="flex min-h-16 flex-1 flex-col"
-        label={
-          <span className="flex items-center gap-1.5">
-            Producto Etiquetado:
+      {/* Panel de pesaje */}
+      <div className="flex min-h-0 flex-col gap-3 overflow-auto rounded-xl border border-border bg-card p-4 shadow-sm">
+        <div className="grid grid-cols-2 gap-3">
+          <FieldBox label="Tara (kg)">
             <input
-              type="checkbox"
-              checked={imprimir}
-              onChange={(e) => setImprimir(e.target.checked)}
-              className="size-4 accent-sky-600"
+              value={tara}
+              onChange={(e) => setTara(soloDecimal(e.target.value))}
+              onClick={() => setTecladoTara(true)}
+              inputMode="none"
+              className="h-10 w-full bg-transparent text-center text-2xl font-bold tabular-nums outline-none"
             />
-            <span className="text-emerald-700">Imprimir Etiqueta de Producto.</span>
-          </span>
-        }
-      >
-        <div className="min-h-0 flex-1 overflow-auto pt-2 text-sm">
-          <table className="w-full border-collapse tabular-nums">
-            <thead className="sticky top-0 bg-card">
-              <tr className="border-b-2 border-border text-left text-xs font-semibold uppercase text-muted-foreground">
-                <th className="px-2 py-1">Pieza</th>
-                <th className="px-2 py-1">Código de barras</th>
-                <th className="px-2 py-1">Hora</th>
-                <th className="px-2 py-1">Tienda</th>
-                <th className="px-2 py-1 text-right">Bruto (kg)</th>
-                <th className="px-2 py-1 text-right">Tara (kg)</th>
-                <th className="px-2 py-1 text-right">Neto (kg)</th>
-              </tr>
-            </thead>
-            <tbody>
-              {etiquetas.map((e) => (
-                <tr
-                  key={e.id}
-                  onClick={() => setSeleccionada((s) => (s === e.id ? null : e.id))}
-                  className={cn(
-                    'cursor-pointer border-b border-border',
-                    seleccionada === e.id
-                      ? 'bg-sky-200 outline outline-2 -outline-offset-2 outline-sky-600'
-                      : 'odd:bg-muted/30 hover:bg-muted',
-                  )}
-                >
-                  <td className="px-2 py-1 font-semibold">#{e.pieza}</td>
-                  <td className="px-2 py-1 font-semibold">{e.codigo}</td>
-                  <td className="px-2 py-1">{horaDe(e.createdAt)}</td>
-                  <td className="px-2 py-1">
-                    {e.tiendaCodigo} · {e.tiendaNombre}
-                  </td>
-                  <td className="px-2 py-1 text-right">{kg(e.brutoKg)}</td>
-                  <td className="px-2 py-1 text-right">{kg(e.taraKg)}</td>
-                  <td className="px-2 py-1 text-right font-bold text-emerald-700">{kg(e.netoKg)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            {tecladoTara && <NumericKeypad value={tara} onChange={setTara} onClose={() => setTecladoTara(false)} />}
+          </FieldBox>
+          <FieldBox label="Bruto (kg)">
+            <input
+              value={bruto}
+              onChange={(e) => setBruto(soloDecimal(e.target.value))}
+              onClick={() => setTecladoBruto(true)}
+              inputMode="none"
+              title="Digita el peso o léelo de la báscula"
+              className="h-10 w-full bg-transparent text-center text-2xl font-bold tabular-nums outline-none"
+            />
+            {tecladoBruto && <NumericKeypad value={bruto} onChange={setBruto} onClose={() => setTecladoBruto(false)} />}
+          </FieldBox>
         </div>
-      </FieldBox>
 
-      {/* Totales */}
-      <div className="grid grid-cols-[56px_120px_200px_1fr] items-stretch gap-2">
-        <button
-          onClick={() => {
-            if (!seleccionada) return;
-            borrarEtiqueta.mutate(seleccionada, {
-              onSuccess: () => setSeleccionada(null),
-              onError: (err) =>
-                setAlerta({ id: Date.now(), texto: mensajeApi(err, 'No se pudo borrar la etiqueta.') }),
-            });
-          }}
-          disabled={seleccionada === null || borrarEtiqueta.isPending}
-          title={
-            seleccionada === null
-              ? 'Selecciona una fila de la tabla'
-              : `Borrar la pieza #${etiquetas.find((e) => e.id === seleccionada)?.pieza ?? ''}`
-          }
-          className={cn(botonIcono, 'size-auto self-stretch')}
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Neto</span>
+          <div className="relative mt-1 flex items-baseline justify-end gap-2 rounded-xl border-2 border-primary/40 bg-muted/30 px-4 py-3">
+            <input
+              value={netoTexto}
+              onChange={(e) => setNetoManual(soloDecimal(e.target.value))}
+              onClick={() => setTecladoNeto(true)}
+              inputMode="none"
+              title="Se calcula como bruto − tara; también se puede digitar"
+              className="w-full min-w-0 bg-transparent text-right text-5xl font-bold tabular-nums outline-none"
+            />
+            <span className="text-xl font-semibold text-muted-foreground">kg</span>
+            {tecladoNeto && <NumericKeypad value={netoTexto} onChange={setNetoManual} onClose={() => setTecladoNeto(false)} />}
+          </div>
+        </div>
+        {error && <p className="-mt-1 text-xs font-medium text-red-600">{error}</p>}
+
+        <Button variant="outline" className="h-12 text-base" onClick={() => void leerBascula()} disabled={leyendo}>
+          {leyendo ? <LoaderCircle className="size-5 animate-spin" /> : <Gauge className="size-5" />}
+          Leer báscula
+        </Button>
+        <Button
+          className="h-14 text-base"
+          onClick={() => void etiquetar()}
+          disabled={(netoKg <= 0 && !seleccionada) || imprimiendo}
+          title={seleccionada ? 'Reimprimir la etiqueta seleccionada' : 'Etiquetar producto'}
         >
-          <Trash2 className="size-8" />
-        </button>
-        <FieldBox label="Unds:">
-          <div className="flex h-9 items-center justify-center text-2xl font-bold tabular-nums">
-            {etiquetas.length}
+          {imprimiendo ? <LoaderCircle className="size-5 animate-spin" /> : <Barcode className="size-5" />}
+          {seleccionada ? 'Reimprimir etiqueta' : 'Etiquetar pieza'}
+        </Button>
+
+        <div className="mt-auto space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg bg-muted/50 px-3 py-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Unds</div>
+              <div className="text-xl font-bold tabular-nums">{etiquetas.length}</div>
+            </div>
+            <div className="rounded-lg bg-muted/50 px-3 py-2">
+              <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total neto</div>
+              <div className="text-xl font-bold tabular-nums">{kg(totalNeto)} kg</div>
+            </div>
           </div>
-        </FieldBox>
-        <FieldBox label="Total Neto(Kg):">
-          <div className="flex h-9 items-center justify-center text-2xl font-bold tabular-nums">
-            {kg(totalNeto)}
-          </div>
-        </FieldBox>
-        <FieldBox label="Última Etiqueta:">
           <button
             type="button"
             onClick={() => ultima && void reimprimir(ultima)}
             disabled={!ultima || imprimiendo}
-            title={ultima ? 'Clic para reimprimir la última etiqueta' : undefined}
-            className="flex h-9 w-full items-center text-left text-base tabular-nums hover:text-sky-700 disabled:cursor-default disabled:hover:text-inherit"
+            title={ultima ? 'Tocá para reimprimir la última etiqueta' : undefined}
+            className="flex w-full items-center justify-between gap-2 rounded-lg bg-muted/50 px-3 py-2 text-left hover:bg-muted disabled:cursor-default disabled:hover:bg-muted/50"
           >
-            {ultima
-              ? `#${ultima.pieza} · T${ultima.tiendaCodigo} · ${kg(ultima.netoKg)} kg · ${horaDe(ultima.createdAt)}`
-              : ''}
+            <span className="min-w-0">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-muted-foreground">Última etiqueta</span>
+              <span className="block truncate text-sm tabular-nums">
+                {ultima ? `#${ultima.pieza} · T${ultima.tiendaCodigo} · ${kg(ultima.netoKg)} kg · ${horaDe(ultima.createdAt)}` : '—'}
+              </span>
+            </span>
+            {ultima && <Printer className="size-4 shrink-0 text-muted-foreground" />}
           </button>
-        </FieldBox>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function Dato({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="min-w-0">
+      <div className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="truncate text-base font-semibold tabular-nums">{children}</div>
     </div>
   );
 }

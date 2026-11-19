@@ -28,6 +28,7 @@ const TABLES = [
   'production_order_tienda',
   'production_order',
   // Rotulado
+  'rotulado_reimpresion',
   'acondicionamiento_etiqueta',
   'rotulado_etiqueta',
   'rotulado_canastilla',
@@ -39,8 +40,10 @@ const TABLES = [
   'goods_receipt_audit',
   'goods_receipt_item',
   'goods_receipt',
+  'canal_receipt_reimpresion',
   'canal_receipt_item',
   'canal_receipt_order',
+  'posta_receipt_reimpresion',
   'posta_receipt_item',
   'posta_receipt_order',
   // Beneficio
