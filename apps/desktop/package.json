@@ -27,6 +27,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "build/icon.png",
       "open-touch-keyboard.ps1",
       "print-raw.ps1",
       "print-raw-worker.ps1",
@@ -38,6 +39,7 @@
       "print-raw-worker.ps1"
     ],
     "win": {
+      "icon": "build/icon.png",
       "target": [
         {
           "target": "nsis",
@@ -52,7 +54,7 @@
       "perMachine": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "Frigorifico Planta",
+      "shortcutName": "SIGPRO",
       "runAfterFinish": true,
       "deleteAppDataOnUninstall": false
     },

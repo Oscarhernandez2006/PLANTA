@@ -3,6 +3,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 
 contextBridge.exposeInMainWorld('frigoDesktop', {
   getDeviceInfo: () => ipcRenderer.invoke('device:get-info'),
+  getStationConfig: () => ipcRenderer.invoke('config:get'),
+  setStationConfig: (cambios) => ipcRenderer.invoke('config:set', cambios),
   openKeyboard: () => ipcRenderer.invoke('keyboard:open'),
   refocusWindow: () => ipcRenderer.send('window:refocus'),
   readScale: (options) => ipcRenderer.invoke('scale:read-stable', options),

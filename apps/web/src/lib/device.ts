@@ -70,6 +70,8 @@ export interface UpdateState {
 /** Puente expuesto por la app de escritorio (Electron) vía preload. */
 interface FrigoDesktopBridge {
   getDeviceInfo: () => Promise<LocalDeviceInfo>;
+  getStationConfig?: () => Promise<ConfigEstacion>;
+  setStationConfig?: (cambios: Partial<Record<keyof ConfigEstacion, string | number | null>>) => Promise<ConfigEstacion>;
   openKeyboard?: () => Promise<{ ok: boolean }>;
   refocusWindow?: () => void;
   readScale?: (options?: {
@@ -211,6 +213,51 @@ export async function detectScale(): Promise<ScaleDetectResult | null> {
 
 const SCALE_PORT_KEY = 'frigo.scale.port';
 const SCALE_BAUD_KEY = 'frigo.scale.baud';
+const PRINTER_NAME_KEY = 'frigo.printer.name';
+
+/** Parámetros fijos de la estación, guardados en un archivo del equipo por la app de escritorio. */
+export interface ConfigEstacion {
+  printerName?: string;
+  scalePort?: string;
+  scaleBaud?: number;
+}
+
+const CLAVES: [keyof ConfigEstacion, string][] = [
+  ['printerName', PRINTER_NAME_KEY],
+  ['scalePort', SCALE_PORT_KEY],
+  ['scaleBaud', SCALE_BAUD_KEY],
+];
+
+function guardarEnEquipo(cambios: Partial<Record<keyof ConfigEstacion, string | number | null>>) {
+  void window.frigoDesktop?.setStationConfig?.(cambios).catch(() => undefined);
+}
+
+/**
+ * Al arrancar: lo guardado en el equipo manda sobre localStorage (que se pierde si cambia
+ * el origen de la página). Si el archivo aún no tiene un valor, se sube el de localStorage.
+ */
+export async function sincronizarConfigEstacion() {
+  const bridge = window.frigoDesktop;
+  if (!bridge?.getStationConfig) return;
+  try {
+    const config = await bridge.getStationConfig();
+    const faltan: Partial<Record<keyof ConfigEstacion, string>> = {};
+    for (const [campo, clave] of CLAVES) {
+      const valor = config[campo];
+      if (valor != null && valor !== '') window.localStorage.setItem(clave, String(valor));
+      else {
+        const local = window.localStorage.getItem(clave);
+        if (local) faltan[campo] = local;
+      }
+    }
+    if (Object.keys(faltan).length) {
+      if (faltan.scaleBaud) guardarEnEquipo({ ...faltan, scaleBaud: Number(faltan.scaleBaud) });
+      else guardarEnEquipo(faltan);
+    }
+  } catch {
+    /* sin acceso al archivo: queda localStorage */
+  }
+}
 
 /** Puerto de báscula guardado por el usuario (persistente). */
 export function getSavedScalePort(): string | null {
@@ -222,6 +269,7 @@ export function getSavedScalePort(): string | null {
 }
 
 export function setSavedScalePort(port: string | null): void {
+  guardarEnEquipo({ scalePort: port });
   try {
     if (port) window.localStorage.setItem(SCALE_PORT_KEY, port);
     else window.localStorage.removeItem(SCALE_PORT_KEY);
@@ -240,6 +288,7 @@ export function getSavedScaleBaud(): number | null {
 }
 
 export function setSavedScaleBaud(baud: number | null): void {
+  guardarEnEquipo({ scaleBaud: baud });
   try {
     if (baud) window.localStorage.setItem(SCALE_BAUD_KEY, String(baud));
     else window.localStorage.removeItem(SCALE_BAUD_KEY);
@@ -271,8 +320,6 @@ export async function printRaw(
   return { ok: false, error: 'not_supported' };
 }
 
-const PRINTER_NAME_KEY = 'frigo.printer.name';
-
 /** Impresora de presintos guardada por el usuario (persistente). */
 export function getSavedPrinterName(): string | null {
   try {
@@ -283,6 +330,7 @@ export function getSavedPrinterName(): string | null {
 }
 
 export function setSavedPrinterName(name: string | null): void {
+  guardarEnEquipo({ printerName: name });
   try {
     if (name) window.localStorage.setItem(PRINTER_NAME_KEY, name);
     else window.localStorage.removeItem(PRINTER_NAME_KEY);

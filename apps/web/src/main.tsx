@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { App } from './App';
 import { instalarMayusculas } from './lib/mayusculas';
-import { instalarArregloFocoDialogos } from './lib/device';
+import { instalarArregloFocoDialogos, sincronizarConfigEstacion } from './lib/device';
 import './index.css';
 
 instalarMayusculas();
@@ -15,10 +15,13 @@ const queryClient = new QueryClient({
   },
 });
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
-  </StrictMode>,
-);
+// Carga la impresora y la báscula fijadas en el equipo antes de pintar la app.
+void sincronizarConfigEstacion().finally(() => {
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <QueryClientProvider client={queryClient}>
+        <App />
+      </QueryClientProvider>
+    </StrictMode>,
+  );
+});

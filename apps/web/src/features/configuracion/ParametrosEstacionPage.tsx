@@ -4,6 +4,7 @@ import {
   Gauge,
   Radar,
   LoaderCircle,
+  Lock,
   MonitorSmartphone,
   Printer,
   RefreshCw,
@@ -136,19 +137,27 @@ export function ParametrosEstacionPage() {
   function elegirImpresora(nombre: string) {
     setImpresora(nombre);
     setSavedPrinterName(nombre || null);
-    setResImp(null);
+    setResImp(
+      nombre
+        ? { ok: true, texto: `Guardado. «${nombre}» queda fija en este equipo para todos los módulos.` }
+        : { ok: true, texto: 'Guardado. Sin impresora: los presintos se descargarán como archivo .zpl.' },
+    );
   }
 
   function elegirPuerto(valor: string) {
     setPuerto(valor);
     setSavedScalePort(valor || null);
-    setResBas(null);
+    setResBas(
+      valor
+        ? { ok: true, texto: `Guardado. La báscula queda fija en ${valor} en este equipo.` }
+        : { ok: true, texto: 'Guardado. El puerto se buscará automáticamente en cada lectura.' },
+    );
   }
 
   function elegirBaud(valor: string) {
     setBaud(valor);
     setSavedScaleBaud(valor ? Number(valor) : null);
-    setResBas(null);
+    setResBas({ ok: true, texto: `Guardado. Baudios: ${valor || 'automático'}.` });
   }
 
   async function imprimirPrueba() {
@@ -212,13 +221,13 @@ export function ParametrosEstacionPage() {
     });
     setLeyendo(false);
     if (r.ok && r.value !== null) {
-      setResBas({
-        ok: true,
-        texto: `Lectura correcta: ${r.value.toFixed(2)} kg${r.port ? ` · ${r.port}` : ''}${r.baudRate ? ` a ${r.baudRate} baudios` : ''}.`,
-      });
       // Si estaba en automático, deja fijo lo que se detectó.
       if (r.port && !puerto) elegirPuerto(r.port);
       if (r.baudRate && !baud) elegirBaud(String(r.baudRate));
+      setResBas({
+        ok: true,
+        texto: `Lectura correcta: ${r.value.toFixed(2)} kg${r.port ? ` · ${r.port}` : ''}${r.baudRate ? ` a ${r.baudRate} baudios` : ''}. Configuración guardada en el equipo.`,
+      });
     } else {
       setResBas({
         ok: false,
@@ -236,7 +245,8 @@ export function ParametrosEstacionPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Parámetros estación</h1>
           <p className="mt-0.5 text-sm text-muted-foreground">
-            Impresora y báscula que usa este equipo. Se guardan en el equipo y aplican a todos los módulos.
+            Impresora y báscula que usa este equipo. Al elegirlas quedan guardadas y fijas en el equipo (sobreviven a
+            reinicios y actualizaciones) y aplican a todos los módulos.
           </p>
         </div>
       </div>
@@ -267,6 +277,7 @@ export function ParametrosEstacionPage() {
           <div className="flex items-center gap-2">
             <Printer className="size-5" />
             <h2 className="text-lg font-semibold">Impresora</h2>
+            <Fijado valor={impresora} />
           </div>
           <p className="text-sm text-muted-foreground">
             Impresora de presintos y etiquetas (Zebra u otra que acepte ZPL). Se imprime directo, sin diálogos. Sin
@@ -303,6 +314,12 @@ export function ParametrosEstacionPage() {
             {imprimiendo ? <LoaderCircle className="size-4 animate-spin" /> : <Printer className="size-4" />}
             Imprimir etiqueta de prueba
           </Button>
+          {desktop && impresora && impresoras.length > 0 && !impresoras.some((p) => p.name === impresora) && (
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-800">
+              La impresora fijada «{impresora}» no aparece en este momento. Se conserva la configuración; revisa que
+              esté encendida y conectada.
+            </div>
+          )}
           <Estado resultado={resImp} />
         </Card>
 
@@ -311,6 +328,7 @@ export function ParametrosEstacionPage() {
           <div className="flex items-center gap-2">
             <Scale className="size-5" />
             <h2 className="text-lg font-semibold">Báscula</h2>
+            <Fijado valor={puerto ? `${puerto}${baud ? ` · ${baud}` : ''}` : ''} vacio="Automático" />
           </div>
           <p className="text-sm text-muted-foreground">
             Puerto COM y velocidad por donde llega la trama de la báscula. Con el cable conectado, usa
@@ -421,6 +439,19 @@ export function ParametrosEstacionPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+function Fijado({ valor, vacio = 'Sin fijar' }: { valor: string; vacio?: string }) {
+  return valor ? (
+    <span className="ml-auto inline-flex max-w-[60%] items-center gap-1 truncate rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800">
+      <Lock className="size-3 shrink-0" />
+      Fija: {valor}
+    </span>
+  ) : (
+    <span className="ml-auto rounded-full bg-muted px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+      {vacio}
+    </span>
   );
 }
 

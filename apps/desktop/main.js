@@ -290,6 +290,25 @@ function deviceInfo() {
 
 ipcMain.handle('device:get-info', () => deviceInfo());
 
+// Parámetros de la estación (impresora, báscula): archivo en userData, sobrevive a
+// actualizaciones y no depende del origen de la página como localStorage.
+const configEstacionPath = () => path.join(app.getPath('userData'), 'estacion.json');
+function leerConfigEstacion() {
+  try {
+    return JSON.parse(fs.readFileSync(configEstacionPath(), 'utf8')) || {};
+  } catch {
+    return {};
+  }
+}
+ipcMain.handle('config:get', () => leerConfigEstacion());
+ipcMain.handle('config:set', (_, cambios = {}) => {
+  const config = { ...leerConfigEstacion(), ...cambios };
+  for (const k of Object.keys(config)) if (config[k] == null || config[k] === '') delete config[k];
+  fs.mkdirSync(path.dirname(configEstacionPath()), { recursive: true });
+  fs.writeFileSync(configEstacionPath(), JSON.stringify(config, null, 2));
+  return config;
+});
+
 // Bug conocido de Electron (electron#31917): tras un alert()/confirm() nativo
 // los campos dejan de recibir el teclado hasta que la ventana pierde y
 // recupera el foco. El frontend pide esto después de cada diálogo.
@@ -554,6 +573,8 @@ function createWindow() {
     height: 800,
     minWidth: 960,
     minHeight: 600,
+    title: 'SIGPRO',
+    icon: path.join(__dirname, 'build', 'icon.png'),
     backgroundColor: '#0b0f14',
     autoHideMenuBar: true,
     webPreferences: {
@@ -624,6 +645,7 @@ function crearSplash() {
     movable: true,
     center: true,
     show: false,
+    icon: path.join(__dirname, 'build', 'icon.png'),
     backgroundColor: '#0b0f14',
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
@@ -636,7 +658,7 @@ function crearSplash() {
     #fill{height:100%;width:0;background:#10b981;transition:width .3s}
     #ver{position:fixed;bottom:10px;font-size:11px;color:#6b7280}
   </style></head><body>
-    <h1>Frigorífico Planta</h1><div id="txt">Buscando actualizaciones…</div>
+    <h1>SIGPRO</h1><div id="txt">Buscando actualizaciones…</div>
     <div class="bar"><div id="fill"></div></div><div id="ver">Versión ${app.getVersion()}</div>
   </body></html>`;
   void splash.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
