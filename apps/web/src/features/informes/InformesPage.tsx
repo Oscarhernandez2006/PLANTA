@@ -1,26 +1,31 @@
-import { Fragment, useState } from 'react';
+import { createContext, Fragment, useContext, useState } from 'react';
+import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import {
   ChevronDown,
   ChevronRight,
+  Info,
   FileBarChart,
   FileDown,
   FileSpreadsheet,
   FileText,
-  Filter,
-  ListOrdered,
+  Inbox,
+  LoaderCircle,
   Paperclip,
   RefreshCw,
   Search,
+  X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
+import { Input, Select } from '@/components/ui/input';
 import { TBody, TD, TH, THead, TR, Table } from '@/components/ui/table';
 import { cn, plantToday as today } from '@/lib/utils';
 import { useAuth } from '../auth/auth-context';
 import logoSantaCruz from '@/assets/logo-santacruz.png';
 import { descargarDespachoPdf } from './despacho-canales-export';
+import { descargarListadoExcel, descargarListadoPdf, type ListadoInforme } from './listado-export';
+import { desplazarFecha, pesoInforme, ResumenInforme } from './resumen-informe';
+import { DescargasDesposte } from './DescargasDesposte';
 import {
   DIF_MEDIAS_MAX_KG,
   RANGO_RENDIMIENTO,
@@ -35,11 +40,11 @@ import { PrepararOrdenDialog } from '../registrar/PrepararOrden';
 import {
   useDetalleCanalCaliente,
   useDetalleProduccion,
-  useInformeCanalCaliente,
-  useInformeProduccion,
-  useInformeSacrificio,
+  useListadoInforme,
+  exportarFilasInforme,
   useDetalleSacrificio,
-  useInformeProceso,
+  type CampoListado,
+  type TipoListado,
   useDetalleProceso,
   type InformeProcesoRow,
   type InformeCanalCalienteRow,
@@ -84,66 +89,117 @@ import {
 } from './produccion-export';
 
 const INFORMES = [
-  { key: 'canal-caliente', label: '01.7 CANAL/CALIENTE' },
-  { key: 'canal-fria', label: '01.7 CANAL/FRIA' },
-  { key: 'productos', label: '01.7 PRODUCTOS' },
-  { key: 'produccion', label: 'INFORME PRODUCCIÓN' },
-  { key: 'sacrificio', label: 'INFORME DE SACRIFICIO' },
-  { key: 'proceso-general', label: 'INFORME PROCESO GENERAL' },
+  { key: 'canal-caliente', label: 'Canal caliente', descripcion: 'Pesaje y órdenes de proceso', disponible: true },
+  { key: 'produccion', label: 'Producción', descripcion: 'Órdenes, piezas y rotulado', disponible: true },
+  { key: 'sacrificio', label: 'Sacrificio', descripcion: 'Guías y animales sacrificados', disponible: true },
+  { key: 'proceso-general', label: 'Proceso general', descripcion: 'Trazabilidad por orden de beneficio', disponible: true },
+  { key: 'canal-fria', label: 'Canal fría', descripcion: 'Próximamente', disponible: false },
+  { key: 'productos', label: 'Productos', descripcion: 'Próximamente', disponible: false },
 ] as const;
 
 type InformeKey = (typeof INFORMES)[number]['key'];
 
+type RangoInforme = { desde: string; hasta: string };
+const PeriodoInforme = createContext<{
+  rango: RangoInforme;
+  cambiar: (rango: RangoInforme) => void;
+} | null>(null);
+
+function usePeriodoInforme() {
+  const periodo = useContext(PeriodoInforme);
+  if (!periodo) throw new Error('Falta el periodo del informe.');
+  return periodo;
+}
+
+function rangoReciente(dias: number): RangoInforme {
+  const hasta = today();
+  return { desde: desplazarFecha(hasta, 1 - dias), hasta };
+}
+
 export function InformesPage() {
-  const [seleccionado, setSeleccionado] = useState<InformeKey | null>(null);
+  const [seleccionado, setSeleccionado] = useState<InformeKey>('canal-caliente');
+  const [periodo, setPeriodo] = useState('30');
+  const [rango, setRango] = useState(() => rangoReciente(30));
   const actual = INFORMES.find((i) => i.key === seleccionado);
+  const queryClient = useQueryClient();
+  const queryKey = ['informes', seleccionado, 'listado-paginado'];
+  const actualizando = useIsFetching({ queryKey }) > 0;
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <FileBarChart className="size-9 text-foreground" />
+    <PeriodoInforme.Provider value={{ rango, cambiar: (r) => { setPeriodo('personalizado'); setRango(r); } }}>
+    <div className="min-w-0 space-y-4">
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+        <FileBarChart className="size-9 shrink-0 text-primary" />
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Informes</h1>
-          <p className="mt-0.5 text-sm text-muted-foreground">
-            Selecciona el informe que quieres consultar.
-          </p>
+          <p className="mt-0.5 text-sm text-muted-foreground">Consulta, analiza y exporta la información operativa de planta.</p>
         </div>
-      </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <Select aria-label="Periodo" className="h-10 w-auto bg-card" value={periodo} onChange={(e) => {
+            const valor = e.target.value;
+            setPeriodo(valor);
+            if (valor !== 'personalizado') setRango(rangoReciente(Number(valor)));
+          }}>
+            <option value="7">Últimos 7 días</option>
+            <option value="30">Últimos 30 días</option>
+            <option value="60">Últimos 60 días</option>
+            <option value="personalizado">Periodo personalizado</option>
+          </Select>
+          <Button type="button" className="h-10" disabled={!actual?.disponible || actualizando} onClick={() => void queryClient.invalidateQueries({ queryKey })}>
+            <RefreshCw className={cn('size-4', actualizando && 'animate-spin')} />
+            {actualizando ? 'Actualizando…' : 'Actualizar'}
+          </Button>
+        </div>
+      </header>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {INFORMES.map((i) => (
-          <button
-            key={i.key}
-            type="button"
-            onClick={() => setSeleccionado(i.key)}
-            className="text-left"
-          >
-            <Card
-              className={cn(
-                'flex items-center gap-3 p-5 transition-colors hover:bg-muted/40',
-                seleccionado === i.key && 'border-primary bg-muted/40',
-              )}
-            >
-              <FileText className="size-8 shrink-0 text-muted-foreground" />
-              <span className="text-base font-medium">{i.label}</span>
-            </Card>
-          </button>
-        ))}
+      <div className="grid items-start gap-3 lg:grid-cols-[16rem_minmax(0,1fr)] xl:grid-cols-[18rem_minmax(0,1fr)]">
+        <nav aria-label="Tipos de informe" className="order-1 min-w-0 lg:col-start-1 lg:row-start-2 lg:self-stretch lg:rounded-xl lg:border lg:border-border lg:bg-card lg:p-2 lg:shadow-sm">
+          <p className="px-2 pb-2 text-xs font-semibold tracking-wide text-muted-foreground uppercase lg:pt-2">Tipos de informe</p>
+          <div className="grid grid-cols-2 gap-1 rounded-lg bg-muted/50 p-1 sm:grid-cols-3 lg:grid-cols-1 lg:bg-transparent lg:p-0">
+            {INFORMES.map((i) => (
+              <button
+                key={i.key}
+                type="button"
+                onClick={() => {
+                  if (i.disponible && i.key !== 'produccion' && rango.hasta > today()) {
+                    setRango(rangoReciente(30));
+                    setPeriodo('30');
+                  }
+                  setSeleccionado(i.key);
+                }}
+                aria-pressed={seleccionado === i.key}
+                className={cn(
+                  'flex min-w-0 items-center gap-2 rounded-lg px-2.5 py-2 text-left transition-colors focus-visible:outline-2 focus-visible:outline-ring lg:gap-3 lg:px-3 lg:py-3',
+                  seleccionado === i.key ? 'bg-card text-primary shadow-sm lg:bg-primary/10 lg:shadow-none' : 'hover:bg-muted',
+                  !i.disponible && seleccionado !== i.key && 'text-muted-foreground',
+                )}
+              >
+                <FileText className="size-4 shrink-0 text-primary lg:size-5" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold lg:text-sm">{i.label}</span>
+                  <span className={cn('text-xs text-muted-foreground', i.disponible && 'hidden lg:block')}>{i.descripcion}</span>
+                </span>
+                <ChevronRight className="hidden size-4 shrink-0 lg:block" />
+              </button>
+            ))}
+          </div>
+        </nav>
+          {seleccionado === 'canal-caliente' && <InformeCanalCaliente />}
+          {seleccionado === 'produccion' && <InformeProduccion />}
+          {seleccionado === 'sacrificio' && <InformeSacrificio />}
+          {seleccionado === 'proceso-general' && <InformeProceso />}
+          {actual && !actual.disponible && (
+            <section className="order-2 flex min-h-60 flex-col items-center justify-center gap-2 rounded-xl bg-card p-6 text-center shadow-sm lg:col-start-2 lg:row-start-2">
+              <FileText className="size-7 text-primary" />
+              <h2 className="font-semibold">{actual.label}</h2>
+              <p className="text-sm text-muted-foreground">Este informe aún no está disponible.</p>
+            </section>
+          )}
       </div>
-
-      {seleccionado === 'canal-caliente' && <InformeCanalCaliente />}
-      {seleccionado === 'produccion' && <InformeProduccion />}
-      {seleccionado === 'sacrificio' && <InformeSacrificio />}
-      {seleccionado === 'proceso-general' && <InformeProceso />}
-      {actual && !['canal-caliente', 'produccion', 'sacrificio', 'proceso-general'].includes(seleccionado ?? '') && (
-        <Card className="flex min-h-[240px] flex-col items-center justify-center gap-2 p-8 text-center">
-          <p className="font-semibold">{actual.label}</p>
-          <p className="text-sm text-muted-foreground">
-            El contenido de este informe está pendiente de definir.
-          </p>
-        </Card>
-      )}
     </div>
+    </PeriodoInforme.Provider>
   );
 }
 
@@ -170,102 +226,310 @@ const ESTADO_LABEL: Record<OrdenBeneficioStatus, string> = {
   procesado: 'Procesado',
 };
 
-function InformeProduccion() {
-  const [hasta, setHasta] = useState(today());
+type FilaFiltrable = { cliente: string; status: string; clienteId?: string };
+
+function useFiltrosInforme() {
   const [busqueda, setBusqueda] = useState('');
-  const informe = useInformeProduccion(hasta);
-  const q = busqueda.trim().toUpperCase();
-  const rows = (informe.data ?? []).filter(
-    (r) =>
-      !q ||
-      consecutivoProduccion(r).includes(q) ||
-      String(r.opNumber) === q ||
-      String(r.odNumber) === q,
+  const [cliente, setCliente] = useState('');
+  const [estado, setEstado] = useState('');
+  return {
+    busqueda, setBusqueda,
+    cliente, setCliente,
+    estado, setEstado,
+    limpiar: () => { setBusqueda(''); setCliente(''); setEstado(''); },
+  };
+}
+
+function FiltrosInforme({
+  filtros, estados, limitarFecha = true,
+}: {
+  filtros: ReturnType<typeof useFiltrosInforme> & { clientes: string[]; estados: string[] };
+  estados: Record<string, string>;
+  limitarFecha?: boolean;
+}) {
+  const { rango: { desde, hasta }, cambiar } = usePeriodoInforme();
+  const [errorFecha, setErrorFecha] = useState('');
+  const cambiarFecha = (campo: keyof RangoInforme, value: string) => {
+    if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return;
+    const nuevo = { desde, hasta, [campo]: value };
+    if (campo === 'hasta' && (desde > value || desde < desplazarFecha(value, -60))) {
+      nuevo.desde = desplazarFecha(value, -29);
+    }
+    if (nuevo.desde > nuevo.hasta || (limitarFecha && nuevo.hasta > today()) || nuevo.desde < desplazarFecha(nuevo.hasta, -60)) {
+      setErrorFecha('Elige un rango válido, con un máximo de 60 días de diferencia.');
+      return;
+    }
+    setErrorFecha('');
+    cambiar(nuevo);
+  };
+  return (
+    <div className="grid grid-cols-2 items-end gap-2 @min-[53rem]:grid-cols-[minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+      <label className="col-span-2 min-w-0 text-xs font-semibold text-muted-foreground @min-[53rem]:col-span-1">
+        <span className="sr-only">Buscar</span>
+        <span className="relative block">
+          <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2" />
+          <Input className="h-9 bg-card pl-9 font-normal text-foreground shadow-none" value={filtros.busqueda} maxLength={200}
+            onChange={(e) => filtros.setBusqueda(e.target.value)} placeholder="Orden, cliente u otro dato…" />
+        </span>
+      </label>
+      <label className="min-w-0 text-xs font-semibold text-muted-foreground">
+        <span className="sr-only">Cliente</span>
+        <Select className="h-9 bg-card font-normal text-foreground shadow-none" value={filtros.cliente} onChange={(e) => filtros.setCliente(e.target.value)}>
+          <option value="">Todos los clientes</option>
+          {filtros.clientes.map((c) => <option key={c} value={c}>{c}</option>)}
+        </Select>
+      </label>
+      <label className="min-w-0 text-xs font-semibold text-muted-foreground">
+        <span className="sr-only">Estado</span>
+        <Select className="h-9 bg-card font-normal text-foreground shadow-none" value={filtros.estado} onChange={(e) => filtros.setEstado(e.target.value)}>
+          <option value="">Todos los estados</option>
+          {filtros.estados.map((e) => <option key={e} value={e}>{estados[e] ?? e}</option>)}
+        </Select>
+      </label>
+      <label className="min-w-0 space-y-1 text-xs font-semibold text-muted-foreground">
+        Desde
+        <Input type="date" className="h-9 min-w-0 bg-card font-normal text-foreground shadow-none" value={desde}
+          min={desplazarFecha(hasta, -60)} max={hasta} onChange={(e) => cambiarFecha('desde', e.target.value)} />
+      </label>
+      <label className="min-w-0 space-y-1 text-xs font-semibold text-muted-foreground">
+        Hasta
+        <Input type="date" className="h-9 min-w-0 bg-card font-normal text-foreground shadow-none" value={hasta} max={limitarFecha ? today() : undefined}
+          onChange={(e) => cambiarFecha('hasta', e.target.value)} />
+      </label>
+      <Button type="button" variant="ghost" className="h-9 justify-self-start self-end px-2 text-xs text-muted-foreground"
+        disabled={!filtros.busqueda && !filtros.cliente && !filtros.estado && !errorFecha}
+        aria-label="Limpiar filtros" onClick={() => { filtros.limpiar(); setErrorFecha(''); }}>
+        <X className="size-4" /> Limpiar
+      </Button>
+      {errorFecha && <p role="alert" className="col-span-full text-xs text-destructive">{errorFecha}</p>}
+    </div>
   );
+}
+
+function ExportarListado({ preparar, disponible }: { preparar: () => Promise<ListadoInforme>; disponible: boolean }) {
+  const [exportando, setExportando] = useState(false);
+  const [resultado, setResultado] = useState<'error' | 'listo' | null>(null);
+
+  async function exportar(tipo: 'pdf' | 'excel') {
+    setExportando(true);
+    setResultado(null);
+    try {
+      const listado = await preparar();
+      if (tipo === 'pdf') await descargarListadoPdf(listado);
+      else await descargarListadoExcel(listado);
+      setResultado('listo');
+    } catch (err) {
+      console.error('Error al exportar el listado de informes:', err);
+      setResultado('error');
+    } finally {
+      setExportando(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Exportar listado filtrado">
+        {resultado === 'error' && <span role="alert" className="text-xs text-destructive">No se pudo exportar. Intenta nuevamente.</span>}
+        {resultado === 'listo' && <span role="status" className="text-xs text-primary">Archivo generado</span>}
+        {exportando && <LoaderCircle aria-label="Generando archivo" className="size-4 animate-spin text-primary" />}
+        <Button type="button" variant="outline" className="h-9" title="Exportar listado filtrado a PDF" disabled={!disponible || exportando} onClick={() => exportar('pdf')}>
+          <FileDown className="size-4" /> PDF
+        </Button>
+        <Button type="button" variant="outline" className="h-9 text-primary" title="Exportar listado filtrado a Excel" disabled={!disponible || exportando} onClick={() => exportar('excel')}>
+          <FileSpreadsheet className="size-4" /> Excel
+        </Button>
+    </div>
+  );
+}
+
+function EstadoInforme({ estado, label }: { estado: string; label: string }) {
+  return (
+    <span className={cn(
+      'inline-flex rounded-full px-2 py-0.5 text-xs font-semibold',
+      estado === 'activo' ? 'bg-primary/10 text-primary' :
+        estado === 'inactivo' ? 'bg-muted text-muted-foreground' : 'bg-emerald-100 text-emerald-800',
+    )}>{label}</span>
+  );
+}
+
+function ListadoOrdenes<T extends FilaFiltrable & { id: string }>({
+  titulo, archivo, descripcion, estados, tipo, columnas, campos,
+  celdas, abrir, limitarFecha,
+}: {
+  titulo: string;
+  archivo: string;
+  descripcion: string;
+  estados: Record<string, string>;
+  tipo: TipoListado;
+  columnas: string[];
+  campos: (CampoListado | null)[];
+  celdas: (fila: T) => string[];
+  abrir: (fila: T) => void;
+  limitarFecha?: boolean;
+}) {
+  const { rango } = usePeriodoInforme();
+  const filtros = useFiltrosInforme();
+  const [orden, setOrden] = useState<{ col: number; asc: boolean } | null>(null);
+  const [pagina, setPagina] = useState({ clave: '', indice: 0 });
+  const nombres = [...columnas, 'Estado'];
+  const camposOrden = [...campos, 'estado' as const];
+  const params = {
+    ...rango,
+    buscar: filtros.busqueda.trim() || undefined,
+    cliente: filtros.cliente || undefined,
+    estado: filtros.estado || undefined,
+    ordenar: orden ? camposOrden[orden.col] ?? undefined : undefined,
+    direccion: orden ? (orden.asc ? 'asc' as const : 'desc' as const) : undefined,
+  };
+  const clave = JSON.stringify(params);
+  const indice = pagina.clave === clave ? pagina.indice : 0;
+  const consulta = useListadoInforme<T>(tipo, { ...params, pagina: indice + 1 });
+  const total = consulta.data?.total ?? 0;
+  const paginas = Math.ceil(total / 20);
+  const valoresDe = (fila: T) => [...celdas(fila), estados[fila.status] ?? fila.status];
+  const visibles = (consulta.data?.filas ?? []).map((fila) => ({ fila, valores: valoresDe(fila) }));
+  const disponible = !consulta.isLoading && !consulta.isError;
+  const preparar = async (): Promise<ListadoInforme> => {
+    const datos = await exportarFilasInforme<T>(tipo, params);
+    if (!datos.filas.length) throw new Error('No quedan órdenes para exportar.');
+    return {
+      titulo, archivo, ...rango, columnas: nombres, filas: datos.filas.map(valoresDe),
+      total: tipo === 'canal-caliente' ? `Peso total del listado: ${pesoInforme(datos.pesoFiltrado)}` : undefined,
+      filtros: [
+        params.buscar && `Búsqueda: ${params.buscar}`,
+        params.cliente && `Cliente: ${params.cliente}`,
+        params.estado && `Estado: ${estados[params.estado] ?? params.estado}`,
+      ].filter((valor): valor is string => Boolean(valor)),
+    };
+  };
+  const opciones = (valores: string[] | undefined, seleccion: string) =>
+    [...new Set([...(valores ?? []), ...(seleccion ? [seleccion] : [])])];
+
+  return (
+    <>
+    <ResumenInforme resumen={disponible ? consulta.data?.resumen : undefined} tipo={tipo} cargando={consulta.isLoading} />
+    <section className="@container order-2 min-h-[27rem] min-w-0 overflow-hidden rounded-xl border border-border bg-card shadow-sm lg:col-start-2 lg:row-start-2">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">{titulo}</h2>
+          <p className="mt-1 text-xs text-muted-foreground">{descripcion}</p>
+        </div>
+        <ExportarListado preparar={preparar} disponible={disponible && total > 0} />
+      </header>
+      <div className="mx-3 rounded-lg bg-muted/50 px-3 py-2.5">
+        <FiltrosInforme filtros={{ ...filtros,
+          clientes: opciones(consulta.data?.clientes, filtros.cliente),
+          estados: opciones(consulta.data?.estados, filtros.estado),
+        }} estados={estados} limitarFecha={limitarFecha} />
+      </div>
+      <div className="px-4 py-2.5 sm:px-5">
+        <p className="text-xs text-muted-foreground">
+          {disponible && <><span className="font-semibold text-primary">{total} {total === 1 ? 'orden' : 'órdenes'}</span> · </>}
+          {total > 0 && disponible ? 'Selecciona una orden para ver su detalle.' : 'Resultados del periodo seleccionado.'}
+        </p>
+      </div>
+      {!disponible || !visibles.length ? (
+        <div className="flex min-h-40 flex-col items-center justify-center gap-2 p-5 text-center text-sm text-muted-foreground">
+          {consulta.isLoading ? <div role="status" className="w-full space-y-2">
+            <span className="sr-only">Cargando órdenes…</span>
+            {[1, 2, 3].map((n) => <div key={n} className="h-8 animate-pulse rounded bg-muted" />)}
+          </div> : consulta.isError ? (
+            <><p role="alert" className="text-destructive">No se pudieron cargar las órdenes.</p>
+              <Button variant="outline" onClick={() => void consulta.refetch()}>Reintentar</Button></>
+          ) : <><Inbox className="size-7" />{total > 0 ? 'Esta página ya no tiene órdenes.' : 'No hay órdenes que coincidan con los filtros.'}
+            {total > 0 && <Button variant="outline" onClick={() => setPagina({ clave, indice: 0 })}>Volver a la primera página</Button>}</>}
+        </div>
+      ) : (
+        <>
+          <div className="mx-4 hidden overflow-hidden rounded-lg border border-border/60 sm:mx-5 @min-[44rem]:block">
+            <Table>
+              <THead className="bg-muted/45">
+                <TR>
+                  {nombres.map((columna, col) => (
+                    <TH key={columna} scope="col" className={cn(
+                      'h-11 px-4 py-2 leading-snug',
+                      col === 1 && 'w-2/5',
+                      camposOrden[col] === 'peso' && 'text-right',
+                    )} aria-sort={orden?.col === col ? (orden.asc ? 'ascending' : 'descending') : undefined}>
+                      {camposOrden[col] ? <button type="button" className="cursor-pointer text-inherit hover:text-primary" onClick={() =>
+                        setOrden({ col, asc: orden?.col === col ? !orden.asc : true })}>
+                        {columna}{orden?.col === col && (orden.asc ? ' ↑' : ' ↓')}
+                      </button> : columna}
+                    </TH>
+                  ))}
+                  <TH scope="col" className="w-11 px-3"><span className="sr-only">Detalle</span></TH>
+                </TR>
+              </THead>
+              <TBody>
+                {visibles.map(({ fila, valores }) => (
+                  <TR key={fila.id} onClick={() => abrir(fila)} className="cursor-pointer border-border/60 hover:bg-primary/5">
+                    <TD className="px-4 py-3.5">
+                      <button type="button" className="font-semibold whitespace-nowrap text-primary hover:underline" onClick={(event) => {
+                        event.stopPropagation();
+                        abrir(fila);
+                      }}>{valores[0]}</button>
+                    </TD>
+                    {valores.slice(1, -1).map((valor, i) => {
+                      const campo = campos[i + 1];
+                      return <TD key={columnas[i + 1]} className={cn(
+                        'px-4 py-3.5 leading-snug wrap-anywhere',
+                        campo === 'cliente' && 'font-medium',
+                        (campo === 'fecha' || campo === 'peso' || campo === 'animales') && 'whitespace-nowrap tabular-nums',
+                        campo === 'peso' && 'text-right',
+                      )}>{valor}</TD>;
+                    })}
+                    <TD className="px-4 py-3.5 whitespace-nowrap"><EstadoInforme estado={fila.status} label={valores[valores.length - 1]} /></TD>
+                    <TD className="px-3 py-3.5 text-muted-foreground"><ChevronRight aria-hidden="true" className="size-4" /></TD>
+                  </TR>
+                ))}
+              </TBody>
+            </Table>
+          </div>
+          <ul className="divide-y divide-border/60 @min-[44rem]:hidden">
+            {visibles.map(({ fila, valores }) => (
+              <li key={fila.id}>
+                <button type="button" onClick={() => abrir(fila)} className="flex w-full min-w-0 items-center gap-2 px-4 py-3 text-left hover:bg-primary/5 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring">
+                  <span className="min-w-0 flex-1 space-y-1">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="text-sm font-bold text-primary">{valores[0]}</span>
+                      <EstadoInforme estado={fila.status} label={valores[valores.length - 1]} />
+                    </span>
+                    <span className="block text-sm font-medium wrap-break-word">{valores[1]}</span>
+                    <span className="flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      {valores.slice(2, -1).map((valor, i) => <span key={columnas[i + 2]} className="max-w-full wrap-break-word">{columnas[i + 2]}: {valor}</span>)}
+                    </span>
+                  </span>
+                  <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                </button>
+              </li>
+            ))}
+          </ul>
+          {paginas > 1 && <nav aria-label="Paginación del listado" className="flex items-center justify-between gap-2 px-4 py-3 text-xs text-muted-foreground">
+            <Button type="button" variant="outline" size="sm" disabled={indice === 0} onClick={() => setPagina({ clave, indice: indice - 1 })}>Anterior</Button>
+            <span>Página {indice + 1} de {paginas}</span>
+            <Button type="button" variant="outline" size="sm" disabled={indice + 1 >= paginas} onClick={() => setPagina({ clave, indice: indice + 1 })}>Siguiente</Button>
+          </nav>}
+          <div className="mx-4 mt-6 flex items-center gap-2 border-t border-border py-3 text-xs text-muted-foreground sm:mx-5">
+            <Info className="size-4 shrink-0 text-primary" /> Abre una orden para consultar sus registros y descargas.
+          </div>
+        </>
+      )}
+    </section>
+    </>
+  );
+}
+
+function InformeProduccion() {
   const [detalle, setDetalle] = useState<InformeProduccionRow | null>(null);
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2">
-            <ListOrdered className="size-5" />
-            Lista de órdenes de producción
-          </CardTitle>
-          <div className="flex gap-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                className="h-9 w-64 pl-8 uppercase"
-                value={busqueda}
-                onChange={(e) => setBusqueda(e.target.value)}
-                placeholder="Buscar consecutivo (OD u OP)…"
-                aria-label="Buscar consecutivo"
-              />
-            </div>
-            <Input
-              type="date"
-              className="h-9 w-44"
-              value={hasta}
-              onChange={(e) => e.target.value && setHasta(e.target.value)}
-              aria-label="Fecha de proceso hasta"
-            />
-          </div>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Muestra las órdenes registradas o con proceso en los últimos 60 días hasta la fecha elegida.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="max-h-[calc(100vh-20rem)] min-h-40 overflow-auto rounded-md border border-border">
-          <Table>
-            <THead className="sticky top-0 z-10 bg-card">
-              <TR>
-                <TH>Consecutivo</TH>
-                <TH>Cliente</TH>
-                <TH>Fec. de proceso</TH>
-                <TH className="text-center">Estado</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {informe.isLoading ? (
-                <TR>
-                  <TD colSpan={4} className="py-8 text-center text-muted-foreground">
-                    Cargando…
-                  </TD>
-                </TR>
-              ) : rows.length === 0 ? (
-                <TR>
-                  <TD colSpan={4} className="py-8 text-center text-muted-foreground">
-                    {q
-                      ? 'Ningún consecutivo coincide con la búsqueda.'
-                      : 'No hay órdenes de producción en este periodo.'}
-                  </TD>
-                </TR>
-              ) : (
-                rows.map((r) => (
-                  <TR key={r.id}>
-                    <TD className="tabular-nums">
-                      <button
-                        type="button"
-                        onClick={() => setDetalle(r)}
-                        className="font-medium text-primary underline-offset-2 hover:underline"
-                      >
-                        {consecutivoProduccion(r)}
-                      </button>
-                    </TD>
-                    <TD>{r.clienteNit ? `${r.clienteNit} - ${r.cliente}` : r.cliente}</TD>
-                    <TD className="tabular-nums">{r.processDate}</TD>
-                    <TD className="text-center">{ESTADO_OP_LABEL[r.status]}</TD>
-                  </TR>
-                ))
-              )}
-            </TBody>
-          </Table>
-        </div>
-      </CardContent>
+    <>
+      <ListadoOrdenes<InformeProduccionRow> tipo="produccion" titulo="Órdenes de producción" archivo="ordenes-produccion"
+        descripcion="Consulta la materia prima, las piezas y el rotulado de cada orden."
+        estados={ESTADO_OP_LABEL} campos={['orden', 'cliente', 'fecha']}
+        limitarFecha={false} columnas={['Consecutivo', 'Cliente', 'Fecha de proceso']} abrir={setDetalle}
+        celdas={(r) => [consecutivoProduccion(r), r.clienteNit ? `${r.clienteNit} - ${r.cliente}` : r.cliente, r.processDate]} />
       {detalle && <DetalleProduccionDialog orden={detalle} onClose={() => setDetalle(null)} />}
-    </Card>
+    </>
   );
 }
 
@@ -354,6 +618,7 @@ function DetalleProduccionDialog({
     >
       <div className="space-y-5">
         <EncabezadoInforme />
+        <DescargasDesposte opNumber={orden.opNumber} />
         <div className="flex justify-end gap-2">
           <Button
             variant="outline"
@@ -693,97 +958,20 @@ function DetalleProduccionDialog({
 }
 
 function InformeCanalCaliente() {
-  const [fecha, setFecha] = useState(today());
-  const [hasta, setHasta] = useState(fecha);
-  const informe = useInformeCanalCaliente(hasta);
-  const rows = informe.data ?? [];
   const [detalle, setDetalle] = useState<InformeCanalCalienteRow | null>(null);
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2">
-            <ListOrdered className="size-5" />
-            Lista de órdenes de canal caliente
-          </CardTitle>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (fecha) setHasta(fecha);
-            }}
-          >
-            <Input
-              type="date"
-              className="h-9 w-44"
-              value={fecha}
-              max={today()}
-              onChange={(e) => setFecha(e.target.value)}
-              aria-label="Fecha de proceso hasta"
-            />
-            <Button type="submit" variant="outline" className="h-9" title="Filtrar">
-              <Filter className="size-4" />
-              Filtrar
-            </Button>
-          </form>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Muestra los últimos 60 días hasta la fecha elegida.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="max-h-[560px] overflow-auto rounded-md border border-border">
-          <Table>
-            <THead>
-              <TR>
-                <TH>OD No.</TH>
-                <TH>Cliente</TH>
-                <TH>Tipo</TH>
-                <TH>Fec. de proceso</TH>
-                <TH className="text-center">Estado</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {informe.isLoading ? (
-                <TR>
-                  <TD colSpan={5} className="py-8 text-center text-muted-foreground">
-                    Cargando…
-                  </TD>
-                </TR>
-              ) : rows.length === 0 ? (
-                <TR>
-                  <TD colSpan={5} className="py-8 text-center text-muted-foreground">
-                    No hay órdenes de canal caliente en este periodo.
-                  </TD>
-                </TR>
-              ) : (
-                rows.map((r) => (
-                  <TR key={r.id}>
-                    <TD className="tabular-nums">
-                      <button
-                        type="button"
-                        onClick={() => setDetalle(r)}
-                        className="font-medium text-primary underline-offset-2 hover:underline"
-                      >
-                        {formatOB(r.reference)}
-                      </button>
-                    </TD>
-                    <TD>{clienteConDestino(r)}</TD>
-                    <TD>CANAL/CALIENTE</TD>
-                    <TD className="tabular-nums">{r.date}</TD>
-                    <TD className="text-center">{ESTADO_LABEL[r.status]}</TD>
-                  </TR>
-                ))
-              )}
-            </TBody>
-          </Table>
-        </div>
-      </CardContent>
+    <>
+      <ListadoOrdenes<InformeCanalCalienteRow> tipo="canal-caliente" titulo="Órdenes de canal caliente" archivo="ordenes-canal-caliente"
+        descripcion="Consulta el pesaje de canales y el detalle por orden."
+        estados={ESTADO_LABEL} campos={['orden', 'cliente', null, 'fecha', 'peso']}
+        columnas={['OD No.', 'Cliente', 'Tipo', 'Fecha de proceso', 'Peso total']} abrir={setDetalle}
+        celdas={(r) => [formatOB(r.reference), clienteConDestino(r), 'CANAL/CALIENTE', r.date,
+          r.pesoTotalKg == null ? '—' : pesoInforme(r.pesoTotalKg)]} />
       {detalle && (
         <DetalleCanalCalienteDialog orden={detalle} onClose={() => setDetalle(null)} />
       )}
-    </Card>
+    </>
   );
 }
 
@@ -977,99 +1165,17 @@ function DetalleCanalCalienteDialog({
 // ===================== Informe de sacrificio =====================
 
 function InformeSacrificio() {
-  const [fecha, setFecha] = useState(today());
-  const [hasta, setHasta] = useState(fecha);
-  const informe = useInformeSacrificio(hasta);
-  const rows = informe.data ?? [];
   const [detalle, setDetalle] = useState<InformeSacrificioRow | null>(null);
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2">
-            <ListOrdered className="size-5" />
-            Lista de órdenes de beneficio
-          </CardTitle>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (fecha) setHasta(fecha);
-            }}
-          >
-            <Input
-              type="date"
-              className="h-9 w-44"
-              value={fecha}
-              max={today()}
-              onChange={(e) => setFecha(e.target.value)}
-              aria-label="Fecha de sacrificio hasta"
-            />
-            <Button type="submit" variant="outline" className="h-9" title="Filtrar">
-              <Filter className="size-4" />
-              Filtrar
-            </Button>
-          </form>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Órdenes con animales sacrificados en los últimos 60 días hasta la fecha elegida.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="max-h-[560px] overflow-auto rounded-md border border-border">
-          <Table>
-            <THead>
-              <TR>
-                <TH>OS No.</TH>
-                <TH>Cliente</TH>
-                <TH>Guía</TH>
-                <TH className="text-center">Animales</TH>
-                <TH>Fec. de sacrificio</TH>
-                <TH className="text-center">Estado</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {informe.isLoading ? (
-                <TR>
-                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Cargando…
-                  </TD>
-                </TR>
-              ) : rows.length === 0 ? (
-                <TR>
-                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
-                    No hay órdenes con animales sacrificados en este periodo.
-                  </TD>
-                </TR>
-              ) : (
-                rows.map((r) => (
-                  <TR key={r.id}>
-                    <TD className="tabular-nums">
-                      <button
-                        type="button"
-                        onClick={() => setDetalle(r)}
-                        className="font-medium text-primary underline-offset-2 hover:underline"
-                      >
-                        {formatOB(r.reference)}
-                      </button>
-                    </TD>
-                    <TD>{r.cliente}</TD>
-                    <TD className="tabular-nums">{r.guias.join(', ') || '—'}</TD>
-                    <TD className="text-center tabular-nums">
-                      {r.sacrificados} / {r.animalCount}
-                    </TD>
-                    <TD className="tabular-nums">{r.date}</TD>
-                    <TD className="text-center">{ESTADO_LABEL[r.status]}</TD>
-                  </TR>
-                ))
-              )}
-            </TBody>
-          </Table>
-        </div>
-      </CardContent>
+    <>
+      <ListadoOrdenes<InformeSacrificioRow> tipo="sacrificio" titulo="Órdenes de sacrificio" archivo="ordenes-sacrificio"
+        descripcion="Consulta las guías y los animales sacrificados por orden."
+        estados={ESTADO_LABEL} campos={['orden', 'cliente', 'guia', 'animales', 'fecha']}
+        columnas={['OS No.', 'Cliente', 'Guía', 'Animales', 'Fecha de sacrificio']} abrir={setDetalle}
+        celdas={celdasOrdenBeneficio} />
       {detalle && <DetalleSacrificioDialog orden={detalle} onClose={() => setDetalle(null)} />}
-    </Card>
+    </>
   );
 }
 
@@ -1304,102 +1410,24 @@ function DetalleSacrificioDialog({
 // ===================== Informe de proceso general =====================
 
 function InformeProceso() {
-  const [fecha, setFecha] = useState(today());
-  const [hasta, setHasta] = useState(fecha);
-  const informe = useInformeProceso(hasta);
-  const rows = informe.data ?? [];
   const [detalle, setDetalle] = useState<InformeProcesoRow | null>(null);
 
   return (
-    <Card className="w-full">
-      <CardHeader>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <CardTitle className="flex items-center gap-2">
-            <ListOrdered className="size-5" />
-            Órdenes de beneficio · proceso general
-          </CardTitle>
-          <form
-            className="flex gap-2"
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (fecha) setHasta(fecha);
-            }}
-          >
-            <Input
-              type="date"
-              className="h-9 w-44"
-              value={fecha}
-              max={today()}
-              onChange={(e) => setFecha(e.target.value)}
-              aria-label="Fecha hasta"
-            />
-            <Button type="submit" variant="outline" className="h-9" title="Filtrar">
-              <Filter className="size-4" />
-              Filtrar
-            </Button>
-          </form>
-        </div>
-        <p className="text-xs text-muted-foreground">
-          Trazabilidad completa por orden (guía, peso en camión, peso en pie, sacrificio, pieles, canal caliente y
-          subproductos) de los últimos 60 días hasta la fecha elegida.
-        </p>
-      </CardHeader>
-      <CardContent>
-        <div className="max-h-[560px] overflow-auto rounded-md border border-border">
-          <Table>
-            <THead>
-              <TR>
-                <TH>OS No.</TH>
-                <TH>Cliente</TH>
-                <TH>Guía</TH>
-                <TH className="text-center">Sacrificados</TH>
-                <TH>Fecha</TH>
-                <TH className="text-center">Estado</TH>
-              </TR>
-            </THead>
-            <TBody>
-              {informe.isLoading ? (
-                <TR>
-                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
-                    Cargando…
-                  </TD>
-                </TR>
-              ) : rows.length === 0 ? (
-                <TR>
-                  <TD colSpan={6} className="py-8 text-center text-muted-foreground">
-                    No hay órdenes de beneficio en este periodo.
-                  </TD>
-                </TR>
-              ) : (
-                rows.map((r) => (
-                  <TR key={r.id}>
-                    <TD className="tabular-nums">
-                      <button
-                        type="button"
-                        onClick={() => setDetalle(r)}
-                        className="font-medium text-primary underline-offset-2 hover:underline"
-                      >
-                        {formatOB(r.reference)}
-                      </button>
-                    </TD>
-                    <TD>{r.cliente}</TD>
-                    <TD className="tabular-nums">{r.guias.join(', ') || '—'}</TD>
-                    <TD className="text-center tabular-nums">
-                      {r.sacrificados} / {r.animalCount}
-                    </TD>
-                    <TD className="tabular-nums">{r.date}</TD>
-                    <TD className="text-center">{ESTADO_LABEL[r.status]}</TD>
-                  </TR>
-                ))
-              )}
-            </TBody>
-          </Table>
-        </div>
-      </CardContent>
+    <>
+      <ListadoOrdenes<InformeProcesoRow> tipo="proceso-general" titulo="Órdenes de proceso general" archivo="ordenes-proceso-general"
+        descripcion="Consulta la trazabilidad de la orden, desde el ingreso hasta los subproductos."
+        estados={ESTADO_LABEL} campos={['orden', 'cliente', 'guia', 'animales', 'fecha']}
+        columnas={['OS No.', 'Cliente', 'Guía', 'Sacrificados', 'Fecha']} abrir={setDetalle}
+        celdas={celdasOrdenBeneficio} />
       {detalle && <DetalleProcesoDialog orden={detalle} onClose={() => setDetalle(null)} />}
-    </Card>
+    </>
   );
 }
+
+function celdasOrdenBeneficio(r: InformeSacrificioRow) {
+  return [formatOB(r.reference), r.cliente, r.guias.join(', ') || '—', `${r.sacrificados} / ${r.animalCount}`, r.date];
+}
+
 
 function DetalleProcesoDialog({
   orden,

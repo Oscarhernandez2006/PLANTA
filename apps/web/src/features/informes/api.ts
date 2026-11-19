@@ -3,6 +3,47 @@ import { api } from '@/lib/api';
 import type { OrdenBeneficioStatus } from '../registrar/orden-beneficio-api';
 import type { CanalAnimalTipo, CanalPiezaTipo, CanalTipo } from '../canal-caliente/api';
 
+export type TipoListado = 'canal-caliente' | 'produccion' | 'sacrificio' | 'proceso-general';
+export type CampoListado = 'orden' | 'cliente' | 'fecha' | 'estado' | 'peso' | 'guia' | 'animales';
+type ParamsListado = {
+  desde: string;
+  hasta: string;
+  buscar?: string;
+  cliente?: string;
+  estado?: string;
+  ordenar?: CampoListado;
+  direccion?: 'asc' | 'desc';
+  pagina?: number;
+};
+export interface ResumenListado {
+  procesadas: number;
+  pendientes: number;
+  clientes: number;
+  ordenes: number;
+  peso: number;
+  sacrificados: number;
+}
+interface ResultadoListado<T> {
+  filas: T[];
+  total: number;
+  clientes: string[];
+  estados: string[];
+  resumen: ResumenListado;
+  pesoFiltrado: number;
+}
+
+export function useListadoInforme<T>(tipo: TipoListado, params: ParamsListado) {
+  return useQuery({
+    queryKey: ['informes', tipo, 'listado-paginado', params],
+    queryFn: async ({ signal }) =>
+      (await api.get<ResultadoListado<T>>(`/informes/listado/${tipo}`, { params, signal })).data,
+  });
+}
+
+export async function exportarFilasInforme<T>(tipo: TipoListado, params: ParamsListado) {
+  return (await api.get<ResultadoListado<T>>(`/informes/listado/${tipo}/exportar`, { params })).data;
+}
+
 export interface InformeCanalCalienteRow {
   id: string;
   reference: number;
@@ -10,15 +51,16 @@ export interface InformeCanalCalienteRow {
   destino: string | null;
   date: string;
   status: OrdenBeneficioStatus;
+  pesoTotalKg?: number;
 }
 
-export function useInformeCanalCaliente(hasta: string) {
+export function useInformeCanalCaliente(hasta: string, desde?: string) {
   return useQuery({
-    queryKey: ['informes', 'canal-caliente', hasta],
+    queryKey: ['informes', 'canal-caliente', 'listado', hasta, desde],
     queryFn: async () =>
       (
         await api.get<InformeCanalCalienteRow[]>('/informes/canal-caliente', {
-          params: { hasta },
+          params: { hasta, desde },
         })
       ).data,
   });
@@ -124,12 +166,12 @@ export interface DetalleProduccion extends InformeProduccionRow {
   }[];
 }
 
-export function useInformeProduccion(hasta: string) {
+export function useInformeProduccion(hasta: string, desde?: string) {
   return useQuery({
-    queryKey: ['informes', 'produccion', hasta],
+    queryKey: ['informes', 'produccion', 'listado', hasta, desde],
     queryFn: async () =>
       (
-        await api.get<InformeProduccionRow[]>('/informes/produccion', { params: { hasta } })
+        await api.get<InformeProduccionRow[]>('/informes/produccion', { params: { hasta, desde } })
       ).data,
   });
 }
@@ -210,12 +252,12 @@ export interface DetalleSacrificio {
   };
 }
 
-export function useInformeSacrificio(hasta: string) {
+export function useInformeSacrificio(hasta: string, desde?: string) {
   return useQuery({
-    queryKey: ['informes', 'sacrificio', hasta],
+    queryKey: ['informes', 'sacrificio', 'listado', hasta, desde],
     queryFn: async () =>
       (
-        await api.get<InformeSacrificioRow[]>('/informes/sacrificio', { params: { hasta } })
+        await api.get<InformeSacrificioRow[]>('/informes/sacrificio', { params: { hasta, desde } })
       ).data,
   });
 }
@@ -357,12 +399,12 @@ export interface DetalleProceso {
   };
 }
 
-export function useInformeProceso(hasta: string) {
+export function useInformeProceso(hasta: string, desde?: string) {
   return useQuery({
-    queryKey: ['informes', 'proceso-general', hasta],
+    queryKey: ['informes', 'proceso-general', 'listado', hasta, desde],
     queryFn: async () =>
       (
-        await api.get<InformeProcesoRow[]>('/informes/proceso-general', { params: { hasta } })
+        await api.get<InformeProcesoRow[]>('/informes/proceso-general', { params: { hasta, desde } })
       ).data,
   });
 }

@@ -582,6 +582,7 @@ export interface ProductoResumen {
 }
 
 export interface TrazabilidadEtiqueta {
+  historial: { id: string; accion: string; at: string; operario: string | null }[];
   tipo: 'desposte' | 'acondicionamiento';
   origenes: {
     etiquetaId: string;

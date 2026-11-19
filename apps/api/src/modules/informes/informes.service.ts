@@ -1,13 +1,25 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { CanalPiezaTipo } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { plantDateOnly } from '../../common/plant-date';
 import { agruparCanales } from '../../common/canales-traslado';
 import { SUBPRODUCTO_ITEM_BY_TIPO } from '../subproductos/subproducto-items';
+import { consultarListadoInforme, type QueryListadoInforme, type TipoListado } from './listado-informe';
 
 /** Días hacia atrás que abarca el informe desde la fecha elegida. */
 const DIAS_INFORME = 60;
+
+function periodoInforme(hasta?: string, desde?: string) {
+  const fin = plantDateOnly(hasta);
+  const limite = new Date(fin);
+  limite.setUTCDate(limite.getUTCDate() - DIAS_INFORME);
+  const inicio = desde ? plantDateOnly(desde) : limite;
+  if (inicio > fin || inicio < limite) {
+    throw new BadRequestException('El rango de fechas del informe no es válido (máximo 60 días de diferencia).');
+  }
+  return { inicio, fin };
+}
 
 /** Producto del catálogo que corresponde a cada pieza de canal (izquierda = con cola, derecha = sin cola). */
 const PRODUCTO_POR_PIEZA: Record<CanalPiezaTipo, { codigo: string; nombre: string }> = {
@@ -33,11 +45,53 @@ function destinos(piezas: { destino: string | null }[]) {
 export class InformesService {
   constructor(private readonly prisma: PrismaService) {}
 
+  async piezasDesposte(ctx: AuthContext, opNumber: number) {
+    const orden = await this.prisma.productionOrder.findFirst({
+      where: { plantId: ctx.plantId, opNumber, deletedAt: null },
+      select: {
+        opNumber: true,
+        cliente: { select: { concepto: true, nit: true } },
+        etiquetas: {
+          where: { deletedAt: null },
+          select: {
+            codigo: true, pieza: true, netoKg: true, fechaVencimiento: true, canastillaId: true,
+            product: { select: { codigo: true, nombre: true } },
+            tienda: { select: { codigo: true, nombre: true } },
+            canastilla: { select: { numero: true } },
+            createdBy: { select: { fullName: true } },
+          },
+        },
+      },
+    });
+    if (!orden) throw new NotFoundException('Orden de producción no encontrada.');
+    return {
+      opNumber: orden.opNumber,
+      cliente: orden.cliente.concepto,
+      nit: orden.cliente.nit,
+      piezas: orden.etiquetas.map((e) => ({
+        codigoProducto: e.product.codigo,
+        nombrePieza: e.product.nombre,
+        codigoBarras: e.codigo,
+        pieza: e.pieza,
+        tienda: `${e.tienda.codigo} - ${e.tienda.nombre}`,
+        canastillaId: e.canastillaId,
+        canastilla: e.canastilla?.numero ?? null,
+        etiquetadoPor: e.createdBy.fullName,
+        pesoKg: Number(e.netoKg),
+        lote: `OP${orden.opNumber}`,
+        vence: e.fechaVencimiento?.toISOString().slice(0, 10) ?? null,
+      })),
+    };
+  }
+
+  listado(ctx: AuthContext, tipo: TipoListado, query: QueryListadoInforme, exportar = false) {
+    const { inicio, fin } = periodoInforme(query.hasta, query.desde);
+    return consultarListadoInforme(this.prisma, ctx.plantId, tipo, query, inicio, fin, exportar);
+  }
+
   /** 01.7 CANAL/CALIENTE: órdenes con canales pesadas, de la más reciente a la más antigua. */
-  async canalCaliente(ctx: AuthContext, hasta?: string) {
-    const fin = plantDateOnly(hasta);
-    const inicio = new Date(fin);
-    inicio.setUTCDate(inicio.getUTCDate() - DIAS_INFORME);
+  async canalCaliente(ctx: AuthContext, hasta?: string, desde?: string) {
+    const { inicio, fin } = periodoInforme(hasta, desde);
 
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
@@ -52,7 +106,7 @@ export class InformesService {
         cliente: true,
         date: true,
         status: true,
-        eventos: { select: { canalPiezas: { select: { destino: true } } } },
+        eventos: { select: { canalPiezas: { select: { destino: true, pesoKg: true } } } },
       },
       orderBy: [{ date: 'desc' }, { reference: 'desc' }],
     });
@@ -60,6 +114,7 @@ export class InformesService {
       ...o,
       date: o.date.toISOString().slice(0, 10),
       destino: destinos(eventos.flatMap((e) => e.canalPiezas)),
+      pesoTotalKg: eventos.reduce((total, e) => total + e.canalPiezas.reduce((kg, p) => kg + Number(p.pesoKg), 0), 0),
     }));
   }
 
@@ -182,10 +237,8 @@ export class InformesService {
   }
 
   /** Informe de producción: órdenes de producción de los últimos días hasta `hasta`. */
-  async produccion(ctx: AuthContext, hasta?: string) {
-    const fin = plantDateOnly(hasta);
-    const inicio = new Date(fin);
-    inicio.setUTCDate(inicio.getUTCDate() - DIAS_INFORME);
+  async produccion(ctx: AuthContext, hasta?: string, desde?: string) {
+    const { inicio, fin } = periodoInforme(hasta, desde);
     const ordenes = await this.prisma.productionOrder.findMany({
       // Registrada o con proceso en el periodo (la fecha de proceso puede ser futura).
       where: {
@@ -488,10 +541,8 @@ export class InformesService {
   // ===================== Informe de sacrificio =====================
 
   /** INFORME DE SACRIFICIO: órdenes con animales sacrificados, de la más reciente a la más antigua. */
-  async sacrificio(ctx: AuthContext, hasta?: string) {
-    const fin = plantDateOnly(hasta);
-    const inicio = new Date(fin);
-    inicio.setUTCDate(inicio.getUTCDate() - DIAS_INFORME);
+  async sacrificio(ctx: AuthContext, hasta?: string, desde?: string) {
+    const { inicio, fin } = periodoInforme(hasta, desde);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: {
         plantId: ctx.plantId,
@@ -762,10 +813,8 @@ export class InformesService {
   // ===================== Informe de proceso general =====================
 
   /** Órdenes de beneficio del periodo (todas, con o sin animales sacrificados). */
-  async procesoGeneral(ctx: AuthContext, hasta?: string) {
-    const fin = plantDateOnly(hasta);
-    const inicio = new Date(fin);
-    inicio.setUTCDate(inicio.getUTCDate() - DIAS_INFORME);
+  async procesoGeneral(ctx: AuthContext, hasta?: string, desde?: string) {
+    const { inicio, fin } = periodoInforme(hasta, desde);
     const ordenes = await this.prisma.ordenBeneficio.findMany({
       where: { plantId: ctx.plantId, deletedAt: null, date: { gte: inicio, lte: fin } },
       select: {

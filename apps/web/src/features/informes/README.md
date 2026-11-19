@@ -1,0 +1,10 @@
+# Informes
+
+- Al abrir el módulo se consulta **Canal caliente** para los últimos 30 días. El selector superior cambia el periodo de los cuatro informes disponibles; los campos **Desde** y **Hasta** permiten ajustarlo.
+- Los indicadores corresponden al tipo y periodo seleccionados, antes de aplicar búsqueda, cliente o estado. Para Canal caliente, el peso registrado suma las piezas pesadas de las órdenes del periodo.
+- El listado permite buscar, filtrar, ordenar y navegar por páginas. **PDF** y **Excel** exportan todo el listado filtrado en su orden actual, no solo la página visible. Las exportaciones detalladas siguen dentro de cada orden.
+- En paneles anchos, la tabla muestra las columnas con espacio para leer los datos y comparar pesos; en paneles estrechos, las órdenes se muestran como lista.
+- La consulta `GET /informes/listado/:tipo` aplica filtros, orden y paginación en el servidor. `GET /informes/listado/:tipo/exportar` usa los mismos filtros y orden, sin paginar. Los endpoints anteriores permanecen disponibles.
+- Los listados aceptan `desde` y `hasta` en formato `YYYY-MM-DD`, ambos inclusive y con un máximo de 60 días de diferencia. Si se omite `desde`, se conserva la ventana histórica anterior.
+- En **Inventarios → Por clientes → Productos → Por orden**, al abrir una orden de producción, se descargan los Excel de desposte de la OP completa, aunque se esté consultando una sola bodega. Las mismas descargas están disponibles en el detalle de Producción en Informes. El consolidado cuenta canastillas distintas por producto y calcula la participación sobre el peso neto de las piezas no anuladas de la OP. Los detalles muestran una fila por pieza; el de cliente y tienda usa el cliente principal de la orden y agrupa las filas por tienda de destino.
+- Al abrir una etiqueta en Inventarios, **Historial de la etiqueta** distingue a quien etiquetó la pieza de quienes realizaron las acciones posteriores registradas. No se asigna un operario cuando el registro histórico no lo identifica.

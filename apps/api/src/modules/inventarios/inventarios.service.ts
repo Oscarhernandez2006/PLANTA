@@ -1967,6 +1967,8 @@ export class InventariosService {
               numero: true,
               codigo: true,
               netoKg: true,
+              cerradaAt: true,
+              cerradaById: true,
               traslado: { include: { transferOrder: { select: { otNumber: true } } } },
               despacho: dcInclude,
             },
@@ -2077,11 +2079,63 @@ export class InventariosService {
       ? await this.prisma.conditioningOrder.findFirst({
           where: { plantId: ctx.plantId, deletedAt: null, transferOrder: { otNumber, plantId: ctx.plantId } },
           orderBy: { ocNumber: 'asc' },
-          select: { ocNumber: true, status: true },
+          select: { ocNumber: true, status: true, createdAt: true, createdById: true },
         })
       : null;
 
+    const [reimpresiones, movimientosBodega] = await Promise.all([
+      des ? this.prisma.rotuladoReimpresion.findMany({
+        where: { plantId: ctx.plantId, productionOrderId: des.productionOrderId, etiquetaId: des.id },
+        select: { id: true, createdAt: true, userId: true, estacion: true },
+      }) : [],
+      this.prisma.bodegaTransferItem.findMany({
+        where: {
+          ...(des ? { etiquetaId: des.id } : { acondEtiquetaId: e.id }),
+          bodegaTransfer: { plantId: ctx.plantId },
+        },
+        select: {
+          id: true, createdAt: true,
+          bodegaTransfer: { select: {
+            tbbNumber: true, createdById: true,
+            origenBodega: { select: { nombre: true } },
+            destinoBodega: { select: { nombre: true } },
+          } },
+        },
+      }),
+    ]);
+
+    const historial: { id: string; accion: string; at: Date; usuarioId: string | null }[] = [
+      { id: 'rotulado', accion: des ? 'Etiquetado en desposte' : 'Etiquetado en acondicionamiento', at: e.createdAt, usuarioId: e.createdById },
+    ];
+    const canastilla = des?.canastilla;
+    if (canastilla?.cerradaAt) historial.push({
+      id: 'canastilla', accion: `Cierre de canastilla ${canastilla.numero}`, at: canastilla.cerradaAt, usuarioId: canastilla.cerradaById,
+    });
+    const opDesposte = des ? ops.find((op) => op.id === des.productionOrderId) : undefined;
+    if (opDesposte?.cerradaAt) historial.push({
+      id: 'cierre-op', accion: `Cierre de OP${opDesposte.opNumber}`, at: opDesposte.cerradaAt, usuarioId: opDesposte.cerradaById,
+    });
+    if (traslado) historial.push({
+      id: 'traslado', accion: `Traslado a proceso · OT${traslado.transferOrder.otNumber}`, at: traslado.createdAt, usuarioId: traslado.createdById,
+    });
+    if (transformada) historial.push({
+      id: 'acondicionamiento', accion: `Creación de orden de acondicionamiento · OC${transformada.ocNumber}`,
+      at: transformada.createdAt, usuarioId: transformada.createdById,
+    });
+    if (despacho) historial.push({
+      id: 'despacho', accion: `Registro en despacho · DC${despacho.canalDispatchOrder.dcNumber}`, at: despacho.createdAt, usuarioId: despacho.createdById,
+    });
+    if (e.deletedAt) historial.push({ id: 'anulacion', accion: 'Anulación de etiqueta', at: e.deletedAt, usuarioId: e.deletedById });
+    for (const r of reimpresiones) historial.push({
+      id: r.id, accion: r.estacion ? `Reimpresión · ${r.estacion}` : 'Reimpresión de etiqueta', at: r.createdAt, usuarioId: r.userId,
+    });
+    for (const m of movimientosBodega) {
+      const { tbbNumber, origenBodega, destinoBodega, createdById } = m.bodegaTransfer;
+      historial.push({ id: m.id, accion: `Traslado entre bodegas · TBB${tbbNumber} · ${origenBodega.nombre} → ${destinoBodega.nombre}`, at: m.createdAt, usuarioId: createdById });
+    }
+
     const ids = new Set<string>([e.createdById]);
+    historial.forEach((paso) => { if (paso.usuarioId) ids.add(paso.usuarioId); });
     ops.forEach((op) => ids.add(op.createdById));
     if (oc) ids.add(oc.createdById);
     if (traslado) ids.add(traslado.createdById);
@@ -2097,6 +2151,9 @@ export class InventariosService {
 
     return {
       tipo: des ? ('desposte' as const) : ('acondicionamiento' as const),
+      historial: historial.sort((a, b) => a.at.getTime() - b.at.getTime()).map(({ usuarioId, ...paso }) => ({
+        ...paso, at: paso.at.toISOString(), operario: usuarioId ? nombre.get(usuarioId) ?? null : null,
+      })),
       origenes: etiquetasOrigen.flatMap((x) => {
         const c = canalDe.get(x.id);
         return c ? [{ etiquetaId: x.id, etiquetaCodigo: x.codigo, ...c }] : [];

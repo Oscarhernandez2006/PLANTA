@@ -31,6 +31,7 @@ import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
 import { TrazabilidadEtiquetaDialog } from './TrazabilidadEtiquetaDialog';
 import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
 import { descargarInventarioClienteExcel } from './inventario-cliente-export';
+import { DescargasDesposte } from '../informes/DescargasDesposte';
 import {
   useBodegasDetalle,
   useBodegasInventario,
@@ -840,6 +841,7 @@ function ProductosPorOrden({ productos }: { productos: Producto[] }) {
             </button>
             {abierto && (
               <div className="border-t border-border p-3">
+                {o.key.startsWith('op|') && o.productos[0]?.opNumber != null && <DescargasDesposte opNumber={o.productos[0].opNumber} />}
                 <Productos d={{ productos: o.productos }} />
               </div>
             )}

@@ -3,17 +3,22 @@ import axios from 'axios';
 let authToken: string | null = null;
 let onUnauthorized: (() => void) | null = null;
 
-const configuredApiBase = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
+const configuredApiBase = (import.meta.env.VITE_API_URL as string | undefined)
+  ?.trim()
+  .replace(/\/+$/, '');
 const isFileProtocol =
   typeof window !== 'undefined' && window.location.protocol === 'file:';
+const apiBase = configuredApiBase
+  ? `${configuredApiBase.replace(/\/api$/i, '')}/api`
+  : isFileProtocol
+    ? 'http://127.0.0.1:3000/api'
+    : '/api';
 
 /** Cliente HTTP base. En dev, Vite proxya /api -> http://localhost:3000. */
 export const api = axios.create({
   // El puente Electron también existe en desarrollo; solo file:// carece del
   // proxy de Vite y necesita apuntar directamente al backend.
-  baseURL:
-    configuredApiBase ||
-    (isFileProtocol ? 'http://127.0.0.1:3000/api' : '/api'),
+  baseURL: apiBase,
   headers: { 'Content-Type': 'application/json' },
 });
 

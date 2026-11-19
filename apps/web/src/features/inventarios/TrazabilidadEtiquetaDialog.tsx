@@ -256,6 +256,25 @@ function Informe({ t, onCanal }: { t: TrazabilidadEtiqueta; onCanal: (piezaId: s
         vista={<EtiquetaDespostePreview className="w-52 drop-shadow-md" datos={datosEtiqueta(t)} />}
       />
 
+      {t.historial?.length > 0 && (
+        <section className="rounded-lg border border-border p-4">
+          <h3 className="mb-2 font-semibold">Historial de la etiqueta</h3>
+          <ol className="divide-y divide-border">
+            {t.historial.map((paso) => (
+              <li key={paso.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 text-sm">
+                <div>
+                  <p className="font-medium">{paso.accion}</p>
+                  <p className="text-muted-foreground">
+                    {paso.id === 'rotulado' ? 'Etiquetado por' : 'Realizado por'}: {paso.operario ?? 'No registrado'}
+                  </p>
+                </div>
+                <time dateTime={paso.at} className="text-xs tabular-nums text-muted-foreground">{fechaHora(paso.at)}</time>
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
+
       <Linea>
         {(() => {
           const pasoLote = (
