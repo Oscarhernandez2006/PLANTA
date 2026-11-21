@@ -10,6 +10,7 @@ import { normalizarCodigoBarras, tipoCodigoBarras } from '../../common/codigo-ba
 import type { AuthContext } from '../../common/auth/auth-context';
 import { parseCanalBarcode } from '../../common/canal-barcode';
 import { parseReciboCanal, parseReciboPosta, piezaRP } from '../canal-receipt/recibo-despacho';
+import { advertenciaAntiguedad } from '../inventarios/advertencia-antiguedad';
 
 type Db = Prisma.TransactionClient;
 type OrdenPosta = { id: string; clienteId: string; status: DispatchOrderStatus };
@@ -266,7 +267,8 @@ export class DespachoPostaService {
 
   async buscar(ctx: AuthContext, id: string, codigo: string) {
     const dc = await this.orden(ctx, id);
-    return this.resolver(this.prisma, ctx, dc, codigo);
+    const info = await this.resolver(this.prisma, ctx, dc, codigo);
+    return { ...info, advertenciaInventario: await advertenciaAntiguedad(this.prisma, ctx.plantId, dc.clienteId, info) };
   }
 
   /** Registra el producto con el peso nuevo (neto = peso - tara). */

@@ -10,6 +10,7 @@ import { normalizarCodigoBarras, tipoCodigoBarras } from '../../common/codigo-ba
 import type { AuthContext } from '../../common/auth/auth-context';
 import { verificarPinSupervisor } from '../../common/auth/supervisor-pin';
 import { PLANT_DAY_CUTOFF_HOUR, plantDateOnly } from '../../common/plant-date';
+import { advertenciaAntiguedad } from '../inventarios/advertencia-antiguedad';
 import {
   AnularTransferOrderDto,
   CreateTransferOrderDto,
@@ -384,7 +385,8 @@ export class TransferOrderService {
 
   async buscarEtiqueta(ctx: AuthContext, otId: string, codigo: string) {
     const ot = await this.orden(ctx, otId);
-    return this.resolverEtiqueta(this.prisma, ctx, ot, codigo);
+    const info = await this.resolverEtiqueta(this.prisma, ctx, ot, codigo);
+    return { ...info, advertenciaInventario: await advertenciaAntiguedad(this.prisma, ctx.plantId, ot.clienteId, info) };
   }
 
   /** Registra el producto en la orden con el peso nuevo (neto = peso - tara). */

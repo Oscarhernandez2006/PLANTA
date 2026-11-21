@@ -23,6 +23,7 @@ import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn, formatFechaDia, soloDecimal } from '@/lib/utils';
+import { ReporteMerma } from './ReporteMerma';
 import { formatOB } from '../registrar/orden-beneficio-api';
 import {
   useAgregarItemDespacho,
@@ -365,7 +366,8 @@ export function TotalesTab({ items }: { items: ItemDespacho[] }) {
 export function CanalFriaPage() {
   const [tab, setTab] = useState<VistaFria>('ordenes');
   const [orden, setOrden] = useState<OrdenDespacho | null>(null);
-  const ordenes = useOrdenesDespachoActivas();
+  const [historico, setHistorico] = useState(false);
+  const ordenes = useOrdenesDespachoActivas(historico ? 'facturado' : 'activo');
   const barcodeRef = useRef<HTMLInputElement>(null);
   const [barcode, setBarcode] = useState('');
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
@@ -511,17 +513,25 @@ export function CanalFriaPage() {
       </div>
 
       {tab === 'ordenes' ? (
+        <>
+        <div className="flex items-center gap-2 text-sm">
+          <Button variant={historico ? 'outline' : 'default'} onClick={() => setHistorico(false)}>Activas</Button>
+          <Button variant={historico ? 'default' : 'outline'} onClick={() => setHistorico(true)}>Cerradas · reportes</Button>
+          {historico && <span className="text-muted-foreground">Últimas 100 órdenes cerradas</span>}
+        </div>
         <OrdenesFria
           loading={ordenes.isLoading}
           ordenes={ordenes.data ?? []}
           selectedId={orden?.id ?? null}
           refrescando={ordenes.isFetching}
           onRefresh={() => void ordenes.refetch()}
+          historico={historico}
           onSelect={(o) => {
             elegirOrden(o);
-            setTab('despacho');
+            setTab(historico ? 'totales' : 'despacho');
           }}
         />
+        </>
       ) : (
         <>
           {/* Encabezado de la orden abierta */}
@@ -548,7 +558,7 @@ export function CanalFriaPage() {
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+            {orden?.status === 'activo' && <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               {(['despacho', 'totales'] as const).map((t) => (
                 <button
                   key={t}
@@ -562,8 +572,9 @@ export function CanalFriaPage() {
                   {t === 'despacho' ? 'Despacho' : 'Totales'}
                 </button>
               ))}
-            </div>
-            <Button
+            </div>}
+            {orden && <ReporteMerma items={items} orden={formatOD(orden.odNumber)} cliente={orden.cliente.concepto} proceso="Canal caliente a frío" errorCarga={itemsQuery.isError} />}
+            {orden?.status === 'activo' && <Button
               variant="outline"
               className="h-12 px-5 text-base"
               onClick={() => setConfirmarCierre(true)}
@@ -572,7 +583,7 @@ export function CanalFriaPage() {
             >
               {cerrar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Lock className="size-5" />}
               Cerrar orden
-            </Button>
+            </Button>}
           </div>
 
           {tab === 'despacho' ? (
@@ -670,6 +681,7 @@ function OrdenesFria({
   refrescando,
   onRefresh,
   onSelect,
+  historico,
 }: {
   loading: boolean;
   ordenes: OrdenDespacho[];
@@ -677,6 +689,7 @@ function OrdenesFria({
   refrescando: boolean;
   onRefresh: () => void;
   onSelect: (o: OrdenDespacho) => void;
+  historico: boolean;
 }) {
   const [busqueda, setBusqueda] = useState('');
   const [vista, setVista] = useState<'lista' | 'tarjetas'>(() =>
@@ -693,7 +706,7 @@ function OrdenesFria({
     ? ordenes.filter((o) => [formatOD(o.odNumber), o.cliente.concepto, o.cliente.nit ?? ''].join(' ').toUpperCase().includes(q))
     : ordenes;
   const visibles = buscadas
-    .filter((o) => !filtro || estado(o) === filtro)
+    .filter((o) => historico || !filtro || estado(o) === filtro)
     .sort((a, b) => (estado(a) === estado(b) ? b.odNumber - a.odNumber : estado(a) === 'proceso' ? -1 : 1));
   const filtros = [
     { key: null, texto: 'Todas', n: buscadas.length },
@@ -719,7 +732,7 @@ function OrdenesFria({
             className="h-11 pl-10 text-base"
           />
         </div>
-        <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+        {!historico && <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
           {filtros.map((f) => (
             <button
               key={f.key ?? 'todas'}
@@ -736,7 +749,7 @@ function OrdenesFria({
               </span>
             </button>
           ))}
-        </div>
+        </div>}
         <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
           <button
             type="button"
@@ -768,9 +781,9 @@ function OrdenesFria({
         ) : !visibles.length ? (
           <div className="flex flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border p-12 text-center text-muted-foreground">
             <Inbox className="size-8" />
-            {q || filtro
+            {q || (!historico && filtro)
               ? 'Ninguna orden coincide con la búsqueda o el filtro.'
-              : 'No hay órdenes de despacho activas. Créalas en Administrativo → Orden de Despacho.'}
+              : historico ? 'No hay órdenes cerradas.' : 'No hay órdenes de despacho activas. Créalas en Administrativo → Orden de Despacho.'}
           </div>
         ) : vista === 'lista' ? (
           <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">

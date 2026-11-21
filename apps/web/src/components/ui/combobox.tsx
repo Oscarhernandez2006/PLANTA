@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Check, ChevronsUpDown, Keyboard, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,7 +30,9 @@ export function Combobox({
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listId = useId();
 
   const selected = options.find((o) => o.value === value);
   const display = open ? query : (selected?.label ?? '');
@@ -44,11 +46,13 @@ export function Combobox({
     onChange(o.value);
     setQuery('');
     setOpen(false);
+    setActiveIndex(0);
   }
 
   function clear() {
     onChange('');
     setQuery('');
+    setActiveIndex(0);
     inputRef.current?.focus();
     setOpen(true);
   }
@@ -64,13 +68,39 @@ export function Combobox({
           value={display}
           placeholder={placeholder}
           autoComplete="off"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          aria-autocomplete="list"
+          aria-activedescendant={open && shown[activeIndex] ? `${listId}-${activeIndex}` : undefined}
           onChange={(e) => {
             setQuery(e.target.value);
+            setActiveIndex(0);
             if (!open) setOpen(true);
           }}
           onFocus={() => {
             setOpen(true);
             setQuery('');
+            setActiveIndex(0);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+              e.preventDefault();
+              if (!open) {
+                setOpen(true);
+                setActiveIndex(0);
+              } else if (shown.length) {
+                setActiveIndex((i) => (i + (e.key === 'ArrowDown' ? 1 : -1) + shown.length) % shown.length);
+              }
+            } else if (e.key === 'Enter' && open && shown[activeIndex]) {
+              e.preventDefault();
+              select(shown[activeIndex]);
+            } else if (e.key === 'Escape' && open) {
+              e.preventDefault();
+              e.stopPropagation();
+              setOpen(false);
+              setQuery('');
+            }
           }}
           onBlur={() => setTimeout(() => setOpen(false), 120)}
           className={cn(
@@ -87,8 +117,8 @@ export function Combobox({
               aria-label="Borrar selección"
               onMouseDown={(e) => {
                 e.preventDefault();
-                clear();
               }}
+              onClick={clear}
               className="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
             >
               <X className="size-4" />
@@ -116,21 +146,22 @@ export function Combobox({
       </div>
 
       {open && (
-        <ul className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-lg">
+        <ul id={listId} role="listbox" className="absolute z-30 mt-1 max-h-64 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-lg">
           {shown.length === 0 ? (
             <li className="px-3 py-2 text-sm text-muted-foreground">
               {emptyText}
             </li>
           ) : (
-            shown.map((o) => (
+            shown.map((o, index) => (
               <li key={o.value}>
                 <button
                   type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    select(o);
-                  }}
-                  className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-accent"
+                  id={`${listId}-${index}`}
+                  role="option"
+                  aria-selected={o.value === value}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => select(o)}
+                  className={cn('flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-accent', activeIndex === index && 'bg-accent')}
                 >
                   <Check
                     className={cn(

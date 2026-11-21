@@ -130,6 +130,7 @@ export function ListaOrdenes<O extends OrdenRegistro>({
   onElegir,
   refrescando,
   onRefrescar,
+  estadoTexto = 'activa(s)',
 }: {
   config: Pick<ConfigRegistroProductos<O>, 'icono' | 'numero' | 'tipoTexto' | 'sinOrdenes'>;
   cargando: boolean;
@@ -138,6 +139,7 @@ export function ListaOrdenes<O extends OrdenRegistro>({
   onElegir: (o: O) => void;
   refrescando: boolean;
   onRefrescar: () => void;
+  estadoTexto?: string;
 }) {
   const Icono = config.icono;
   const [busqueda, setBusqueda] = useState('');
@@ -169,7 +171,7 @@ export function ListaOrdenes<O extends OrdenRegistro>({
           />
         </div>
         <span className="rounded-lg bg-muted px-3 py-2 text-sm font-medium text-muted-foreground">
-          <b className="tabular-nums text-foreground">{visibles.length}</b> orden(es) activa(s)
+          <b className="tabular-nums text-foreground">{visibles.length}</b> orden(es) {estadoTexto}
         </span>
         <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
           <button
@@ -540,7 +542,7 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
                   <input
                     ref={codigoRef}
                     value={codigo}
-                    onChange={(e) => setCodigo(e.target.value.toUpperCase().replace(/[^0-9AC-]/g, ''))}
+                    onChange={(e) => setCodigo(e.target.value.toUpperCase().replace(/[^0-9ACRP-]/g, ''))}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') void buscar();
                     }}
@@ -569,6 +571,11 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
                     <Dato label="Neto etiqueta" valor={kg(pendiente.netoEtiquetaKg)} />
                     <Dato label="Neto nuevo" valor={kg(netoKg)} className="text-emerald-700" />
                   </div>
+                  {pendiente.advertenciaInventario && (
+                    <p role="status" className="mt-2 rounded-lg bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900">
+                      {pendiente.advertenciaInventario}
+                    </p>
+                  )}
                 </div>
               ) : (
                 <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">

@@ -2,6 +2,7 @@ import { keepPreviousData, useQueries, useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api';
 import type { CanalTipo } from '../canal-caliente/api';
 
+export type Semaforo = 'verde' | 'amarillo' | 'rojo' | 'desconocido';
 // Debe coincidir EXACTO con los valores que guarda Canal Caliente/Traslado
 // en CanalPieza.cava (apps/web/src/features/canal-caliente/api.ts),
 // o esta pestaña nunca mostraría las canales ubicadas ahí.
@@ -103,6 +104,7 @@ export interface ResumenInventario {
     productosKg: number;
     subproductos: number;
     subproductosKg: number;
+    semaforo: Semaforo | null;
   }[];
   alertas: {
     canalesAntiguas: {
@@ -121,6 +123,7 @@ export interface ResumenInventario {
       codigo: string;
       producto: string;
       cliente: string;
+      bodegaId?: string | null;
       bodega: string;
       vence: string;
       dias: number;
@@ -129,6 +132,11 @@ export interface ResumenInventario {
     }[];
   };
 }
+
+export type DestinoProducto = Pick<
+  ResumenInventario['alertas']['productosPorVencer'][number],
+  'cliente' | 'bodegaId' | 'bodega' | 'codigo' | 'vence'
+>;
 
 export function useResumenInventario() {
   return useQuery({
@@ -164,6 +172,7 @@ export interface BodegaDetalle {
   cliente: string;
   canales: {
     id: string;
+    bodega: string;
     reference: number;
     date: string;
     sequence: number;
@@ -175,6 +184,7 @@ export interface BodegaDetalle {
     destino: string | null;
     observaciones: string | null;
     pesoKg: number;
+    semaforo: Semaforo;
     pesoFrioKg: number | null;
     /** OD a proceso: activa = sigue en cava; `cerrada` = ya salió a desposte (procesada). */
     enOrden: {
@@ -194,8 +204,10 @@ export interface BodegaDetalle {
   }[];
   productos: {
     id: string;
+    bodega: string;
     codigo: string | null;
     pieza: number;
+    unidades: number;
     productoCodigo: string;
     productoNombre: string;
     tiendaCodigo: string;
@@ -206,7 +218,9 @@ export interface BodegaDetalle {
     sobrante: boolean;
     fechaEmpaque: string;
     fechaVencimiento: string | null;
+    semaforo: Semaforo;
     opNumber: number | null;
+    desposteCerradoAt: string | null;
     /** Producto etiquetado en Rotulado Acondicionamiento (lote OC) y la OT de donde salió. */
     ocNumber: number | null;
     origenOt: number | null;
@@ -217,6 +231,8 @@ export interface BodegaDetalle {
     despachoDc: number | null;
     /** Producto recibido en posta (orden RP); null = rotulado en planta. */
     rpNumber: number | null;
+    lote: string | null;
+    etiquetadoPor: string;
   }[];
   /** Subproductos en cava de las órdenes de beneficio cuyas canales quedaron en esta bodega. */
   subproductos: {

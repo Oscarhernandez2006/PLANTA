@@ -1,10 +1,9 @@
-import { Fragment, useMemo, useState, type ReactNode } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle,
   Beef,
   Boxes,
   Building2,
-  CalendarClock,
   ChevronDown,
   ChevronRight,
   ClipboardList,
@@ -26,11 +25,13 @@ import { formatOC } from '../registrar/orden-acondicionamiento-api';
 import { formatDC } from '../registrar/despacho-canales-api';
 import { formatOT } from '../registrar/orden-traslado-api';
 import { Productos, fecha, kg } from './BodegasTab';
+import { DIAS_VENCE, diasVence, SemaforoPill, semaforoGeneral, VenceChip } from './semaforo-ui';
 import { FiltroSelect } from './FiltroSelect';
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
 import { TrazabilidadEtiquetaDialog } from './TrazabilidadEtiquetaDialog';
 import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
 import { descargarInventarioClienteExcel } from './inventario-cliente-export';
+import { descargarReporteInventario } from './inventario-reporte-export';
 import { DescargasDesposte } from '../informes/DescargasDesposte';
 import {
   useBodegasDetalle,
@@ -39,6 +40,8 @@ import {
   type BodegaDetalle,
   type BodegaResumen,
   type CavaSubproductoCategoria,
+  type DestinoProducto,
+  type Semaforo,
 } from './api';
 
 type Canal = BodegaDetalle['canales'][number];
@@ -69,8 +72,6 @@ const CATEGORIA: Record<CavaSubproductoCategoria, { label: string; orden: number
   cabeza_patas: { label: 'Retomas', orden: 2 },
 };
 
-const DIAS_VENCE = 3;
-
 const kg0 = (n: number) => n.toLocaleString('es-CO', { maximumFractionDigits: 0 });
 
 const cavaSubproducto = (cava: string | null) =>
@@ -91,28 +92,23 @@ const barcodeDe = (c: Canal) =>
       : '';
 const productoLibre = (p: Producto) => !p.despachoDc && !p.transformadoOc && !p.trasladoOt;
 
-/** Días hasta el vencimiento (negativo = vencido). */
-function diasVence(iso: string | null) {
-  if (!iso) return null;
-  const hoy = new Date();
-  hoy.setHours(0, 0, 0, 0);
-  return Math.round((new Date(`${iso}T00:00:00`).getTime() - hoy.getTime()) / 86_400_000);
-}
-
-function VenceChip({ iso }: { iso: string | null }) {
-  const d = diasVence(iso);
-  if (d == null) return <span className="text-muted-foreground">—</span>;
+function LotesAntiguos({ etiquetas }: { etiquetas: Producto[] }) {
+  const lotes = new Map<number, number>();
+  const ahora = Date.now();
+  for (const p of etiquetas) {
+    if (p.transformadoOc || !p.opNumber || !p.desposteCerradoAt) continue;
+    const dias = (ahora - new Date(p.desposteCerradoAt).getTime()) / 86_400_000;
+    if (dias > 5) lotes.set(p.opNumber, Math.floor(dias));
+  }
+  if (!lotes.size) return null;
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 text-xs font-semibold tabular-nums',
-        d < 0 ? 'bg-red-600 text-white' : d <= 1 ? 'bg-red-100 text-red-700' : d <= DIAS_VENCE ? 'bg-amber-100 text-amber-800' : 'text-foreground',
-      )}
-      title={d < 0 ? `Vencido hace ${-d} día(s)` : d === 0 ? 'Vence hoy' : `Faltan ${d} día(s)`}
-    >
-      {d <= DIAS_VENCE && <CalendarClock className="size-3" />}
-      {fecha(iso)}
-    </span>
+    <div className="flex flex-wrap gap-1">
+      {[...lotes].map(([op, dias]) => (
+        <Chip key={op} className="bg-amber-100 text-amber-800">
+          {formatOP(op)} · más de {dias} días en planta
+        </Chip>
+      ))}
+    </div>
   );
 }
 
@@ -160,7 +156,7 @@ function Chip({ className, children }: { className?: string; children: ReactNode
 }
 
 /** Inventario por cliente: lista a la izquierda y el inventario del cliente elegido a la derecha. */
-export function ClientesView() {
+export function ClientesView({ destino = null }: { destino?: DestinoProducto | null }) {
   const bodegas = useBodegasInventario();
   const resumen = useResumenInventario();
   const [clienteId, setClienteId] = useState<string | null>(null);
@@ -195,9 +191,9 @@ export function ClientesView() {
 
   const extra = useMemo(() => {
     const r = resumen.data;
-    const m = new Map<string, { subKg: number; porVencer: number; canalesViejas: number }>();
+    const m = new Map<string, { subKg: number; porVencer: number; canalesViejas: number; semaforo: Semaforo | null }>();
     for (const c of r?.clientes ?? [])
-      m.set(c.cliente, { subKg: SUBPRODUCTOS_ACTIVO ? c.subproductosKg : 0, porVencer: 0, canalesViejas: 0 });
+      m.set(c.cliente, { subKg: SUBPRODUCTOS_ACTIVO ? c.subproductosKg : 0, porVencer: 0, canalesViejas: 0, semaforo: c.semaforo });
     for (const p of r?.alertas.productosPorVencer ?? []) {
       const e = m.get(p.cliente);
       if (e) e.porVencer += p.unds;
@@ -234,7 +230,17 @@ export function ClientesView() {
   const visibles = clientes.filter(
     (c) => !q || c.nombre.toUpperCase().includes(q) || (c.nit ?? '').includes(q) || conCodigo.has(c.id),
   );
-  const cliente = clientes.find((c) => c.id === clienteId) ?? visibles[0] ?? null;
+  const bodegasDestino = destino
+    ? listaBodegas.filter((b) => destino.bodegaId
+      ? b.id === destino.bodegaId
+      : b.cliente === destino.cliente && b.nombre === destino.bodega)
+    : [];
+  const bodegaDestino = bodegasDestino.length === 1 ? bodegasDestino[0] : null;
+  const cliente = clienteId
+    ? clientes.find((c) => c.id === clienteId) ?? null
+    : destino
+      ? clientes.find((c) => c.bodegas.some((b) => b.id === bodegaDestino?.id)) ?? null
+      : visibles[0] ?? null;
   const buscarEnCliente = cliente && conCodigo.has(cliente.id) ? codigoQ : '';
   const maxKg = Math.max(1, ...clientes.map((c) => c.canalesKg + c.productosKg + (extra.get(c.nombre)?.subKg ?? 0)));
 
@@ -298,7 +304,10 @@ export function ClientesView() {
                           {c.bodegas.length === 1 ? `Bodega ${c.bodegas[0].code}` : `${c.bodegas.length} bodegas`}
                         </div>
                       </div>
-                      <span className="shrink-0 text-sm font-bold tabular-nums">{kg0(total)} kg</span>
+                      <div className="flex shrink-0 flex-col items-end gap-1">
+                        <span className="text-sm font-bold tabular-nums">{kg0(total)} kg</span>
+                        <SemaforoPill estado={e?.semaforo ?? null} />
+                      </div>
                     </div>
                     <div className="flex h-2 overflow-hidden rounded-full bg-muted" title={`Canal ${kg0(c.canalesKg)} · Producto ${kg0(c.productosKg)} · Subproducto ${kg0(subKg)} kg`}>
                       <div className="bg-primary" style={{ width: pct(c.canalesKg) }} />
@@ -328,10 +337,24 @@ export function ClientesView() {
 
       {/* Inventario del cliente */}
       {cliente ? (
-        <DetalleCliente key={`${cliente.id}|${buscarEnCliente}`} cliente={cliente} verTodo={verTodo} buscar={buscarEnCliente} />
+        <DetalleCliente
+          key={`${cliente.id}|${buscarEnCliente}`}
+          cliente={cliente}
+          verTodo={verTodo}
+          buscar={buscarEnCliente}
+          destino={!clienteId && destino && bodegaDestino ? { ...destino, bodegaId: bodegaDestino.id } : null}
+        />
       ) : (
         <section className="rounded-xl border border-dashed border-border">
-          <Vacio text="Elegí un cliente para ver su inventario." />
+          <Vacio
+            text={bodegas.isError
+              ? 'No se pudo cargar el inventario de clientes. Actualiza la página.'
+              : destino && !clienteId
+                ? bodegasDestino.length > 1
+                  ? 'No se pudo identificar una única bodega para esta alerta. Elegí un cliente o actualiza el tablero.'
+                  : 'La bodega de esta alerta ya no está disponible en inventario. Elegí otro cliente o actualiza el tablero.'
+                : 'Elegí un cliente para ver su inventario.'}
+          />
         </section>
       )}
     </div>
@@ -340,14 +363,18 @@ export function ClientesView() {
 
 type TabDetalle = 'productos' | 'canales' | 'subproductos';
 
-function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen; verTodo: boolean; buscar: string }) {
-  const [bodegaId, setBodegaId] = useState<string>('todas');
+function DetalleCliente({ cliente, verTodo, buscar, destino }: { cliente: ClienteResumen; verTodo: boolean; buscar: string; destino: DestinoProducto | null }) {
+  const [productoInicial, setProductoInicial] = useState(destino);
+  const [bodegaId, setBodegaId] = useState<string>(destino?.bodegaId ?? 'todas');
   const ids = bodegaId === 'todas' ? cliente.bodegas.map((b) => b.id) : [bodegaId];
   const queries = useBodegasDetalle(ids);
   const cargando = queries.some((q) => q.isLoading);
-  const [tab, setTab] = useState<TabDetalle | null>(null);
+  const errorBodega = queries.some((q) => q.isError);
+  const [tab, setTab] = useState<TabDetalle | null>(destino ? 'productos' : null);
   const [agrupar, setAgrupar] = useState<'producto' | 'orden'>('producto');
   const [exportando, setExportando] = useState(false);
+  const [exportandoReporte, setExportandoReporte] = useState(false);
+  const [errorExportacion, setErrorExportacion] = useState('');
 
   const datos = useMemo(() => {
     const canales: Canal[] = [];
@@ -374,7 +401,7 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
   const libresKg = libres.reduce((s, p) => s + p.netoKg, 0);
   const subKg = subproductos.reduce((s, x) => s + (x.pesoKg ?? 0), 0);
   const subUnd = subproductos.reduce((s, x) => s + (x.cantidad ?? 0), 0);
-  const vigentes = productos.filter((p) => !p.transformadoOc && !p.despachoDc);
+  const vigentes = productos.filter((p) => !p.transformadoOc);
   const vencidas = vigentes.filter((p) => (diasVence(p.fechaVencimiento) ?? 99) < 0).length;
   const porVencer = vigentes.filter((p) => {
     const d = diasVence(p.fechaVencimiento);
@@ -397,6 +424,7 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
 
   async function exportar() {
     setExportando(true);
+    setErrorExportacion('');
     try {
       await descargarInventarioClienteExcel({
         cliente: cliente.nombre,
@@ -415,8 +443,24 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
         canales,
         subproductos,
       });
+    } catch (error) {
+      console.error('Error al exportar el inventario:', error);
+      setErrorExportacion('No se pudo descargar el inventario. Intenta nuevamente.');
     } finally {
       setExportando(false);
+    }
+  }
+
+  async function exportarReporte(tipo: 'productos' | 'canales') {
+    setExportandoReporte(true);
+    setErrorExportacion('');
+    try {
+      await descargarReporteInventario({ tipo, cliente: cliente.nombre, bodega: nombreBodega, productos, canales });
+    } catch (error) {
+      console.error('Error al exportar el reporte de inventario:', error);
+      setErrorExportacion('No se pudo descargar el reporte. Intenta nuevamente.');
+    } finally {
+      setExportandoReporte(false);
     }
   }
 
@@ -434,7 +478,10 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
             Bodega
             <select
               value={bodegaId}
-              onChange={(e) => setBodegaId(e.target.value)}
+              onChange={(e) => {
+                setProductoInicial(null);
+                setBodegaId(e.target.value);
+              }}
               className="h-10 rounded-lg border border-input bg-background px-3 text-sm font-semibold normal-case text-foreground outline-none focus:border-primary"
             >
               <option value="todas">Todas ({cliente.bodegas.length})</option>
@@ -450,9 +497,9 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
             Bodega {cliente.bodegas[0]?.code} - {cliente.bodegas[0]?.nombre}
           </span>
         )}
-        <Button variant="outline" className="h-10" onClick={() => void exportar()} disabled={cargando || exportando}>
+        <Button variant="outline" className="h-10" onClick={() => void exportar()} disabled={cargando || errorBodega || exportando || exportandoReporte}>
           {exportando ? <LoaderCircle className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
-          Excel
+          Excel general
         </Button>
       </div>
 
@@ -500,7 +547,10 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
               <button
                 key={t.key}
                 type="button"
-                onClick={() => setTab(t.key)}
+                onClick={() => {
+                  setProductoInicial(null);
+                  setTab(t.key);
+                }}
                 className={cn(
                   'flex h-9 items-center gap-1.5 rounded-md px-4 text-sm font-semibold transition-colors',
                   activa === t.key ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground',
@@ -525,7 +575,10 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
                   <button
                     key={a}
                     type="button"
-                    onClick={() => setAgrupar(a)}
+                    onClick={() => {
+                      setProductoInicial(null);
+                      setAgrupar(a);
+                    }}
                     className={cn(
                       'h-8 rounded-md px-3 text-sm font-semibold normal-case transition-colors',
                       agrupar === a ? 'bg-card text-primary shadow-sm' : 'text-muted-foreground hover:text-foreground',
@@ -537,7 +590,30 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
               </div>
             </div>
           )}
+          {(activa === 'productos' || activa === 'canales') && (
+            <Button
+              variant="outline"
+              size="sm"
+              className={activa === 'canales' ? 'ml-auto' : ''}
+              onClick={() => void exportarReporte(activa)}
+              disabled={cargando || errorBodega || exportando || exportandoReporte || (activa === 'productos' ? !productos.length : !canales.length)}
+              title="Exporta todo el inventario de la bodega seleccionada, sin aplicar la búsqueda"
+            >
+              {exportandoReporte ? <LoaderCircle className="size-4 animate-spin" /> : <FileSpreadsheet className="size-4" />}
+              Excel {activa}
+            </Button>
+          )}
         </div>
+        {(errorBodega || errorExportacion) && (
+          <p role="alert" className="px-3 py-2 text-sm text-destructive">
+            {errorBodega ? 'No se pudo cargar el inventario de todas las bodegas. Actualiza la página.' : errorExportacion}
+          </p>
+        )}
+        {productoInicial && !cargando && !errorBodega && !porProducto.some((p) => p.codigo === productoInicial.codigo) && (
+          <p role="alert" className="px-3 py-2 text-sm text-destructive">
+            El producto de esta alerta ya no está disponible en esta bodega. Actualiza el tablero.
+          </p>
+        )}
         <div className="min-h-0 flex-1">
           {cargando ? (
             <div className="flex h-full items-center justify-center text-muted-foreground">
@@ -547,7 +623,7 @@ function DetalleCliente({ cliente, verTodo, buscar }: { cliente: ClienteResumen;
             !productos.length ? (
               <Vacio text="Este cliente no tiene producto empacado en esta bodega." />
             ) : agrupar === 'producto' ? (
-              <ProductosPorProducto filas={porProducto} verTodo={verTodo} buscar={buscar} />
+              <ProductosPorProducto filas={porProducto} verTodo={verTodo} buscar={buscar} codigoInicial={productoInicial?.codigo} />
             ) : (
               <ProductosPorOrden productos={productos} />
             )
@@ -612,16 +688,23 @@ function agruparPorProducto(productos: Producto[]): FilaProducto[] {
     else {
       f.disponibles += 1;
       f.disponiblesKg += p.netoKg;
-      if (p.fechaVencimiento && (!f.vence || p.fechaVencimiento < f.vence)) f.vence = p.fechaVencimiento;
     }
+    if (!p.transformadoOc && p.fechaVencimiento && (!f.vence || p.fechaVencimiento < f.vence)) f.vence = p.fechaVencimiento;
     if (/congel/i.test(p.conservacion)) f.congelado = true;
     m.set(p.productoCodigo, f);
   }
   return [...m.values()].sort((a, b) => b.kg - a.kg);
 }
 
-function ProductosPorProducto({ filas, verTodo, buscar }: { filas: FilaProducto[]; verTodo: boolean; buscar: string }) {
-  const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
+function ProductosPorProducto({ filas, verTodo, buscar, codigoInicial }: {
+  filas: FilaProducto[];
+  verTodo: boolean;
+  buscar: string;
+  codigoInicial?: string;
+}) {
+  const [abiertos, setAbiertos] = useState<Set<string>>(() => new Set(codigoInicial ? [codigoInicial] : []));
+  const filaInicial = useRef<HTMLTableRowElement>(null);
+  const desplazado = useRef(false);
   const [busqueda, setBusqueda] = useState(buscar);
   const [etiquetaId, setEtiquetaId] = useState<string | null>(null);
   const [postaId, setPostaId] = useState<string | null>(null);
@@ -633,6 +716,12 @@ function ProductosPorProducto({ filas, verTodo, buscar }: { filas: FilaProducto[
     const etiquetas = f.etiquetas.filter((e) => (e.codigo ?? '').toUpperCase().includes(codigoQ));
     return etiquetas.length ? [{ f, etiquetas, porCodigo: true }] : [];
   });
+  useEffect(() => {
+    if (!desplazado.current && filaInicial.current) {
+      filaInicial.current.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      desplazado.current = true;
+    }
+  }, [filas, codigoInicial]);
   const toggle = (codigo: string) =>
     setAbiertos((prev) => {
       const next = new Set(prev);
@@ -677,6 +766,7 @@ function ProductosPorProducto({ filas, verTodo, buscar }: { filas: FilaProducto[
               return (
                 <Fragment key={f.codigo}>
                   <tr
+                    ref={f.codigo === codigoInicial ? filaInicial : undefined}
                     onClick={() => toggle(f.codigo)}
                     className={cn('h-12 cursor-pointer transition-colors [&>td]:px-3', abierto ? 'bg-primary/5' : 'hover:bg-muted/40')}
                   >
@@ -684,9 +774,14 @@ function ProductosPorProducto({ filas, verTodo, buscar }: { filas: FilaProducto[
                       {abierto ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
                     </td>
                     <td className="font-semibold tabular-nums text-muted-foreground">{f.codigo}</td>
-                    <td className="font-semibold uppercase">
-                      {f.nombre}
-                      {f.congelado && <Snowflake className="ml-1.5 inline size-3.5 text-sky-600" />}
+                    <td>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-semibold uppercase">
+                          {f.nombre}
+                          {f.congelado && <Snowflake className="ml-1.5 inline size-3.5 text-sky-600" />}
+                        </span>
+                        <LotesAntiguos etiquetas={f.etiquetas} />
+                      </div>
                     </td>
                     <td className="text-right tabular-nums">{f.unds}</td>
                     <td className="text-right font-semibold tabular-nums">{kg(f.kg)}</td>
@@ -702,7 +797,10 @@ function ProductosPorProducto({ filas, verTodo, buscar }: { filas: FilaProducto[
                       </div>
                     </td>
                     <td>
-                      <VenceChip iso={f.vence} />
+                      <div className="flex items-center gap-2">
+                        <VenceChip iso={f.vence} />
+                        <SemaforoPill estado={semaforoGeneral(f.etiquetas.filter((e) => !e.transformadoOc).map((e) => e.semaforo))} />
+                      </div>
                     </td>
                   </tr>
                   {abierto && (
@@ -744,7 +842,7 @@ function ProductosPorProducto({ filas, verTodo, buscar }: { filas: FilaProducto[
                                 <td className="uppercase">{e.conservacion || '—'}</td>
                                 <td className="tabular-nums">{fecha(e.fechaEmpaque)}</td>
                                 <td>
-                                  <VenceChip iso={e.fechaVencimiento} />
+                                  <VenceChip iso={e.fechaVencimiento} resaltado />
                                 </td>
                                 <td>
                                   {e.transformadoOc ? (
@@ -1024,6 +1122,7 @@ function CanalesTabla({ canales, buscar }: { canales: Canal[]; buscar: string })
                   <td className="uppercase">{c.cava ?? '—'}</td>
                   <td>
                     <EstadoCanal c={c} />
+                    {!canalDespachada(c) && !canalProcesada(c) && <span className="ml-1"><SemaforoPill estado={c.semaforo} canal /></span>}
                   </td>
                   <td className="whitespace-normal">{c.destino || '—'}</td>
                   <td className="text-right font-semibold tabular-nums">{kg(c.pesoKg)}</td>

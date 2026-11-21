@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from 'react';
-import { ChevronDown, ChevronRight, LoaderCircle, Search, Warehouse } from 'lucide-react';
+import { Beef, Boxes, ChevronDown, ChevronRight, LoaderCircle, Search, Warehouse } from 'lucide-react';
 import { Dialog } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
@@ -13,11 +13,12 @@ import { useBodegaInventario, useBodegasInventario, type BodegaDetalle, type Bod
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
 import { TrazabilidadEtiquetaDialog } from './TrazabilidadEtiquetaDialog';
 import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
+import { DIAS_VENCE, diasVence, fecha, SemaforoPill, semaforoGeneral, VenceChip } from './semaforo-ui';
+
+export { fecha } from './semaforo-ui';
 
 export const kg = (n: number) =>
   n.toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-
-export const fecha = (iso: string | null) => (iso ? iso.split('-').reverse().join('/') : '—');
 
 const PIEZA: Record<string, string> = { canal: 'CANAL', cizq: 'CIZQ', cder: 'CDER' };
 
@@ -30,13 +31,18 @@ export function BodegasTab() {
   const [busqueda, setBusqueda] = useState('');
   const [abierta, setAbierta] = useState<BodegaResumen | null>(null);
   const q = busqueda.trim().toUpperCase();
-  const rows = (bodegas.data ?? []).filter(
-    (b) =>
+  const rows = (bodegas.data ?? [])
+    .filter((b) =>
       !q ||
       b.cliente.toUpperCase().includes(q) ||
       b.nombre.toUpperCase().includes(q) ||
-      (b.clienteNit ?? '').includes(q),
-  );
+      (b.clienteNit ?? '').includes(q) ||
+      String(b.code).includes(q),
+    )
+    .sort((a, b) =>
+      (b.canalesKg + b.productosKg) - (a.canalesKg + a.productosKg) ||
+      a.cliente.localeCompare(b.cliente, 'es') || a.code - b.code,
+    );
 
   if (bodegas.isLoading) {
     return (
@@ -46,43 +52,53 @@ export function BodegasTab() {
     );
   }
 
+  if (bodegas.isError && !bodegas.data) {
+    return <p role="alert" className="p-6 text-sm text-destructive">No se pudieron cargar las bodegas. Intenta nuevamente.</p>;
+  }
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="flex items-center gap-2 border-b-2 border-border px-3 py-2">
-        <div className="relative w-80">
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex flex-wrap items-center gap-3 border-b border-border bg-muted/20 px-4 py-3">
+        <div className="relative w-full sm:max-w-sm">
           <Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            className="h-9 pl-8 uppercase"
+            className="h-10 pl-8"
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             placeholder="Buscar cliente, NIT o bodega…"
           />
         </div>
-        <p className="ml-auto text-xs text-muted-foreground">{rows.length} bodega(s)</p>
+        <p className="ml-auto text-xs text-muted-foreground">{rows.length} bodega(s) · mayor peso primero</p>
       </div>
-      <ul className="min-h-0 flex-1 overflow-auto p-2">
+      <ul className="scrollbar-app min-h-0 flex-1 divide-y divide-border overflow-auto px-3">
         {rows.map((b) => (
-          <li key={b.id} className="mb-2">
+          <li key={b.id}>
             <button
+              type="button"
               onClick={() => setAbierta(b)}
-              className="flex w-full items-center gap-3 rounded-sm border-2 border-border bg-card px-4 py-3 text-left hover:bg-muted/50"
+              className="flex w-full flex-wrap items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary sm:flex-nowrap"
             >
-              <Warehouse className="size-6 shrink-0 text-muted-foreground" />
-              <span className="min-w-0 flex-1">
-                <span className="block truncate text-lg font-semibold uppercase">
-                  <span className="tabular-nums">{b.code}</span> - {b.nombre}
+              <span className="flex size-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Warehouse className="size-5" />
+              </span>
+              <span className="min-w-0 flex-1 basis-[calc(100%-5rem)] sm:basis-auto">
+                <span className="block truncate text-sm font-bold uppercase">
+                  <span className="tabular-nums">{b.code}</span> · {b.nombre}
                 </span>
-                <span className="block truncate text-sm text-muted-foreground">
+                <span className="block truncate text-xs text-muted-foreground">
                   {b.clienteNit ? `${b.clienteNit} - ` : ''}
                   {b.cliente}
                 </span>
               </span>
-              <span className="flex shrink-0 gap-4 text-sm font-semibold tabular-nums text-muted-foreground">
-                <span>{b.canales} canal(es)</span>
-                <span>{b.productos} producto(s)</span>
-                <span className="text-emerald-700">{kg(b.productosKg)} kg</span>
+              <span className="flex flex-1 flex-wrap items-center gap-x-4 gap-y-1 text-xs tabular-nums text-muted-foreground sm:flex-none">
+                <span className="flex items-center gap-1"><Beef className="size-4" /> {b.canales} canales · {kg(b.canalesKg)} kg</span>
+                <span className="flex items-center gap-1"><Boxes className="size-4" /> {b.productos} productos · {kg(b.productosKg)} kg</span>
               </span>
-              <ChevronRight className="size-5 shrink-0" />
+              <span className="ml-auto text-right text-sm font-bold tabular-nums text-primary">
+                {kg(b.canalesKg + b.productosKg)} kg
+                <span className="block text-[10px] font-medium uppercase text-muted-foreground">Canales + productos</span>
+              </span>
+              <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
             </button>
           </li>
         ))}
@@ -104,18 +120,20 @@ function BodegaDialog({ bodega, onClose }: { bodega: BodegaResumen; onClose: () 
       onClose={onClose}
       title={`Bodega ${bodega.code} - ${bodega.nombre}`}
       description={`${bodega.clienteNit ? `${bodega.clienteNit} - ` : ''}${bodega.cliente}`}
-      className="max-w-6xl"
+      className="max-w-[min(92vw,100rem)]"
       scrollInterno
     >
-      {!d ? (
+      {detalle.isError && !d ? (
+        <p role="alert" className="py-8 text-center text-sm text-destructive">No se pudo cargar el detalle de la bodega. Intenta nuevamente.</p>
+      ) : !d ? (
         <div className="flex justify-center py-10 text-muted-foreground">
           <LoaderCircle className="size-6 animate-spin" />
         </div>
       ) : (
-        <div className="space-y-6">
+        <div className="space-y-5">
           <Resumen d={d} />
           <Canales d={d} />
-          <Productos d={d} />
+          <Productos d={d} ajustarAncho />
         </div>
       )}
     </Dialog>
@@ -124,7 +142,7 @@ function BodegaDialog({ bodega, onClose }: { bodega: BodegaResumen; onClose: () 
 
 export function Caja({ titulo, valor, detalle, className }: { titulo: string; valor: string; detalle?: string; className?: string }) {
   return (
-    <div className="rounded-md border border-border px-4 py-2">
+    <div className="rounded-xl bg-muted/50 px-4 py-3">
       <p className="text-xs font-semibold uppercase text-muted-foreground">{titulo}</p>
       <p className={cn('text-2xl font-bold tabular-nums', className)}>{valor}</p>
       {detalle && <p className="text-xs text-muted-foreground">{detalle}</p>}
@@ -138,24 +156,26 @@ function Resumen({ d }: { d: BodegaDetalle }) {
   const canalesEnOrden = enPlanta.filter((c) => c.enOrden || c.enDespacho).length;
   const despachadas = d.canales.filter((c) => c.enDespacho?.cerrada).length;
   const procesadas = d.canales.filter((c) => c.enOrden?.cerrada).length;
-  const productosKg = d.productos.reduce((s, p) => s + p.netoKg, 0);
-  const productosEnProceso = d.productos.filter((p) => p.trasladoOt && !p.transformadoOc).length;
+  const vigentes = d.productos.filter((p) => !p.transformadoOc);
+  const productosKg = vigentes.reduce((s, p) => s + p.netoKg, 0);
+  const productosEnProceso = d.productos.filter((p) => p.trasladoOt && !p.transformadoOc && !p.despachoDc).length;
   const transformados = d.productos.filter((p) => p.transformadoOc).length;
+  const porVencer = vigentes.filter((p) => {
+    const dias = diasVence(p.fechaVencimiento);
+    return dias != null && dias <= DIAS_VENCE;
+  }).length;
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-7">
-      <Caja titulo="Canales" valor={String(enPlanta.length)} detalle={`${kg(canalesKg)} kg`} />
-      <Caja titulo="Canales en orden" valor={String(canalesEnOrden)} className="text-amber-600" />
-      <Caja titulo="Despachadas" valor={String(despachadas)} className="text-sky-700" />
-      <Caja titulo="Procesadas" valor={String(procesadas)} className="text-violet-700" />
-      <Caja titulo="Productos rotulados" valor={String(d.productos.length)} detalle={`${kg(productosKg)} kg`} className="text-emerald-700" />
-      <Caja titulo="Productos en proceso" valor={String(productosEnProceso)} className="text-amber-600" />
-      <Caja titulo="Transformados" valor={String(transformados)} className="text-violet-700" />
+    <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <Caja titulo="Canales en planta" valor={`${kg(canalesKg)} kg`} detalle={`${enPlanta.length} piezas · ${canalesEnOrden} en orden`} />
+      <Caja titulo="Productos en planta" valor={`${kg(productosKg)} kg`} detalle={`${vigentes.length} etiquetas · ${productosEnProceso} en proceso`} className="text-emerald-700" />
+      <Caja titulo="Por vencer o vencidas" valor={String(porVencer)} detalle="Etiquetas dentro de 5 días o vencidas" className={porVencer ? 'text-amber-700' : undefined} />
+      <Caja titulo="Histórico" valor={String(despachadas + procesadas + transformados)} detalle={`${despachadas} despachadas · ${procesadas} procesadas · ${transformados} transformados`} />
     </div>
   );
 }
 
-const th = 'whitespace-nowrap border-b-2 border-border px-2 py-1.5 text-left text-xs font-semibold uppercase text-muted-foreground';
-const td = 'whitespace-nowrap border-b border-border px-2 py-1';
+const th = 'whitespace-nowrap border-b border-border px-3 py-2.5 text-left text-xs font-semibold uppercase text-muted-foreground';
+const td = 'whitespace-nowrap border-b border-border px-3 py-2';
 
 function Canales({ d }: { d: BodegaDetalle }) {
   const [trazaId, setTrazaId] = useState<string | null>(null);
@@ -164,16 +184,19 @@ function Canales({ d }: { d: BodegaDetalle }) {
     <section className="space-y-2">
       {trazaId && <TrazabilidadCanalDialog piezaId={trazaId} onClose={() => setTrazaId(null)} />}
       {reciboId && <TrazabilidadReciboDialog tipo="canal" id={reciboId} onClose={() => setReciboId(null)} />}
-      <h3 className="text-base font-semibold">Canales ({d.canales.length})</h3>
+      <h3 className="flex items-center gap-2 text-base font-semibold"><Beef className="size-4 text-primary" /> Canales ({d.canales.length})</h3>
       {!d.canales.length ? (
         <p className="text-sm text-muted-foreground">No hay canales en esta bodega.</p>
       ) : (
         <div className="scrollbar-app max-h-80 overflow-auto rounded-md border border-border">
-          <table className="w-full border-collapse text-sm tabular-nums">
+          <table className="w-full border-collapse text-sm tabular-nums xl:table-fixed">
+            <colgroup>
+              {[6, 5, 9, 9, 7, 6, 7, 15, 9, 9, 18].map((ancho, i) => <col key={i} style={{ width: `${ancho}%` }} />)}
+            </colgroup>
             <thead className="sticky top-0 bg-muted">
               <tr>
                 {['Lote', 'Animal', 'Barcode', 'Fecha', 'Tipo', 'Pieza', 'Cava', 'Destino', 'Caliente (kg)', 'Frío (kg)', 'Estado'].map((c) => (
-                  <th key={c} className={th}>{c}</th>
+                  <th key={c} className={cn(th, 'xl:whitespace-normal xl:break-words')}>{c}</th>
                 ))}
               </tr>
             </thead>
@@ -185,23 +208,23 @@ function Canales({ d }: { d: BodegaDetalle }) {
                   title={c.recibo ? 'Ver trazabilidad del recibo' : 'Ver trazabilidad de la canal'}
                   className="cursor-pointer odd:bg-muted/30 hover:bg-muted/60"
                 >
-                  <td className={td}>{c.recibo ? `RC${c.recibo.receiptNumber}` : c.reference}</td>
-                  <td className={td}>{c.recibo ? '—' : `A${String(c.sequence).padStart(2, '0')}`}</td>
-                  <td className={td}>
+                  <td className={cn(td, 'xl:whitespace-normal xl:break-words')}>{c.recibo ? `RC${c.recibo.receiptNumber}` : c.reference}</td>
+                  <td className={cn(td, 'xl:whitespace-normal xl:break-words')}>{c.recibo ? '—' : `A${String(c.sequence).padStart(2, '0')}`}</td>
+                  <td className={cn(td, 'xl:whitespace-normal xl:break-all')}>
                     {c.recibo
                       ? `RC${c.recibo.receiptNumber}-${String(c.recibo.codigo).padStart(2, '0')}`
                       : c.canalTipo
                         ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
                         : '—'}
                   </td>
-                  <td className={td}>{fecha(c.date)}</td>
-                  <td className={cn(td, 'uppercase')}>{c.recibo ? 'RECIBIDA' : (c.canalAnimalTipo ?? '—')}</td>
-                  <td className={cn(td, 'font-semibold text-red-600')}>{PIEZA[c.pieza]}</td>
-                  <td className={td}>{c.cava ?? '—'}</td>
-                  <td className={td}>{c.destino || '—'}</td>
-                  <td className={cn(td, 'text-right')}>{kg(c.pesoKg)}</td>
-                  <td className={cn(td, 'text-right')}>{c.pesoFrioKg == null ? '—' : kg(c.pesoFrioKg)}</td>
-                  <td className={td}>
+                  <td className={cn(td, 'xl:whitespace-normal xl:break-words')}>{fecha(c.date)}</td>
+                  <td className={cn(td, 'uppercase xl:whitespace-normal xl:break-words')}>{c.recibo ? 'RECIBIDA' : (c.canalAnimalTipo ?? '—')}</td>
+                  <td className={cn(td, 'font-semibold text-red-600 xl:whitespace-normal xl:break-words')}>{PIEZA[c.pieza]}</td>
+                  <td className={cn(td, 'xl:whitespace-normal xl:break-words')}>{c.cava ?? '—'}</td>
+                  <td className={cn(td, 'xl:whitespace-normal xl:break-words')}>{c.destino || '—'}</td>
+                  <td className={cn(td, 'text-right xl:whitespace-normal xl:break-words')}>{kg(c.pesoKg)}</td>
+                  <td className={cn(td, 'text-right xl:whitespace-normal xl:break-words')}>{c.pesoFrioKg == null ? '—' : kg(c.pesoFrioKg)}</td>
+                  <td className={cn(td, 'xl:whitespace-normal xl:break-words')}>
                     {c.enOrden?.cerrada ? (
                       <span className="rounded-sm bg-violet-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
                         PROCESADA · {formatOD(c.enOrden.odNumber)}
@@ -223,6 +246,9 @@ function Canales({ d }: { d: BodegaDetalle }) {
                     ) : (
                       <span className={disponible}>DISPONIBLE</span>
                     )}
+                    {!c.enOrden?.cerrada && !c.enDespacho?.cerrada && (
+                      <span className="ml-1.5"><SemaforoPill estado={c.semaforo} canal /></span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -234,7 +260,7 @@ function Canales({ d }: { d: BodegaDetalle }) {
   );
 }
 
-export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
+export function Productos({ d, ajustarAncho = false }: { d: Pick<BodegaDetalle, 'productos'>; ajustarAncho?: boolean }) {
   // Despliegue del detalle (etiquetas) por producto al hacer clic en su fila.
   const [abierto, setAbierto] = useState<Set<string>>(new Set());
   const [trazaId, setTrazaId] = useState<string | null>(null);
@@ -258,35 +284,43 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
   }, [d.productos]);
 
   const resumen = useMemo(() => {
-    const m = new Map<string, { codigo: string; producto: string; piezas: number; kg: number; enProceso: number; transformados: number }>();
+    const m = new Map<string, { codigo: string; producto: string; piezas: number; kg: number; enProceso: number; enDespacho: number; transformados: number; vence: string | null }>();
     for (const p of d.productos) {
-      const g = m.get(p.productoCodigo) ?? { codigo: p.productoCodigo, producto: p.productoNombre, piezas: 0, kg: 0, enProceso: 0, transformados: 0 };
+      const g = m.get(p.productoCodigo) ?? { codigo: p.productoCodigo, producto: p.productoNombre, piezas: 0, kg: 0, enProceso: 0, enDespacho: 0, transformados: 0, vence: null };
       g.piezas += 1;
       g.kg += p.netoKg;
       if (p.transformadoOc) g.transformados += 1;
+      else if (p.despachoDc) g.enDespacho += 1;
       else if (p.trasladoOt) g.enProceso += 1;
+      if (!p.transformadoOc && p.fechaVencimiento && (!g.vence || p.fechaVencimiento < g.vence)) g.vence = p.fechaVencimiento;
       m.set(p.productoCodigo, g);
     }
     return [...m.values()].sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   }, [d.productos]);
 
-  const sub = 'whitespace-nowrap border-b border-border px-2 py-1 text-xs';
+  const ajuste = ajustarAncho ? 'xl:whitespace-normal xl:break-words' : '';
+  const sub = cn('whitespace-nowrap border-b border-border px-3 py-2 text-xs', ajuste);
 
   return (
     <section className="space-y-2">
       {trazaId && <TrazabilidadEtiquetaDialog id={trazaId} onClose={() => setTrazaId(null)} />}
       {postaId && <TrazabilidadReciboDialog tipo="posta" id={postaId} onClose={() => setPostaId(null)} />}
-      <h3 className="text-base font-semibold">Productos rotulados ({d.productos.length})</h3>
+      <h3 className="flex items-center gap-2 text-base font-semibold"><Boxes className="size-4 text-primary" /> Productos rotulados ({d.productos.length})</h3>
       {!d.productos.length ? (
         <p className="text-sm text-muted-foreground">No hay productos rotulados en esta bodega.</p>
       ) : (
         <div className="scrollbar-app max-h-[60vh] overflow-auto rounded-md border border-border">
-          <table className="w-full border-collapse text-sm tabular-nums">
+          <table className={cn('w-full border-collapse text-sm tabular-nums', ajustarAncho && 'xl:table-fixed')}>
+            {ajustarAncho && (
+              <colgroup>
+                {[3, 7, 25, 6, 9, 9, 9, 10, 9, 13].map((ancho, i) => <col key={i} style={{ width: `${ancho}%` }} />)}
+              </colgroup>
+            )}
             <thead className="sticky top-0 z-10 bg-muted">
               <tr>
-                {['', 'Código', 'Producto', 'Piezas', 'Neto (kg)', 'En proceso', 'Transformados', 'Disponibles'].map(
+                {['', 'Código', 'Producto', 'Piezas', 'Neto (kg)', 'En proceso', 'En despacho', 'Transformados', 'Disponibles', 'Vence'].map(
                   (c, i) => (
-                    <th key={i} className={th}>{c}</th>
+                    <th key={i} className={cn(th, ajuste)}>{c}</th>
                   ),
                 )}
               </tr>
@@ -302,27 +336,36 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
                       onClick={() => toggle(r.codigo)}
                       title="Ver el detalle de las etiquetas"
                     >
-                      <td className={cn(td, 'text-center text-muted-foreground')}>
+                      <td className={cn(td, ajuste, 'text-center text-muted-foreground')}>
                         {expandido ? <ChevronDown className="inline size-4" /> : <ChevronRight className="inline size-4" />}
                       </td>
-                      <td className={cn(td, 'font-semibold')}>{r.codigo}</td>
-                      <td className={cn(td, 'font-medium uppercase')}>{r.producto}</td>
-                      <td className={td}>{r.piezas}</td>
-                      <td className={cn(td, 'text-right font-semibold text-emerald-700')}>{kg(r.kg)}</td>
-                      <td className={cn(td, 'text-amber-700')}>{r.enProceso}</td>
-                      <td className={cn(td, 'text-violet-700')}>{r.transformados}</td>
-                      <td className={cn(td, 'text-emerald-700')}>{r.piezas - r.enProceso - r.transformados}</td>
+                      <td className={cn(td, ajuste, 'font-semibold')}>{r.codigo}</td>
+                      <td className={cn(td, ajuste, 'font-medium uppercase')}>{r.producto}</td>
+                      <td className={cn(td, ajuste)}>{r.piezas}</td>
+                      <td className={cn(td, ajuste, 'text-right font-semibold text-emerald-700')}>{kg(r.kg)}</td>
+                      <td className={cn(td, ajuste, 'text-amber-700')}>{r.enProceso}</td>
+                      <td className={cn(td, ajuste, 'text-sky-700')}>{r.enDespacho}</td>
+                      <td className={cn(td, ajuste, 'text-violet-700')}>{r.transformados}</td>
+                      <td className={cn(td, ajuste, 'text-emerald-700')}>{r.piezas - r.enProceso - r.enDespacho - r.transformados}</td>
+                      <td className={cn(td, ajuste)}>
+                        <div className="flex items-center gap-2">
+                          <VenceChip iso={r.vence} />
+                          {etiquetas.some((e) => !e.transformadoOc) && (
+                            <SemaforoPill estado={semaforoGeneral(etiquetas.filter((e) => !e.transformadoOc).map((e) => e.semaforo))} />
+                          )}
+                        </div>
+                      </td>
                     </tr>
                     {expandido && (
                       <tr>
-                        <td className="bg-muted/10 p-0" colSpan={8}>
+                        <td className="bg-muted/10 p-0" colSpan={10}>
                           <div className="scrollbar-app max-h-[40vh] overflow-auto">
-                            <table className="w-full border-collapse text-sm tabular-nums">
+                            <table className={cn('w-full border-collapse text-sm tabular-nums', ajustarAncho && 'xl:table-fixed')}>
                               <thead className="sticky top-0 bg-muted/80 text-left">
                                 <tr>
                                   {['Código de barras', 'Pieza', 'Tienda', 'N.º canast.', 'Neto (kg)', 'Conservación', 'Empaque', 'Vence', 'Lote', 'Estado'].map(
                                     (c) => (
-                                      <th key={c} className={cn(th, 'text-[11px]')}>{c}</th>
+                                      <th key={c} className={cn(th, ajuste, 'text-[11px]')}>{c}</th>
                                     ),
                                   )}
                                 </tr>
@@ -347,7 +390,7 @@ export function Productos({ d }: { d: Pick<BodegaDetalle, 'productos'> }) {
                                       {fecha(p.fechaEmpaque)}
                                       {p.sobrante && <span className={cn(enProceso, 'ml-1.5')}>SOBRANTE</span>}
                                     </td>
-                                    <td className={sub}>{fecha(p.fechaVencimiento)}</td>
+                                    <td className={sub}><VenceChip iso={p.fechaVencimiento} resaltado /></td>
                                     <td className={sub}>
                                       {p.rpNumber ? (
                                         `RP${p.rpNumber}`

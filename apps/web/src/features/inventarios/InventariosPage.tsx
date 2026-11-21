@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
-import { Warehouse, LoaderCircle, Inbox, ChevronDown, ChevronRight } from 'lucide-react';
+import { Warehouse, LoaderCircle, Inbox, ChevronDown, ChevronRight, Snowflake } from 'lucide-react';
+import { Combobox } from '@/components/ui/combobox';
 import { cn } from '@/lib/utils';
 import { codigoBarras } from '../canal-caliente/canal-presinto-print';
 import { formatOD } from '../registrar/orden-despacho-api';
@@ -19,6 +20,7 @@ import {
   type CavaAnimalRow,
   type CavaSubproductoRow,
   type CavaSubproductoCategoria,
+  type DestinoProducto,
 } from './api';
 
 type Tab = `cava-${string}` | `sub-${string}` | 'bodegas';
@@ -65,6 +67,7 @@ export function InventariosPage() {
   ];
   const [tab, setTab] = useState<Tab>(tabs[0].key);
   const [vista, setVista] = useState<Vista>('tablero');
+  const [destinoProducto, setDestinoProducto] = useState<DestinoProducto | null>(null);
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col gap-2">
@@ -92,7 +95,10 @@ export function InventariosPage() {
               key={v.key}
               role="radio"
               aria-checked={vista === v.key}
-              onClick={() => setVista(v.key)}
+              onClick={() => {
+                setDestinoProducto(null);
+                setVista(v.key);
+              }}
               className={cn(
                 'flex h-10 items-center rounded-md px-4 text-sm font-semibold transition-colors',
                 vista === v.key
@@ -109,6 +115,10 @@ export function InventariosPage() {
       {vista === 'tablero' ? (
         <div className="min-h-0 flex-1">
           <TableroInventario
+            onAbrirProducto={(destino) => {
+              setDestinoProducto(destino);
+              setVista('clientes');
+            }}
             onAbrirCava={(tipo, cava) => {
               setTab(tipo === 'canal' ? `cava-${cava}` : `sub-${cava}`);
               setVista('cava');
@@ -117,35 +127,42 @@ export function InventariosPage() {
         </div>
       ) : vista === 'clientes' ? (
         <div className="min-h-0 flex-1">
-          <ClientesView />
+          <ClientesView destino={destinoProducto} />
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap overflow-hidden rounded-sm border-2 border-border">
-            {tabs.map((t) => (
-              <button
-                key={t.key}
-                onClick={() => setTab(t.key)}
-                className={cn(
-                  'flex-1 border-r-2 border-b-2 border-border px-3 py-2 text-center text-xs font-semibold uppercase tracking-wide transition-colors last:border-r-0',
-                  tab === t.key
-                    ? 'bg-background text-foreground shadow-[inset_0_-3px_0_0] shadow-emerald-600'
-                    : 'bg-muted/40 text-muted-foreground hover:bg-muted',
-                )}
-              >
-                {t.label}
-              </button>
-            ))}
+          <div className="rounded-xl border border-border bg-card p-3 shadow-sm">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              <Snowflake className="size-4 text-primary" /> Ubicaciones de inventario
+            </div>
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 xl:grid-cols-11">
+              {tabs.map((t) => (
+                <button
+                  key={t.key}
+                  type="button"
+                  aria-pressed={tab === t.key}
+                  onClick={() => setTab(t.key)}
+                  className={cn(
+                    'flex min-h-14 min-w-0 items-center justify-center rounded-lg border px-2 py-2 text-center text-xs font-semibold transition-colors last:col-span-2 xl:last:col-span-1',
+                    tab === t.key
+                      ? 'border-primary bg-primary text-primary-foreground shadow-sm'
+                      : 'border-border bg-muted/40 text-muted-foreground hover:bg-muted hover:text-foreground',
+                  )}
+                >
+                  {t.label}
+                </button>
+              ))}
+            </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-hidden rounded-sm border-2 border-border bg-card">
+          <div className="min-h-0 flex-1 overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {tab === 'bodegas' ? (
               <BodegasTab />
             ) : tab.startsWith('cava-') ? (
-              <CavaTab cava={tab.replace('cava-', '')} />
+              <CavaTab key={tab} cava={tab.replace('cava-', '')} />
             ) : (
               <div className="h-full overflow-auto">
-                <CavaSubproductoTab cava={tab.replace('sub-', '')} />
+                <CavaSubproductoTab key={tab} cava={tab.replace('sub-', '')} />
               </div>
             )}
           </div>
@@ -162,7 +179,7 @@ const PIEZA_LABEL: Record<CavaAnimalRow['pieza'], string> = {
 };
 
 function CavaTab({ cava }: { cava: string }) {
-  const { data, isLoading } = useCava(cava);
+  const { data, isLoading, isError } = useCava(cava);
   const [cliente, setCliente] = useState('');
   const [tipo, setTipo] = useState('');
   const [pieza, setPieza] = useState('');
@@ -189,17 +206,23 @@ function CavaTab({ cava }: { cava: string }) {
   );
 
   if (isLoading) return <Loading />;
+  if (isError) return <Empty text={`No se pudo cargar la ${cava}. Intenta nuevamente.`} />;
   if (!rows.length)
     return <Empty text={`No hay animales ubicados en la ${cava}.`} />;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex flex-wrap items-center gap-4 border-b-2 border-border px-3 py-2">
-        <FiltroSelect
-          label="Cliente"
-          value={cliente}
-          onChange={setCliente}
-          opciones={clientes.map((c) => ({ value: c, label: c }))}
-        />
+      <div className="flex flex-wrap items-end gap-3 border-b border-border bg-muted/20 px-4 py-3">
+        <div className="w-full space-y-1 sm:w-72">
+          <label htmlFor="cava-cliente" className="text-xs font-semibold uppercase text-muted-foreground">Cliente</label>
+          <Combobox
+            id="cava-cliente"
+            value={cliente}
+            onChange={setCliente}
+            options={clientes.map((c) => ({ value: c, label: c }))}
+            placeholder="Todos los clientes · buscar"
+            emptyText="Ningún cliente coincide"
+          />
+        </div>
         <FiltroSelect
           label="Tipo"
           value={tipo}
@@ -224,6 +247,10 @@ function CavaTab({ cava }: { cava: string }) {
             { value: 'orden', label: 'En orden / proceso' },
           ]}
         />
+        <div className="ml-auto text-right text-xs text-muted-foreground">
+          <span className="font-semibold text-foreground">{filtradas.length}</span> canal(es) ·{' '}
+          <span className="font-semibold text-foreground">{filtradas.reduce((sum, r) => sum + r.pesoKg, 0).toLocaleString('es-CO', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} kg</span>
+        </div>
       </div>
       {!filtradas.length ? (
         <Empty text="No hay canales con estos filtros." />
@@ -265,7 +292,7 @@ function CavaTab({ cava }: { cava: string }) {
             </td>
             <td className="text-xs font-semibold uppercase text-red-600">canal</td>
             <td>
-              <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>
+              <EstadoCava r={r} />
             </td>
             <td className="whitespace-normal">{r.recibo.guia ? `Guía ${r.recibo.guia}` : '—'}</td>
             <td className="min-w-40 whitespace-normal uppercase">
@@ -302,29 +329,7 @@ function CavaTab({ cava }: { cava: string }) {
               {r.pieza}
             </td>
             <td>
-              {r.enOrden ? (
-                <span
-                  title="Sigue en la cava, pero ya está asignada a esta orden"
-                  className="inline-flex flex-col rounded-sm border border-amber-400 bg-amber-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-amber-900"
-                >
-                  <span>{formatOD(r.enOrden.odNumber)}</span>
-                  {r.enOrden.opNumbers.length > 0 && (
-                    <span>
-                      {r.enOrden.opNumbers.map(formatOP).join(', ')} · EN PROCESO
-                    </span>
-                  )}
-                </span>
-              ) : r.enDespacho ? (
-                <span
-                  title="Sigue en la cava hasta que se cierre la orden de despacho"
-                  className="inline-flex flex-col rounded-sm border border-sky-400 bg-sky-50 px-2 py-0.5 text-xs font-semibold tabular-nums text-sky-900"
-                >
-                  <span>{formatDC(r.enDespacho.dcNumber)}</span>
-                  <span>DESPACHO {r.enDespacho.tipo === 'caliente' ? 'CALIENTE' : 'FRÍO'}</span>
-                </span>
-              ) : (
-                <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>
-              )}
+              <EstadoCava r={r} />
             </td>
             <td className="whitespace-normal">{r.destino || '—'}</td>
             <td className="min-w-40 whitespace-normal">{r.observaciones || '—'}</td>
@@ -343,8 +348,28 @@ function CavaTab({ cava }: { cava: string }) {
   );
 }
 
+function EstadoCava({ r }: { r: CavaAnimalRow }) {
+  if (r.enOrden) {
+    return (
+      <span title="Sigue en la cava, pero ya está asignada a esta orden" className="inline-flex flex-col rounded-md bg-amber-50 px-2 py-1 text-xs font-semibold tabular-nums text-amber-900">
+        <span>{formatOD(r.enOrden.odNumber)}</span>
+        {r.enOrden.opNumbers.length > 0 && <span>{r.enOrden.opNumbers.map(formatOP).join(', ')} · EN PROCESO</span>}
+      </span>
+    );
+  }
+  if (r.enDespacho) {
+    return (
+      <span title="Sigue en la cava hasta que se cierre la orden de despacho" className="inline-flex flex-col rounded-md bg-sky-50 px-2 py-1 text-xs font-semibold tabular-nums text-sky-900">
+        <span>{formatDC(r.enDespacho.dcNumber)}</span>
+        <span>DESPACHO {r.enDespacho.tipo === 'caliente' ? 'CALIENTE' : 'FRÍO'}</span>
+      </span>
+    );
+  }
+  return <span className="text-xs font-semibold text-emerald-700">DISPONIBLE</span>;
+}
+
 function CavaSubproductoTab({ cava }: { cava: string }) {
-  const { data, isLoading } = useCavaSubproducto(cava);
+  const { data, isLoading, isError } = useCavaSubproducto(cava);
   const nombre = cava === '3' ? 'Cava Subproducto Despacho' : `Cava Subproducto ${cava}`;
   const [abiertos, setAbiertos] = useState<Set<string>>(new Set());
 
@@ -387,6 +412,7 @@ function CavaSubproductoTab({ cava }: { cava: string }) {
   }, [data]);
 
   if (isLoading) return <Loading />;
+  if (isError) return <Empty text={`No se pudo cargar la ${nombre}. Intenta nuevamente.`} />;
   if (!grupos.length)
     return <Empty text={`No hay subproductos ubicados en la ${nombre}.`} />;
 

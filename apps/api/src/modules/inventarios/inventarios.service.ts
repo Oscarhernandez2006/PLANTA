@@ -9,6 +9,7 @@ import { parseCanalBarcode } from '../../common/canal-barcode';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { plantDateOnly } from '../../common/plant-date';
 import { SUBPRODUCTO_ITEM_BY_TIPO } from '../subproductos/subproducto-items';
+import { peorSemaforo, semaforoCanal, semaforoVencimiento, type Semaforo } from './semaforo';
 
 // Producto despachado en una orden DC cerrada: ya no está en inventario.
 const despachoActivoONulo = {
@@ -29,7 +30,7 @@ const dcSelect = { select: { canalDispatchOrder: { select: { dcNumber: true } } 
 // Canales con este número de días o más en cava salen en alertas.
 const DIAS_CANAL_ALERTA = 4;
 // Productos que vencen dentro de estos días salen en alertas.
-const DIAS_VENCE_ALERTA = 3;
+const DIAS_VENCE_ALERTA = 5;
 const DIA_MS = 86_400_000;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -57,6 +58,13 @@ export class InventariosService {
   async resumen(ctx: AuthContext) {
     const ahora = Date.now();
     const hoy = plantDateOnly();
+    const trasladoEstado = {
+      select: {
+        transferOrder: {
+          select: { conditioningOrders: { where: { deletedAt: null, status: DispatchOrderStatus.facturado }, select: { id: true }, take: 1 } },
+        },
+      },
+    } as const;
     const [canales, etiquetas, acond, subproductos, odAbiertas, dcAbiertas, recibidas, posta] = await Promise.all([
       this.prisma.canalPieza.findMany({
         where: this.canalEnInventario(ctx),
@@ -84,7 +92,9 @@ export class InventariosService {
           conservacion: true,
           fechaVencimiento: true,
           product: { select: { codigo: true, nombre: true } },
-          bodega: { select: { nombre: true, cliente: { select: { concepto: true } } } },
+          bodega: { select: { id: true, nombre: true, cliente: { select: { concepto: true } } } },
+          traslado: trasladoEstado,
+          canastilla: { select: { traslado: trasladoEstado } },
         },
       }),
       this.prisma.acondicionamientoEtiqueta.findMany({
@@ -94,7 +104,7 @@ export class InventariosService {
           conservacion: true,
           fechaVencimiento: true,
           product: { select: { codigo: true, nombre: true } },
-          bodega: { select: { nombre: true, cliente: { select: { concepto: true } } } },
+          bodega: { select: { id: true, nombre: true, cliente: { select: { concepto: true } } } },
         },
       }),
       this.prisma.subproductoItem.findMany({
@@ -137,12 +147,12 @@ export class InventariosService {
       }
       return c;
     };
-    type Cliente = { cliente: string; canales: number; canalesKg: number; productos: number; productosKg: number; subproductos: number; subproductosKg: number };
+    type Cliente = { cliente: string; canales: number; canalesKg: number; productos: number; productosKg: number; subproductos: number; subproductosKg: number; semaforo: Semaforo | null };
     const clientes = new Map<string, Cliente>();
     const clienteDe = (nombre: string) => {
       let c = clientes.get(nombre);
       if (!c) {
-        c = { cliente: nombre, canales: 0, canalesKg: 0, productos: 0, productosKg: 0, subproductos: 0, subproductosKg: 0 };
+        c = { cliente: nombre, canales: 0, canalesKg: 0, productos: 0, productosKg: 0, subproductos: 0, subproductosKg: 0, semaforo: null };
         clientes.set(nombre, c);
       }
       return c;
@@ -173,6 +183,7 @@ export class InventariosService {
       const cl = clienteDe(cliente);
       cl.canales += 1;
       cl.canalesKg += kg;
+      cl.semaforo = peorSemaforo(cl.semaforo, semaforoCanal(p.weighedAt, ahora));
       if (!ubicacion) {
         totCanales.sinCava += 1;
         continue;
@@ -208,6 +219,7 @@ export class InventariosService {
       const cl = clienteDe(f.cliente);
       cl.canales += 1;
       cl.canalesKg += f.pesoKg;
+      cl.semaforo = peorSemaforo(cl.semaforo, semaforoCanal(r.createdAt, ahora));
       const c = cavaDe(f.cava, 'canal');
       c.unds += 1;
       c.kg += f.pesoKg;
@@ -233,17 +245,21 @@ export class InventariosService {
     const totProductos = { unds: 0, kg: 0, refrigeradoKg: 0, congeladoKg: 0, vencidos: 0 };
     const porVencer = new Map<
       string,
-      { codigo: string; producto: string; cliente: string; bodega: string; vence: string; dias: number; unds: number; kg: number }
+      { codigo: string; producto: string; cliente: string; bodegaId: string | null; bodega: string; vence: string; dias: number; unds: number; kg: number }
     >();
     const productosTodos = [
-      ...etiquetas,
-      ...acond,
+      ...etiquetas.map((e) => ({
+        ...e,
+        transformado: !!(e.traslado ?? e.canastilla?.traslado)?.transferOrder.conditioningOrders.length,
+      })),
+      ...acond.map((e) => ({ ...e, transformado: false })),
       ...posta.map((p) => ({
         netoKg: p.netoKg,
         conservacion: p.conservacion,
         fechaVencimiento: p.fechaVencimiento,
         product: p.product,
-        bodega: { nombre: p.receiptOrder.bodega?.nombre ?? '', cliente: { concepto: p.receiptOrder.cliente.concepto } },
+        bodega: { id: p.receiptOrder.bodega?.id ?? null, nombre: p.receiptOrder.bodega?.nombre ?? '', cliente: { concepto: p.receiptOrder.cliente.concepto } },
+        transformado: false,
       })),
     ];
     for (const e of productosTodos) {
@@ -256,16 +272,19 @@ export class InventariosService {
       const cl = clienteDe(cliente);
       cl.productos += 1;
       cl.productosKg += kg;
+      if (!e.transformado) cl.semaforo = peorSemaforo(cl.semaforo, semaforoVencimiento(e.fechaVencimiento, hoy));
+      if (e.transformado) continue;
       if (!e.fechaVencimiento) continue;
       const dias = Math.round((e.fechaVencimiento.getTime() - hoy.getTime()) / DIA_MS);
       if (dias < 0) totProductos.vencidos += 1;
       if (dias > DIAS_VENCE_ALERTA) continue;
       const vence = e.fechaVencimiento.toISOString().slice(0, 10);
-      const clave = `${e.product.codigo}|${cliente}|${e.bodega?.nombre}|${vence}`;
+      const clave = JSON.stringify([e.product.codigo, e.bodega?.id, vence]);
       const g = porVencer.get(clave) ?? {
         codigo: e.product.codigo,
         producto: e.product.nombre,
         cliente,
+        bodegaId: e.bodega?.id ?? null,
         bodega: e.bodega?.nombre ?? '',
         vence,
         dias,
@@ -392,6 +411,7 @@ export class InventariosService {
         product: { select: { codigo: true, nombre: true } },
         receiptOrder: reciboSelect,
         despacho: dcSelect,
+        createdBy: { select: { fullName: true } },
       },
     });
   }
@@ -971,6 +991,7 @@ export class InventariosService {
         select: {
           id: true,
           pieza: true,
+          weighedAt: true,
           turno: true,
           cava: true,
           destino: true,
@@ -1027,7 +1048,8 @@ export class InventariosService {
           fechaVencimiento: true,
           product: { select: { codigo: true, nombre: true } },
           tienda: { select: { codigo: true, nombre: true } },
-          productionOrder: { select: { opNumber: true } },
+          createdBy: { select: { fullName: true } },
+          productionOrder: { select: { opNumber: true, cerradaAt: true } },
           traslado: otSelect,
           despacho: dcSelect,
           canastilla: { select: { numero: true, traslado: otSelect, despacho: dcSelect } },
@@ -1046,6 +1068,7 @@ export class InventariosService {
           fechaVencimiento: true,
           product: { select: { codigo: true, nombre: true } },
           tienda: { select: { codigo: true, nombre: true } },
+          createdBy: { select: { fullName: true } },
           conditioningOrder: {
             select: { ocNumber: true, transferOrder: { select: { otNumber: true } } },
           },
@@ -1076,6 +1099,8 @@ export class InventariosService {
       }),
     ]);
     const dia = (d: Date) => d.toISOString().slice(0, 10);
+    const hoy = plantDateOnly();
+    const ahora = Date.now();
 
     // Lo recibido de terceros que entró a esta bodega al cerrar su recibo.
     const [recibidas, posta] = await Promise.all([
@@ -1086,6 +1111,7 @@ export class InventariosService {
       const f = this.reciboCanalFila(r);
       return {
         id: r.id,
+        bodega: b.nombre,
         reference: f.reference,
         date: f.date,
         sequence: r.codigo,
@@ -1097,6 +1123,7 @@ export class InventariosService {
         destino: null,
         observaciones: null,
         pesoKg: f.pesoKg,
+        semaforo: semaforoCanal(r.createdAt, ahora),
         pesoFrioKg: f.pesoFrioKg,
         enOrden: f.enOrden,
         enDespacho: f.enDespacho,
@@ -1105,8 +1132,10 @@ export class InventariosService {
     });
     const productosPosta = posta.map((p) => ({
       id: p.id,
+      bodega: b.nombre,
       codigo: `RP${p.receiptOrder.receiptNumber}-${String(p.codigo).padStart(2, '0')}`,
       pieza: p.codigo,
+      unidades: p.piezas,
       productoCodigo: p.product.codigo,
       productoNombre: p.product.nombre,
       tiendaCodigo: '',
@@ -1117,13 +1146,17 @@ export class InventariosService {
       sobrante: false,
       fechaEmpaque: dia(p.createdAt),
       fechaVencimiento: p.fechaVencimiento ? dia(p.fechaVencimiento) : null,
+      semaforo: semaforoVencimiento(p.fechaVencimiento, hoy),
       opNumber: null,
+      desposteCerradoAt: null,
       ocNumber: null,
       trasladoOt: null,
       transformadoOc: null,
       origenOt: null,
       despachoDc: p.despacho?.canalDispatchOrder.dcNumber ?? null,
       rpNumber: p.receiptOrder.receiptNumber as number | null,
+      lote: p.lote,
+      etiquetadoPor: p.createdBy.fullName,
     }));
 
     return {
@@ -1136,6 +1169,7 @@ export class InventariosService {
         ...canalesRecibo,
         ...canales.map((c) => ({
         id: c.id,
+        bodega: b.nombre,
         reference: c.evento.ordenBeneficio.reference,
         date: dia(c.evento.ordenBeneficio.date),
         sequence: c.evento.sequence,
@@ -1147,6 +1181,7 @@ export class InventariosService {
         destino: c.destino,
         observaciones: c.observaciones,
         pesoKg: Number(c.pesoKg),
+        semaforo: semaforoCanal(c.weighedAt, ahora),
         pesoFrioKg:
           c.despacho?.despachoKg != null
             ? Number(c.despacho.despachoKg)
@@ -1186,8 +1221,10 @@ export class InventariosService {
           const transformada = ot?.conditioningOrders.find((o) => o.status === 'facturado');
           return {
             id: e.id,
+            bodega: b.nombre,
             codigo: e.codigo,
             pieza: e.pieza,
+            unidades: 1,
             productoCodigo: e.product.codigo,
             productoNombre: e.product.nombre,
             tiendaCodigo: e.tienda.codigo,
@@ -1198,7 +1235,9 @@ export class InventariosService {
             sobrante: e.sobrante,
             fechaEmpaque: dia(e.fechaEmpaque),
             fechaVencimiento: e.fechaVencimiento ? dia(e.fechaVencimiento) : null,
+            semaforo: semaforoVencimiento(e.fechaVencimiento, hoy),
             opNumber: e.productionOrder.opNumber as number | null,
+            desposteCerradoAt: e.productionOrder.cerradaAt?.toISOString() ?? null,
             ocNumber: null as number | null,
             trasladoOt: ot?.otNumber ?? null,
             transformadoOc: transformada?.ocNumber ?? null,
@@ -1206,12 +1245,16 @@ export class InventariosService {
             despachoDc:
               (e.despacho ?? e.canastilla?.despacho)?.canalDispatchOrder.dcNumber ?? (null as number | null),
             rpNumber: null as number | null,
+            lote: `OP${e.productionOrder.opNumber}`,
+            etiquetadoPor: e.createdBy.fullName,
           };
         }),
         ...acond.map((e) => ({
           id: e.id,
+          bodega: b.nombre,
           codigo: e.codigo,
           pieza: e.pieza,
+          unidades: 1,
           productoCodigo: e.product.codigo,
           productoNombre: e.product.nombre,
           tiendaCodigo: e.tienda.codigo,
@@ -1222,13 +1265,17 @@ export class InventariosService {
           sobrante: false,
           fechaEmpaque: dia(e.fechaEmpaque),
           fechaVencimiento: e.fechaVencimiento ? dia(e.fechaVencimiento) : null,
+          semaforo: semaforoVencimiento(e.fechaVencimiento, hoy),
           opNumber: null,
+          desposteCerradoAt: null,
           ocNumber: e.conditioningOrder.ocNumber,
           trasladoOt: null,
           transformadoOc: null,
           origenOt: e.conditioningOrder.transferOrder.otNumber,
           despachoDc: e.despacho?.canalDispatchOrder.dcNumber ?? null,
           rpNumber: null,
+          lote: `OC${e.conditioningOrder.ocNumber}`,
+          etiquetadoPor: e.createdBy.fullName,
         })),
         ...productosPosta,
       ],

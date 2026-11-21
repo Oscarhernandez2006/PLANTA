@@ -31,13 +31,13 @@ export function formatOD(n: number) {
 export const TIPO_ORDEN_DESPACHO = 'DESPACHO DE M.P A PROCESO';
 
 /** Órdenes de despacho activas, de la más reciente a la más antigua. */
-export function useOrdenesDespachoActivas() {
+export function useOrdenesDespachoActivas(status: 'activo' | 'facturado' = 'activo') {
   return useQuery({
-    queryKey: ['dispatch-orders', 'activas'],
+    queryKey: ['dispatch-orders', 'activas', status],
     queryFn: async () =>
       (
         await api.get<{ data: OrdenDespacho[] }>('/dispatch-orders', {
-          params: { status: 'activo', pageSize: 100 },
+          params: { status, pageSize: 100 },
         })
       ).data.data,
     refetchInterval: 10000,

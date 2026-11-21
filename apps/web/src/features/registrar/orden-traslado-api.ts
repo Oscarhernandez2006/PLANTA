@@ -63,6 +63,7 @@ export interface EtiquetaPorTrasladar {
   canastillaNumero: number | null;
   unds: number;
   netoEtiquetaKg: number;
+  advertenciaInventario: string | null;
 }
 
 export interface ItemTraslado {

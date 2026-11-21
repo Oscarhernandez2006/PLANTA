@@ -36,13 +36,13 @@ export function useDespachoCanalesNextNumber() {
 }
 
 /** Órdenes activas de un tipo, para los módulos de logística (caliente o frío). */
-export function useDespachosCanalesActivos(tipo: TipoDespachoCanales) {
+export function useDespachosCanalesActivos(tipo: TipoDespachoCanales, status: 'activo' | 'facturado' = 'activo') {
   return useQuery({
-    queryKey: ['canal-dispatch-orders', 'activas', tipo],
+    queryKey: ['canal-dispatch-orders', 'activas', tipo, status],
     queryFn: async () =>
       (
         await api.get<{ data: OrdenDespachoCanales[] }>('/canal-dispatch-orders', {
-          params: { tipo, status: 'activo', pageSize: 100 },
+          params: { tipo, status, pageSize: 100 },
         })
       ).data.data,
     refetchInterval: 10000,

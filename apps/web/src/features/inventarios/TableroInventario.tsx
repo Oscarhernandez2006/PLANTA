@@ -15,7 +15,7 @@ import {
 import { cn } from '@/lib/utils';
 import { TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
 import { TrazabilidadReciboDialog } from './TrazabilidadReciboDialog';
-import { CAVAS, CAVAS_SUBPRODUCTO, useResumenInventario, type ResumenInventario } from './api';
+import { CAVAS, CAVAS_SUBPRODUCTO, useResumenInventario, type DestinoProducto, type ResumenInventario } from './api';
 
 type Cava = ResumenInventario['cavas'][number];
 
@@ -36,8 +36,10 @@ const textoDias = (d: number) => (d === 0 ? 'hoy' : d === 1 ? '1 día' : `${d} d
 
 export function TableroInventario({
   onAbrirCava,
+  onAbrirProducto,
 }: {
   onAbrirCava: (tipo: 'canal' | 'subproducto', cava: string) => void;
+  onAbrirProducto: (destino: DestinoProducto) => void;
 }) {
   const { data, isLoading, isFetching, refetch } = useResumenInventario();
   const [alerta, setAlerta] = useState<'canales' | 'vencer'>('canales');
@@ -240,28 +242,35 @@ export function TableroInventario({
             ) : (
               <ul className="space-y-2">
                 {alertas.productosPorVencer.map((p) => (
-                  <li key={`${p.codigo}|${p.cliente}|${p.bodega}|${p.vence}`} className="flex items-center gap-3 rounded-lg border border-border px-3 py-2">
-                    <span
-                      className={cn(
-                        'flex w-16 shrink-0 flex-col items-center rounded-md px-1 py-1 text-xs font-bold',
-                        p.dias < 0 ? 'bg-red-600 text-white' : p.dias <= 1 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800',
-                      )}
+                  <li key={JSON.stringify([p.codigo, p.bodegaId ?? [p.cliente, p.bodega], p.vence])}>
+                    <button
+                      type="button"
+                      onClick={() => onAbrirProducto(p)}
+                      title="Ver producto en el inventario del cliente"
+                      className="flex w-full items-center gap-3 rounded-lg border border-border px-3 py-2 text-left hover:border-primary/40 hover:bg-muted/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                     >
-                      <CalendarClock className="size-3.5" />
-                      {p.dias < 0 ? 'vencido' : p.dias === 0 ? 'hoy' : `${p.dias} d`}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-semibold uppercase">
-                        {p.codigo} · {p.producto}
+                      <span
+                        className={cn(
+                          'flex w-16 shrink-0 flex-col items-center rounded-md px-1 py-1 text-xs font-bold',
+                          p.dias < 0 ? 'bg-red-600 text-white' : p.dias <= 1 ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800',
+                        )}
+                      >
+                        <CalendarClock className="size-3.5" />
+                        {p.dias < 0 ? 'vencido' : p.dias === 0 ? 'hoy' : `${p.dias} d`}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {p.cliente} · {p.bodega} · vence {p.vence.split('-').reverse().join('/')}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-semibold uppercase">
+                          {p.codigo} · {p.producto}
+                        </span>
+                        <span className="block truncate text-xs text-muted-foreground">
+                          {p.cliente} · {p.bodega} · vence {p.vence.split('-').reverse().join('/')}
+                        </span>
                       </span>
-                    </span>
-                    <span className="text-right text-sm tabular-nums">
-                      <b>{kg(p.kg, 1)}</b> kg
-                      <span className="block text-xs text-muted-foreground">{p.unds} und</span>
-                    </span>
+                      <span className="text-right text-sm tabular-nums">
+                        <b>{kg(p.kg, 1)}</b> kg
+                        <span className="block text-xs text-muted-foreground">{p.unds} und</span>
+                      </span>
+                    </button>
                   </li>
                 ))}
               </ul>

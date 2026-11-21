@@ -17,6 +17,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
 import { PIEZA_LABEL, PanelFria, TablaDespacho, TotalesFria } from '../canal-fria/CanalFriaPage';
 import type { ItemDespacho } from '../canal-fria/api';
+import { ReporteMerma } from '../canal-fria/ReporteMerma';
 import {
   buscarProductoPosta,
   formatDC,
@@ -78,7 +79,8 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
   const { titulo, icono: Icono } = CONFIG[tipo];
   const [vista, setVista] = useState<Vista>('ordenes');
   const [orden, setOrden] = useState<OrdenDespachoCanales | null>(null);
-  const ordenes = useDespachosCanalesActivos(tipo);
+  const [historico, setHistorico] = useState(false);
+  const ordenes = useDespachosCanalesActivos(tipo, historico ? 'facturado' : 'activo');
   const barcodeRef = useRef<HTMLInputElement>(null);
   const [barcode, setBarcode] = useState('');
   const { peso, setPeso, leyendo, error, leerBascula } = useBascula('0.0');
@@ -208,23 +210,31 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
       </div>
 
       {vista === 'ordenes' || !orden ? (
+        <>
+        <div className="flex items-center gap-2 text-sm">
+          <Button variant={historico ? 'outline' : 'default'} onClick={() => setHistorico(false)}>Activas</Button>
+          <Button variant={historico ? 'default' : 'outline'} onClick={() => setHistorico(true)}>Cerradas · reportes</Button>
+          {historico && <span className="text-muted-foreground">Últimas 100 órdenes cerradas</span>}
+        </div>
         <ListaOrdenes
           config={{
             icono: Icono,
             numero: (o: OrdenDespachoCanales) => formatDC(o.dcNumber),
             tipoTexto: titulo.toUpperCase(),
-            sinOrdenes: `No hay órdenes de ${titulo.toLowerCase()} activas. Créalas en Administrativo → Órdenes Despacho Canales.`,
+            sinOrdenes: historico ? 'No hay órdenes cerradas.' : `No hay órdenes de ${titulo.toLowerCase()} activas. Créalas en Administrativo → Órdenes Despacho Canales.`,
           }}
           cargando={ordenes.isLoading}
           ordenes={ordenes.data ?? []}
           seleccionadaId={orden?.id ?? null}
           refrescando={ordenes.isFetching}
           onRefrescar={() => void ordenes.refetch()}
+          estadoTexto={historico ? 'cerrada(s)' : 'activa(s)'}
           onElegir={(o) => {
             elegirOrden(o);
-            setVista('despacho');
+            setVista(historico ? 'totales' : 'despacho');
           }}
         />
+        </>
       ) : (
         <>
           <div className="flex shrink-0 flex-wrap items-center gap-3 rounded-xl border border-border bg-card px-3 py-2 shadow-sm">
@@ -241,7 +251,7 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
                 {sinPesar > 0 && <span className="text-amber-700"> · {sinPesar} sin pesar</span>}
               </div>
             </div>
-            <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
+            {orden.status === 'activo' && <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
               {(['despacho', 'totales'] as const).map((t) => (
                 <button
                   key={t}
@@ -255,8 +265,9 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
                   {t === 'despacho' ? 'Despacho' : 'Totales'}
                 </button>
               ))}
-            </div>
-            <Button
+            </div>}
+            <ReporteMerma items={items} orden={formatDC(orden.dcNumber)} cliente={orden.cliente.concepto} proceso={titulo} errorCarga={itemsQuery.isError} />
+            {orden.status === 'activo' && <Button
               variant="outline"
               className="h-12 px-5 text-base"
               onClick={() => setConfirmarCierre(true)}
@@ -265,7 +276,7 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
             >
               {cerrar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Lock className="size-5" />}
               Cerrar orden
-            </Button>
+            </Button>}
           </div>
 
           {vista === 'despacho' ? (

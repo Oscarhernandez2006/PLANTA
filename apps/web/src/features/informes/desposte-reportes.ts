@@ -1,4 +1,5 @@
 import { api } from '@/lib/api';
+import logoUrl from '@/assets/logo-santacruz.png';
 
 type Pieza = {
   codigoProducto: string;
@@ -46,19 +47,30 @@ export const NOMBRE_REPORTE: Record<ReporteDesposte, string> = {
 };
 
 export async function descargarReporteDesposte(opNumber: number, tipo: ReporteDesposte) {
-  const [{ data }, { default: ExcelJS }] = await Promise.all([
-    api.get<OrdenDesposte>(`/informes/desposte/${opNumber}/piezas`), import('exceljs'),
+  const [{ data }, { default: ExcelJS }, logo] = await Promise.all([
+    api.get<OrdenDesposte>(`/informes/desposte/${opNumber}/piezas`), import('exceljs'), fetch(logoUrl),
   ]);
   if (!data.piezas.length) throw new Error('Esta orden no tiene piezas activas para exportar.');
+  if (!logo.ok) throw new Error('No se pudo cargar el logo para el reporte.');
   const libro = new ExcelJS.Workbook();
   const hoja = libro.addWorksheet(tipo === 'consolidado' ? 'Por producto' : 'Por pieza');
-  hoja.addRow([`${NOMBRE_REPORTE[tipo]} · OP${opNumber}`]).font = { bold: true, size: 14 };
-  hoja.addRow([`Cliente: ${data.cliente}${data.nit ? ` · NIT ${data.nit}` : ''}`]);
   const detalle = ['Código de producto', 'Código de barras', 'Nombre de la pieza', 'N.º de pieza', 'Canastilla', 'Etiquetado por', 'Peso neto (kg)', 'Lote', 'Vencimiento'];
   const columnas = tipo === 'consolidado'
     ? ['Código de producto', 'Producto', 'Canastillas', 'Piezas', 'Peso neto (kg)', 'Participación por peso']
     : tipo === 'cliente-tienda' ? ['Cliente', 'Tienda de destino', ...detalle] : detalle;
+  const logoId = libro.addImage({ buffer: await logo.arrayBuffer(), extension: 'png' });
+  hoja.addImage(logoId, { tl: { col: 0, row: 0 }, ext: { width: 140, height: 55 } });
+  hoja.mergeCells(1, 3, 1, columnas.length);
+  hoja.getCell('C1').value = `${NOMBRE_REPORTE[tipo]} · OP${opNumber}`;
+  hoja.getCell('C1').font = { bold: true, size: 14, color: { argb: 'FF0E6B5C' } };
+  hoja.mergeCells(2, 3, 2, columnas.length);
+  hoja.getCell('C2').value = `Cliente: ${data.cliente}${data.nit ? ` · NIT ${data.nit}` : ''}`;
+  hoja.mergeCells(3, 3, 3, columnas.length);
+  hoja.getCell('C3').value = `Generado: ${new Date().toLocaleString('es-CO')}`;
+  hoja.getRow(4).height = 10;
   const cabecera = hoja.addRow(columnas);
+  cabecera.height = 24;
+  cabecera.alignment = { vertical: 'middle' };
   cabecera.font = { bold: true, color: { argb: 'FFFFFFFF' } };
   cabecera.eachCell((celda, i) => {
     hoja.getColumn(i).width = Math.max(19, celda.text.length + 3);
@@ -69,6 +81,11 @@ export async function descargarReporteDesposte(opNumber: number, tipo: ReporteDe
     for (const f of consolidarDesposte(data.piezas)) {
       hoja.addRow([f.codigo, f.nombre, f.canastillas, f.piezas, f.pesoKg, f.participacion]).getCell(6).numFmt = '0.00%';
     }
+    const totalPeso = data.piezas.reduce((suma, p) => suma + Math.round(p.pesoKg * 1000), 0) / 1000;
+    const canastillas = new Set(data.piezas.flatMap((p) => p.canastillaId ? [p.canastillaId] : []));
+    const total = hoja.addRow(['TOTAL', '', canastillas.size, data.piezas.length, totalPeso, totalPeso ? 1 : 0]);
+    total.font = { bold: true, color: { argb: 'FF0E6B5C' } };
+    total.getCell(6).numFmt = '0.00%';
   } else {
     const porTienda = tipo === 'cliente-tienda';
     hoja.getColumn(porTienda ? 5 : 3).width = 38;
@@ -81,6 +98,7 @@ export async function descargarReporteDesposte(opNumber: number, tipo: ReporteDe
         p.codigoProducto, p.codigoBarras, p.nombrePieza, p.pieza, p.canastilla, p.etiquetadoPor, p.pesoKg, p.lote, p.vence,
       ]);
     }
+    hoja.autoFilter = { from: { row: cabecera.number, column: 1 }, to: { row: cabecera.number, column: columnas.length } };
   }
   hoja.views = [{ state: 'frozen', ySplit: cabecera.number }];
   const buffer = await libro.xlsx.writeBuffer();
