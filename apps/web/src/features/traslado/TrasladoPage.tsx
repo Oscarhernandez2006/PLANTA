@@ -7,6 +7,7 @@ import {
   ChevronRight,
   Gauge,
   Inbox,
+  Layers,
   LayoutGrid,
   List,
   LoaderCircle,
@@ -40,6 +41,8 @@ import {
   type OrdenTraslado,
 } from '../registrar/orden-traslado-api';
 import { Mensaje } from '../rotulado/ui';
+import { ArrumeDialog } from '../picking/ArrumeDialog';
+import { usePicking, type TipoPicking } from '../picking/picking-api';
 
 const TARAS = [1.5, 1.75, 1.8, 2.02, 0];
 
@@ -309,6 +312,8 @@ export interface ConfigRegistroProductos<O extends OrdenRegistro> {
   useQuitar: (ordenId: string) => Mutacion<string>;
   useCerrar: () => Mutacion<string>;
   buscar: (ordenId: string, codigo: string) => Promise<EtiquetaPorTrasladar>;
+  /** La orden se alista con picking en la terminal y se pesa por arrumes. */
+  pickingTipo?: TipoPicking;
 }
 
 const CONFIG_TRASLADO: ConfigRegistroProductos<OrdenTraslado> = {
@@ -324,6 +329,7 @@ const CONFIG_TRASLADO: ConfigRegistroProductos<OrdenTraslado> = {
   useQuitar: useQuitarTraslado,
   useCerrar: useCerrarTraslado,
   buscar: buscarEtiquetaTraslado,
+  pickingTipo: 'traslado',
 };
 
 export function RegistroProductosPage<O extends OrdenRegistro>({
@@ -349,6 +355,9 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
   const [confirmarDiferencia, setConfirmarDiferencia] = useState(false);
   const [confirmarQuitar, setConfirmarQuitar] = useState<ItemTraslado | null>(null);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
+  const [arrume, setArrume] = useState(false);
+  const picking = usePicking(config.pickingTipo, orden?.id ?? null);
+  const porPesar = picking.data?.items.filter((i) => !i.pesado).length ?? 0;
   const codigoRef = useRef<HTMLInputElement>(null);
 
   const lista = items.data ?? [];
@@ -502,6 +511,23 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
                 <b className="tabular-nums text-foreground">{kg(totales.kg)}</b> kg
               </div>
             </div>
+            {config.pickingTipo && (
+              <Button
+                variant={porPesar && picking.data?.status === 'terminado' ? 'default' : 'outline'}
+                className="h-12 px-5 text-base"
+                onClick={() => setArrume(true)}
+                title="Pesar en la báscula las canastillas alistadas en la terminal"
+              >
+                <Layers className="size-5" />
+                Pesar arrume
+                {porPesar > 0 && (
+                  <span className="rounded-md bg-white/20 px-1.5 text-sm tabular-nums">
+                    {porPesar}
+                    {picking.data?.status === 'en_curso' ? ' · en curso' : ''}
+                  </span>
+                )}
+              </Button>
+            )}
             <Button
               variant={lista.length ? 'default' : 'outline'}
               className="h-12 px-5 text-base"
@@ -656,6 +682,24 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
             </div>
           </div>
         </>
+      )}
+
+      {arrume && orden && config.pickingTipo && (
+        <ArrumeDialog
+          tipo={config.pickingTipo}
+          ordenId={orden.id}
+          numero={config.numero(orden)}
+          onClose={() => {
+            setArrume(false);
+            codigoRef.current?.focus();
+          }}
+          onRegistrado={(r) =>
+            avisar(
+              `Arrume registrado: ${r.items.length} etiqueta(s) · neto ${kg(r.netoTotalKg)} kg · diferencia ${kg(r.diferenciaKg)} kg.`,
+              true,
+            )
+          }
+        />
       )}
 
       {confirmarDiferencia && pendiente && (

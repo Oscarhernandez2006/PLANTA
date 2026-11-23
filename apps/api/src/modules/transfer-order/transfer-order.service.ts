@@ -391,39 +391,59 @@ export class TransferOrderService {
 
   /** Registra el producto en la orden con el peso nuevo (neto = peso - tara). */
   async registrar(ctx: AuthContext, otId: string, dto: RegistrarTrasladoDto) {
+    const [item] = await this.registrarVarios(ctx, otId, [dto]);
+    return item;
+  }
+
+  /** Registra varios productos en una sola transacci\u00f3n (todo o nada), p. ej. un arrume pesado junto. */
+  async registrarVarios(ctx: AuthContext, otId: string, lineas: RegistrarTrasladoDto[]) {
     const ot = await this.orden(ctx, otId);
     if (ot.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de traslado no est\u00e1 activa.');
     }
-    const neto = Number((dto.pesoKg - dto.taraKg).toFixed(2));
-    if (neto <= 0) throw new BadRequestException('El peso neto debe ser mayor que cero.');
+    const netos = lineas.map((l) => {
+      const neto = Number((l.pesoKg - l.taraKg).toFixed(2));
+      if (neto <= 0) throw new BadRequestException(`El peso neto de ${l.codigo} debe ser mayor que cero.`);
+      return neto;
+    });
 
+    let actual = '';
     try {
-      const item = await this.prisma.$transaction(async (tx) => {
-        // Una pieza y su canastilla no pueden trasladarse a la vez desde dos estaciones.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`traslado:${ctx.plantId}`}))`;
-        const info = await this.resolverEtiqueta(tx, ctx, ot, dto.codigo);
-        return tx.transferOrderItem.create({
-          data: {
-            transferOrderId: ot.id,
-            etiquetaId: info.etiquetaId,
-            canastillaId: info.canastillaId,
-            codigo: info.codigo,
-            productId: info.productId,
-            unds: info.unds,
-            pesoKg: dto.pesoKg,
-            taraKg: dto.taraKg,
-            netoKg: neto,
-            netoEtiquetaKg: info.netoEtiquetaKg,
-            createdById: ctx.userId,
-          },
-          select: itemSelect,
-        });
-      });
-      return itemDto(item);
+      const items = await this.prisma.$transaction(
+        async (tx) => {
+          // Una pieza y su canastilla no pueden trasladarse a la vez desde dos estaciones.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`traslado:${ctx.plantId}`}))`;
+          const creados = [];
+          for (const [i, l] of lineas.entries()) {
+            actual = l.codigo;
+            const info = await this.resolverEtiqueta(tx, ctx, ot, l.codigo);
+            creados.push(
+              await tx.transferOrderItem.create({
+                data: {
+                  transferOrderId: ot.id,
+                  etiquetaId: info.etiquetaId,
+                  canastillaId: info.canastillaId,
+                  codigo: info.codigo,
+                  productId: info.productId,
+                  unds: info.unds,
+                  pesoKg: l.pesoKg,
+                  taraKg: l.taraKg,
+                  netoKg: netos[i],
+                  netoEtiquetaKg: info.netoEtiquetaKg,
+                  createdById: ctx.userId,
+                },
+                select: itemSelect,
+              }),
+            );
+          }
+          return creados;
+        },
+        { timeout: 60000 },
+      );
+      return items.map(itemDto);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException(`El c\u00f3digo ${dto.codigo} ya fue trasladado.`);
+        throw new ConflictException(`El c\u00f3digo ${actual} ya fue trasladado.`);
       }
       throw err;
     }

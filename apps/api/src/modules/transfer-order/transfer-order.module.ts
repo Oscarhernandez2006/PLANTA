@@ -5,5 +5,6 @@ import { TransferOrderService } from './transfer-order.service';
 @Module({
   controllers: [TransferOrderController],
   providers: [TransferOrderService],
+  exports: [TransferOrderService],
 })
 export class TransferOrderModule {}

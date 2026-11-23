@@ -273,41 +273,61 @@ export class DespachoPostaService {
 
   /** Registra el producto con el peso nuevo (neto = peso - tara). */
   async registrar(ctx: AuthContext, id: string, dto: { codigo: string; pesoKg: number; taraKg: number }) {
+    const [item] = await this.registrarVarios(ctx, id, [dto]);
+    return item;
+  }
+
+  /** Registra varios productos en una sola transacción (todo o nada), p. ej. un arrume pesado junto. */
+  async registrarVarios(ctx: AuthContext, id: string, lineas: { codigo: string; pesoKg: number; taraKg: number }[]) {
     const dc = await this.orden(ctx, id);
     if (dc.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de despacho no está activa.');
     }
-    const neto = Number((dto.pesoKg - dto.taraKg).toFixed(2));
-    if (neto <= 0) throw new BadRequestException('El peso neto debe ser mayor que cero.');
+    const netos = lineas.map((l) => {
+      const neto = Number((l.pesoKg - l.taraKg).toFixed(2));
+      if (neto <= 0) throw new BadRequestException(`El peso neto de ${l.codigo} debe ser mayor que cero.`);
+      return neto;
+    });
 
+    let actual = '';
     try {
-      const item = await this.prisma.$transaction(async (tx) => {
-        // Comparte el candado con Traslado: una pieza no puede ir a los dos a la vez.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`traslado:${ctx.plantId}`}))`;
-        const info = await this.resolver(tx, ctx, dc, dto.codigo);
-        return tx.dispatchProductItem.create({
-          data: {
-            canalDispatchOrderId: dc.id,
-            etiquetaId: info.etiquetaId,
-            canastillaId: info.canastillaId,
-            acondEtiquetaId: info.acondEtiquetaId,
-            postaItemId: info.postaItemId,
-            codigo: info.codigo,
-            productId: info.productId,
-            unds: info.unds,
-            pesoKg: dto.pesoKg,
-            taraKg: dto.taraKg,
-            netoKg: neto,
-            netoEtiquetaKg: info.netoEtiquetaKg,
-            createdById: ctx.userId,
-          },
-          select: itemSelect,
-        });
-      });
-      return itemDto(item);
+      const items = await this.prisma.$transaction(
+        async (tx) => {
+          // Comparte el candado con Traslado: una pieza no puede ir a los dos a la vez.
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`traslado:${ctx.plantId}`}))`;
+          const creados = [];
+          for (const [i, l] of lineas.entries()) {
+            actual = l.codigo;
+            const info = await this.resolver(tx, ctx, dc, l.codigo);
+            creados.push(
+              await tx.dispatchProductItem.create({
+                data: {
+                  canalDispatchOrderId: dc.id,
+                  etiquetaId: info.etiquetaId,
+                  canastillaId: info.canastillaId,
+                  acondEtiquetaId: info.acondEtiquetaId,
+                  postaItemId: info.postaItemId,
+                  codigo: info.codigo,
+                  productId: info.productId,
+                  unds: info.unds,
+                  pesoKg: l.pesoKg,
+                  taraKg: l.taraKg,
+                  netoKg: netos[i],
+                  netoEtiquetaKg: info.netoEtiquetaKg,
+                  createdById: ctx.userId,
+                },
+                select: itemSelect,
+              }),
+            );
+          }
+          return creados;
+        },
+        { timeout: 60000 },
+      );
+      return items.map(itemDto);
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-        throw new ConflictException(`El código ${dto.codigo} ya fue despachado.`);
+        throw new ConflictException(`El código ${actual} ya fue despachado.`);
       }
       throw err;
     }

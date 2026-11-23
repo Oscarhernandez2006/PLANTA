@@ -6,5 +6,6 @@ import { DespachoPostaService } from './despacho-posta.service';
 @Module({
   controllers: [CanalDispatchOrderController],
   providers: [CanalDispatchOrderService, DespachoPostaService],
+  exports: [DespachoPostaService],
 })
 export class CanalDispatchOrderModule {}

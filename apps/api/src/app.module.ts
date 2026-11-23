@@ -12,6 +12,7 @@ import { DispatchOrderModule } from './modules/dispatch-order/dispatch-order.mod
 import { TransferOrderModule } from './modules/transfer-order/transfer-order.module';
 import { ConditioningOrderModule } from './modules/conditioning-order/conditioning-order.module';
 import { CanalDispatchOrderModule } from './modules/canal-dispatch-order/canal-dispatch-order.module';
+import { PickingModule } from './modules/picking/picking.module';
 import { ProductionOrderModule } from './modules/production-order/production-order.module';
 import { GoodsReceiptModule } from './modules/goods-receipt/goods-receipt.module';
 import { PesoCamionModule } from './modules/peso-camion/peso-camion.module';
@@ -50,6 +51,7 @@ import { TalleresModule } from './modules/talleres/talleres.module';
     TransferOrderModule,
     ConditioningOrderModule,
     CanalDispatchOrderModule,
+    PickingModule,
     ProductionOrderModule,
     GoodsReceiptModule,
     PesoCamionModule,

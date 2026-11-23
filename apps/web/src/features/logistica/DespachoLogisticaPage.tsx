@@ -67,6 +67,7 @@ const CONFIG_POSTA: ConfigRegistroProductos<OrdenDespachoCanales> = {
   useQuitar: useQuitarProductoPosta,
   useCerrar: useCerrarDespachoCanales,
   buscar: buscarProductoPosta,
+  pickingTipo: 'posta',
 };
 
 export function DespachoLogisticaPage({ tipo }: { tipo: TipoDespachoLogistica }) {

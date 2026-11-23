@@ -89,6 +89,11 @@ enum DispatchOrderType {
   mp_a_proceso
 }
 
+enum PickingStatus {
+  en_curso
+  terminado
+}
+
 enum CanalDispatchType {
   caliente
   frio
@@ -405,6 +410,7 @@ model CanalDispatchOrder {
   items     CanalDispatchOrderItem[]
   productos DispatchProductItem[]
   canalesRecibidas CanalReceiptItem[]
+  picking   Picking?
 
   @@unique([plantId, dcNumber])
   @@index([plantId, tipo, status])
@@ -486,6 +492,7 @@ model TransferOrder {
   items              TransferOrderItem[]
   conditioningOrders ConditioningOrder[]
   serviciosManuales  ServicioManual[]
+  picking            Picking?
 
   @@unique([plantId, otNumber])
   @@index([plantId, status])
@@ -593,6 +600,52 @@ model TransferOrderItem {
 
   @@index([transferOrderId])
   @@map("transfer_order_item")
+}
+
+// Picking (pre-orden) de una orden de despacho posta o de traslado: lo que el alistador
+// pistolea en la terminal. No mueve inventario; se registra en la orden al pesar el arrume.
+model Picking {
+  id                   String        @id @default(uuid()) @db.Uuid
+  plantId              String        @map("plant_id") @db.Uuid
+  canalDispatchOrderId String?       @unique @map("canal_dispatch_order_id") @db.Uuid
+  transferOrderId      String?       @unique @map("transfer_order_id") @db.Uuid
+  status               PickingStatus @default(en_curso)
+  terminadoAt          DateTime?     @map("terminado_at") @db.Timestamptz(6)
+  terminadoById        String?       @map("terminado_by") @db.Uuid
+  createdById          String        @map("created_by") @db.Uuid
+  createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  plant              Plant               @relation(fields: [plantId], references: [id])
+  canalDispatchOrder CanalDispatchOrder? @relation(fields: [canalDispatchOrderId],   references: [id], onDelete: Cascade)
+  transferOrder      TransferOrder?      @relation(fields: [transferOrderId], references: [id], onDelete: Cascade)
+  createdBy          AppUser             @relation("pickingCreatedBy", fields: [createdById], references: [id])
+  items              PickingItem[]
+
+  @@index([plantId, status])
+  @@map("picking")
+}
+
+// Etiqueta (pieza, canastilla, acondicionamiento o rótulo de posta) alistada en un picking.
+// Queda "pesada" cuando su código ya está registrado en la orden.
+model PickingItem {
+  id             String   @id @default(uuid()) @db.Uuid
+  pickingId      String   @map("picking_id") @db.Uuid
+  codigo         String
+  tipo           String
+  productId      String   @map("product_id") @db.Uuid
+  unds           Int
+  netoEtiquetaKg Decimal  @map("neto_etiqueta_kg") @db.Decimal(12, 2)
+  createdById    String   @map("created_by") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  picking   Picking @relation(fields: [pickingId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id])
+  createdBy AppUser @relation("pickingItemCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([pickingId, codigo])
+  @@index([codigo])
+  @@map("picking_item")
 }
 
 // Orden de Producción (O.P.): consecutivo propio por planta (OP0000001),
@@ -982,6 +1035,7 @@ model Product {
   rotuladoEtiquetas            RotuladoEtiqueta[]
   transferItems                TransferOrderItem[]
   dispatchProductItems         DispatchProductItem[]
+  pickingItems                 PickingItem[]
   acondicionamientoEtiquetas   AcondicionamientoEtiqueta[]
   precios                      PrecioListaItem[]
   reglasCorte                  ReglaCorte[]
@@ -1010,6 +1064,7 @@ model Plant {
   transferOrders               TransferOrder[]
   conditioningOrders           ConditioningOrder[]
   canalDispatchOrders          CanalDispatchOrder[]
+  pickings                     Picking[]
   rotuladoConsecutivos         RotuladoConsecutivo[]
   rotuladoConsecutivosEstacion RotuladoConsecutivoEstacion[]
   rotuladoEtiquetas            RotuladoEtiqueta[]
@@ -1057,6 +1112,8 @@ model AppUser {
   transferOrders            TransferOrder[]             @relation("transferCreatedBy")
   transferItems             TransferOrderItem[]         @relation("transferItemCreatedBy")
   dispatchProductItems      DispatchProductItem[]       @relation("dispatchProductItemCreatedBy")
+  pickings                  Picking[]                   @relation("pickingCreatedBy")
+  pickingItems              PickingItem[]               @relation("pickingItemCreatedBy")
   conditioningOrders        ConditioningOrder[]         @relation("conditioningCreatedBy")
   canalDispatchOrders       CanalDispatchOrder[]        @relation("canalDispatchCreatedBy")
   canalDispatchItems        CanalDispatchOrderItem[]    @relation("canalDispatchItemCreatedBy")
