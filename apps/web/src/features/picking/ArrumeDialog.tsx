@@ -48,8 +48,10 @@ export function ArrumeDialog({
   const codigoRef = useRef<HTMLInputElement>(null);
 
   const p = picking.data;
-  const pendientes = useMemo(() => (p?.items ?? []).filter((i) => !i.pesado), [p]);
-  const pesados = (p?.items.length ?? 0) - pendientes.length;
+  const items = useMemo(() => p?.items ?? [], [p]);
+  const pendientes = useMemo(() => items.filter((i) => !i.pesado && i.listo), [items]);
+  const enCurso = items.filter((i) => !i.pesado && !i.listo).length;
+  const pesados = items.filter((i) => i.pesado).length;
   const elegidos = pendientes.filter((i) => seleccion.has(i.codigo));
 
   // N.º de canastillas sigue a la selección (el operario puede corregirlo).
@@ -75,9 +77,10 @@ export function ArrumeDialog({
     const valor = codigo.trim().toUpperCase();
     setCodigo('');
     if (!valor) return;
-    const item = p?.items.find((i) => i.codigo === valor);
+    const item = items.find((i) => i.codigo === valor);
     if (!item) return setError(`${valor} no está en el picking de ${numero}.`);
     if (item.pesado) return setError(`${valor} ya fue pesada.`);
+    if (!item.listo) return setError(`${valor} es de la pre-orden ${item.preorden}, que aún está en curso en la terminal.`);
     setError(null);
     setSeleccion((s) => new Set(s).add(valor));
   }
@@ -115,11 +118,11 @@ export function ArrumeDialog({
         <div className="flex items-center gap-2 p-6 text-muted-foreground">
           <LoaderCircle className="size-5 animate-spin" /> Cargando picking…
         </div>
-      ) : !p?.items.length ? (
+      ) : !items.length ? (
         <Aviso texto="Esta orden no tiene picking. El alistador debe pistolear las canastillas en la terminal móvil." />
-      ) : p.status === 'en_curso' ? (
+      ) : !pendientes.length && enCurso > 0 ? (
         <Aviso
-          texto={`El picking está en curso (${p.items.length} etiquetas). El alistador debe terminarlo en la terminal antes de pesar.`}
+          texto={`Hay ${enCurso} etiqueta(s) en pre-órdenes en curso. El alistador debe terminarlas en la terminal antes de pesar.`}
         />
       ) : !pendientes.length ? (
         <Aviso ok texto={`Todo el picking ya fue pesado (${pesados} etiquetas).`} />
@@ -152,6 +155,7 @@ export function ArrumeDialog({
                 Seleccionar todo ({pendientes.length} por pesar)
               </label>
               {pesados > 0 && <span className="text-muted-foreground">{pesados} ya pesadas</span>}
+              {enCurso > 0 && <span className="text-amber-700">{enCurso} en pre-órdenes en curso</span>}
             </div>
             <div className="scrollbar-app max-h-[50vh] overflow-auto rounded-lg border border-border">
               {pendientes.map((i) => (
@@ -168,7 +172,7 @@ export function ArrumeDialog({
                       {i.productoCodigo} · {i.productoNombre}
                     </p>
                     <p className="text-xs text-muted-foreground">
-                      {i.codigo} · {i.tipo === 'canastilla' ? 'Canastilla' : 'Pieza'} · {i.unds} und
+                      {i.codigo} · {i.tipo === 'canastilla' ? 'Canastilla' : 'Pieza'} · {i.unds} und · {i.preorden}
                     </p>
                   </div>
                   <span className="text-sm font-bold tabular-nums">{kg(i.netoEtiquetaKg)}</span>

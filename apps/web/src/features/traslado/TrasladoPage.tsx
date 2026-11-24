@@ -5,6 +5,7 @@ import {
   Check,
   CheckCircle2,
   ChevronRight,
+  ClipboardList,
   Gauge,
   Inbox,
   Layers,
@@ -42,6 +43,7 @@ import {
 } from '../registrar/orden-traslado-api';
 import { Mensaje } from '../rotulado/ui';
 import { ArrumeDialog } from '../picking/ArrumeDialog';
+import { PreordenesDialog } from '../picking/PreordenesDialog';
 import { usePicking, type TipoPicking } from '../picking/picking-api';
 
 const TARAS = [1.5, 1.75, 1.8, 2.02, 0];
@@ -356,8 +358,10 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
   const [confirmarQuitar, setConfirmarQuitar] = useState<ItemTraslado | null>(null);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [arrume, setArrume] = useState(false);
+  const [ordenCompra, setOrdenCompra] = useState(false);
   const picking = usePicking(config.pickingTipo, orden?.id ?? null);
-  const porPesar = picking.data?.items.filter((i) => !i.pesado).length ?? 0;
+  const porPesar = picking.data?.items.filter((i) => !i.pesado && i.listo).length ?? 0;
+  const enCurso = picking.data?.items.filter((i) => !i.pesado && !i.listo).length ?? 0;
   const codigoRef = useRef<HTMLInputElement>(null);
 
   const lista = items.data ?? [];
@@ -513,17 +517,34 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
             </div>
             {config.pickingTipo && (
               <Button
-                variant={porPesar && picking.data?.status === 'terminado' ? 'default' : 'outline'}
+                variant="outline"
+                className="h-12 px-5 text-base"
+                onClick={() => setOrdenCompra(true)}
+                title="Órdenes de compra del cliente (una pre-orden por tienda): la terminal muestra el avance del picking"
+              >
+                <ClipboardList className="size-5" />
+                Pre-órdenes
+                {!!picking.data?.preordenes.length && (
+                  <span className="rounded-md bg-muted px-1.5 text-sm tabular-nums">
+                    {picking.data.preordenes.length}
+                    {picking.data.porcentaje != null ? ` · ${picking.data.porcentaje.toLocaleString('es-CO')}%` : ''}
+                  </span>
+                )}
+              </Button>
+            )}
+            {config.pickingTipo && (
+              <Button
+                variant={porPesar ? 'default' : 'outline'}
                 className="h-12 px-5 text-base"
                 onClick={() => setArrume(true)}
                 title="Pesar en la báscula las canastillas alistadas en la terminal"
               >
                 <Layers className="size-5" />
                 Pesar arrume
-                {porPesar > 0 && (
+                {porPesar + enCurso > 0 && (
                   <span className="rounded-md bg-white/20 px-1.5 text-sm tabular-nums">
                     {porPesar}
-                    {picking.data?.status === 'en_curso' ? ' · en curso' : ''}
+                    {enCurso ? ` · ${enCurso} en curso` : ''}
                   </span>
                 )}
               </Button>
@@ -682,6 +703,19 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
             </div>
           </div>
         </>
+      )}
+
+      {ordenCompra && orden && config.pickingTipo && (
+        <PreordenesDialog
+          tipo={config.pickingTipo}
+          ordenId={orden.id}
+          numero={config.numero(orden)}
+          onClose={() => {
+            setOrdenCompra(false);
+            codigoRef.current?.focus();
+          }}
+          onMensaje={(texto) => avisar(texto, true)}
+        />
       )}
 
       {arrume && orden && config.pickingTipo && (

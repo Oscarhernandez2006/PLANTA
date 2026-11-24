@@ -181,6 +181,7 @@ model Cliente {
   reglasCorte              ReglaCorte[]
   recibosCanales           CanalReceiptOrder[]
   recibosPosta             PostaReceiptOrder[]
+  plus                     ClientePlu[]
 
   @@map("cliente")
 }
@@ -404,13 +405,13 @@ model CanalDispatchOrder {
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt        DateTime?           @map("deleted_at") @db.Timestamptz(6)
 
-  plant     Plant                    @relation(fields: [plantId], references: [id])
-  cliente   Cliente                  @relation(fields: [clienteId], references: [id])
-  createdBy AppUser                  @relation("canalDispatchCreatedBy", fields: [createdById], references: [id])
-  items     CanalDispatchOrderItem[]
-  productos DispatchProductItem[]
+  plant            Plant                    @relation(fields: [plantId], references: [id])
+  cliente          Cliente                  @relation(fields: [clienteId], references: [id])
+  createdBy        AppUser                  @relation("canalDispatchCreatedBy", fields: [createdById], references: [id])
+  items            CanalDispatchOrderItem[]
+  productos        DispatchProductItem[]
   canalesRecibidas CanalReceiptItem[]
-  picking   Picking?
+  pickings         Picking[]
 
   @@unique([plantId, dcNumber])
   @@index([plantId, tipo, status])
@@ -492,7 +493,7 @@ model TransferOrder {
   items              TransferOrderItem[]
   conditioningOrders ConditioningOrder[]
   serviciosManuales  ServicioManual[]
-  picking            Picking?
+  pickings           Picking[]
 
   @@unique([plantId, otNumber])
   @@index([plantId, status])
@@ -602,13 +603,22 @@ model TransferOrderItem {
   @@map("transfer_order_item")
 }
 
-// Picking (pre-orden) de una orden de despacho posta o de traslado: lo que el alistador
-// pistolea en la terminal. No mueve inventario; se registra en la orden al pesar el arrume.
+// Pre-orden (picking) de una orden de despacho posta o de traslado: lo que el alistador
+// pistolea en la terminal. Una orden puede tener varias pre-órdenes (una por tienda / orden
+// de compra del cliente). No mueve inventario; se registra en la orden al pesar el arrume.
 model Picking {
   id                   String        @id @default(uuid()) @db.Uuid
   plantId              String        @map("plant_id") @db.Uuid
-  canalDispatchOrderId String?       @unique @map("canal_dispatch_order_id") @db.Uuid
-  transferOrderId      String?       @unique @map("transfer_order_id") @db.Uuid
+  canalDispatchOrderId String?       @map("canal_dispatch_order_id") @db.Uuid
+  transferOrderId      String?       @map("transfer_order_id") @db.Uuid
+  // Orden de compra del cliente (null: pre-orden sin OC) y tienda a la que va.
+  ocNumero             String?       @map("oc_numero")
+  tiendaCodigo         String?       @map("tienda_codigo")
+  tiendaNombre         String?       @map("tienda_nombre")
+  observaciones        String?
+  // Alistador que tiene la pre-orden (desde la terminal); otro no la puede alistar hasta liberarla.
+  asignadoAId          String?       @map("asignado_a") @db.Uuid
+  asignadoAt           DateTime?     @map("asignado_at") @db.Timestamptz(6)
   status               PickingStatus @default(en_curso)
   terminadoAt          DateTime?     @map("terminado_at") @db.Timestamptz(6)
   terminadoById        String?       @map("terminado_by") @db.Uuid
@@ -617,11 +627,15 @@ model Picking {
   updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   plant              Plant               @relation(fields: [plantId], references: [id])
-  canalDispatchOrder CanalDispatchOrder? @relation(fields: [canalDispatchOrderId],   references: [id], onDelete: Cascade)
+  canalDispatchOrder CanalDispatchOrder? @relation(fields: [canalDispatchOrderId], references: [id], onDelete: Cascade)
   transferOrder      TransferOrder?      @relation(fields: [transferOrderId], references: [id], onDelete: Cascade)
   createdBy          AppUser             @relation("pickingCreatedBy", fields: [createdById], references: [id])
+  asignadoA          AppUser?            @relation("pickingAsignadoA", fields: [asignadoAId], references: [id], onDelete: SetNull)
   items              PickingItem[]
+  lineas             PickingLinea[]
 
+  @@unique([canalDispatchOrderId, ocNumero])
+  @@unique([transferOrderId, ocNumero])
   @@index([plantId, status])
   @@map("picking")
 }
@@ -646,6 +660,40 @@ model PickingItem {
   @@unique([pickingId, codigo])
   @@index([codigo])
   @@map("picking_item")
+}
+
+// Línea de la orden de compra de una pre-orden: kilos pedidos por producto (el cliente pide
+// en kilos, se alista por canastilla).
+model PickingLinea {
+  id              String  @id @default(uuid()) @db.Uuid
+  pickingId       String  @map("picking_id") @db.Uuid
+  productId       String  @map("product_id") @db.Uuid
+  // PLU/SKU y descripción con que lo pidió el cliente.
+  plu             String?
+  productoCliente String? @map("producto_cliente")
+  kgPedidos       Decimal @map("kg_pedidos") @db.Decimal(12, 2)
+
+  picking Picking @relation(fields: [pickingId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+
+  @@unique([pickingId, productId])
+  @@map("picking_linea")
+}
+
+// Equivalencia PLU del cliente → producto propio, aprendida al importar sus órdenes de compra.
+model ClientePlu {
+  clienteId   String   @map("cliente_id") @db.Uuid
+  plu         String
+  productId   String   @map("product_id") @db.Uuid
+  descripcion String?
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cliente Cliente @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([clienteId, plu])
+  @@map("cliente_plu")
 }
 
 // Orden de Producción (O.P.): consecutivo propio por planta (OP0000001),
@@ -957,28 +1005,28 @@ model PostaReceiptOrder {
 
 // Animal/pieza pesado dentro de una orden de recibo en Posta.
 model PostaReceiptItem {
-  id             String   @id @default(uuid()) @db.Uuid
-  receiptOrderId String   @map("receipt_order_id") @db.Uuid
-  plantId        String   @map("plant_id") @db.Uuid
-  codigo         Int
-  productId      String   @map("product_id") @db.Uuid
-  taraKg         Decimal  @map("tara_kg") @db.Decimal(12, 2)
-  brutoKg        Decimal  @map("bruto_kg") @db.Decimal(12, 2)
-  netoKg         Decimal  @map("neto_kg") @db.Decimal(12, 2)
-  piezas         Int      @default(1)
-  empaques       Int      @default(0)
-  lote           String?
+  id               String    @id @default(uuid()) @db.Uuid
+  receiptOrderId   String    @map("receipt_order_id") @db.Uuid
+  plantId          String    @map("plant_id") @db.Uuid
+  codigo           Int
+  productId        String    @map("product_id") @db.Uuid
+  taraKg           Decimal   @map("tara_kg") @db.Decimal(12, 2)
+  brutoKg          Decimal   @map("bruto_kg") @db.Decimal(12, 2)
+  netoKg           Decimal   @map("neto_kg") @db.Decimal(12, 2)
+  piezas           Int       @default(1)
+  empaques         Int       @default(0)
+  lote             String?
   // 'refrigerado' | 'congelado'
-  conservacion   String?
+  conservacion     String?
   fechaSacrificio  DateTime? @map("fecha_sacrificio") @db.Date
   fechaVencimiento DateTime? @map("fecha_vencimiento") @db.Date
-  createdById    String   @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdById      String    @map("created_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  receiptOrder PostaReceiptOrder @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
-  plant        Plant             @relation(fields: [plantId], references: [id])
-  product      Product           @relation(fields: [productId], references: [id])
-  createdBy    AppUser           @relation("postaReceiptItemCreatedBy", fields: [createdById], references: [id])
+  receiptOrder PostaReceiptOrder    @relation(fields: [receiptOrderId], references: [id], onDelete: Cascade)
+  plant        Plant                @relation(fields: [plantId], references: [id])
+  product      Product              @relation(fields: [productId], references: [id])
+  createdBy    AppUser              @relation("postaReceiptItemCreatedBy", fields: [createdById], references: [id])
   despacho     DispatchProductItem?
 
   @@index([receiptOrderId])
@@ -987,17 +1035,17 @@ model PostaReceiptItem {
 
 // Canal pesado dentro de una orden de recibo (Recibo de Canales).
 model CanalReceiptItem {
-  id             String   @id @default(uuid()) @db.Uuid
-  receiptOrderId String   @map("receipt_order_id") @db.Uuid
-  plantId        String   @map("plant_id") @db.Uuid
-  codigo         Int
-  cava           Int
-  pesoKg         Decimal  @map("peso_kg") @db.Decimal(12, 2)
-  guia           String?
-  lote           String?
-  identificacion String?
-  createdById    String   @map("created_by") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id                   String    @id @default(uuid()) @db.Uuid
+  receiptOrderId       String    @map("receipt_order_id") @db.Uuid
+  plantId              String    @map("plant_id") @db.Uuid
+  codigo               Int
+  cava                 Int
+  pesoKg               Decimal   @map("peso_kg") @db.Decimal(12, 2)
+  guia                 String?
+  lote                 String?
+  identificacion       String?
+  createdById          String    @map("created_by") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   // Salida: orden de despacho a proceso (OD, Canal Fría) o de despacho de canales (DC caliente/frío).
   dispatchOrderId      String?   @map("dispatch_order_id") @db.Uuid
   canalDispatchOrderId String?   @map("canal_dispatch_order_id") @db.Uuid
@@ -1036,6 +1084,8 @@ model Product {
   transferItems                TransferOrderItem[]
   dispatchProductItems         DispatchProductItem[]
   pickingItems                 PickingItem[]
+  pickingLineas                PickingLinea[]
+  clientePlus                  ClientePlu[]
   acondicionamientoEtiquetas   AcondicionamientoEtiqueta[]
   precios                      PrecioListaItem[]
   reglasCorte                  ReglaCorte[]
@@ -1113,6 +1163,7 @@ model AppUser {
   transferItems             TransferOrderItem[]         @relation("transferItemCreatedBy")
   dispatchProductItems      DispatchProductItem[]       @relation("dispatchProductItemCreatedBy")
   pickings                  Picking[]                   @relation("pickingCreatedBy")
+  pickingsAsignados         Picking[]                   @relation("pickingAsignadoA")
   pickingItems              PickingItem[]               @relation("pickingItemCreatedBy")
   conditioningOrders        ConditioningOrder[]         @relation("conditioningCreatedBy")
   canalDispatchOrders       CanalDispatchOrder[]        @relation("canalDispatchCreatedBy")
