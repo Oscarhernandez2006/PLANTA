@@ -33,7 +33,7 @@ import { formatOT } from '../registrar/orden-traslado-api';
 import { formatOC } from '../registrar/orden-acondicionamiento-api';
 import { fecha, kg } from './BodegasTab';
 import { TrazabilidadEtiquetaDialog } from './TrazabilidadEtiquetaDialog';
-import { descargarTrazabilidadPdf, type SeccionPdf } from './trazabilidad-pdf';
+import { descargarTrazabilidadPdf } from './trazabilidad-pdf';
 import {
   Acciones,
   Dato,
@@ -162,7 +162,7 @@ export function TrazabilidadCanalDialog({
                   }
                 : undefined
             }
-            onPdf={() => pdfCanal(t)}
+            onPdf={(m) => pdfCanal(m, t)}
           />
         )
       }
@@ -610,145 +610,12 @@ function textoFinal(
 }
 
 /** Informe en PDF de la hoja de vida de la canal. */
-async function pdfCanal(t: TrazabilidadCanal) {
-  const od = t.despachoProceso;
-  const dc = t.despachoCanal;
-  const s = (v: unknown) => (v == null || v === '' ? '—' : String(v));
-  const secciones: SeccionPdf[] = [];
-  secciones.push(
-    t.guia
-      ? {
-          titulo: 'Recepción · Peso en camión',
-          meta: `${fechaHora(t.guia.createdAt)} · ${s(t.guia.registradaPor)}`,
-          datos: [
-            ['Guía', s(t.guia.guia)],
-            ['Referencia BC', s(t.guia.bcReference)],
-            ['Fecha', fecha(t.guia.date)],
-            ['Lote / finca', s(t.guia.referenciaLote)],
-            ['Proveedor', s(t.guia.proveedor)],
-            ['Procedencia', s(t.guia.procedencia)],
-            ['Placa', s(t.guia.placa)],
-            ['Conductor', s(t.guia.conductor)],
-            ['Animales', s(t.guia.cantidad)],
-            ['Neto', kgs(t.guia.netoKg)],
-          ],
-        }
-      : { titulo: 'Recepción · Peso en camión', nota: `Guía ${t.guias.join(', ') || '—'} (sin registro en Peso en Camión).` },
-  );
-  if (t.pie)
-    secciones.push({
-      titulo: 'Peso en pie',
-      meta: `${fechaHora(t.pie.pesadoAt)} · ${s(t.pie.operario)}`,
-      datos: [
-        ['Referencia BP', s(t.pie.bpReference)],
-        ['Animal en la guía', `#${t.pie.reference}`],
-        ['Corral', s(t.pie.corral)],
-        ['Sexo / tipo', s(t.pie.tipoAnimal)],
-        ['Peso inicial', kgs(t.pie.pesoInicialKg)],
-        ['Peso final', kgs(t.pie.pesoActualKg)],
-      ],
-      tabla: t.pie.repesajes.length
-        ? {
-            columnas: ['Repesaje', 'Anterior', 'Nuevo', 'Merma', 'Fecha', 'Operario'],
-            filas: t.pie.repesajes.map((r) => [`Ronda ${r.ronda}`, kgs(r.pesoAnteriorKg), kgs(r.pesoNuevoKg), kgs(r.mermaKg), fechaHora(r.at), s(r.operario)]),
-          }
-        : undefined,
-    });
-  secciones.push({
-    titulo: `Orden de beneficio ${formatOB(t.ordenBeneficio.reference)} · sacrificio`,
-    meta: `${fechaHora(t.sacrificio.at)} · ${s(t.sacrificio.operario)}`,
-    datos: [
-      ['Fecha', fecha(t.ordenBeneficio.date)],
-      ['Cliente', t.ordenBeneficio.cliente],
-      ['Animal en la orden', `A${String(t.sacrificio.sequence).padStart(2, '0')}`],
-      ['Turno', s(t.turno)],
-      ['Piel', t.piel ? kgs(t.piel.kg) : '—'],
-      ['Subproductos para', t.ordenBeneficio.subproductoDestino.toUpperCase()],
-    ],
-  });
-  secciones.push({
-    titulo: 'Canal caliente',
-    meta: `${fechaHora(t.canal.weighedAt)} · ${s(t.canal.operario)}`,
-    datos: [
-      ['Tipo de animal', s(t.canal.tipoAnimal).toUpperCase()],
-      ['Tipo de canal', t.canal.canalTipo ? CANAL_TIPO_LABEL[t.canal.canalTipo].toUpperCase() : '—'],
-      ['Expendio', s(t.canal.expendio)],
-      ['Bodega', s(t.canal.bodega)],
-      ['Destino', s(t.canal.destino)],
-      ['Ubicación actual', s(t.cavaActual)],
-    ],
-    tabla: {
-      columnas: ['Pieza', 'Turno', 'Peso'],
-      filas: t.canal.piezasAnimal.map((p) => [`${PIEZA[p.pieza]}${p.actual ? ' (esta)' : ''}`, s(p.turno), kgs(p.pesoKg)]),
-    },
-  });
-  if (t.traslados.length)
-    secciones.push({
-      titulo: 'Movimientos de cava',
-      tabla: {
-        columnas: ['Origen', 'Destino', 'Motivo', 'Fecha', 'Operario'],
-        filas: t.traslados.map((m) => [s(m.cavaOrigen), m.cavaDestino, m.motivo, fechaHora(m.at), s(m.operario)]),
-      },
-    });
-  secciones.push({ titulo: 'Subproductos del animal', nota: 'Módulo en construcción · próximamente.' });
-  if (od) {
-    secciones.push({
-      titulo: `Despacho a proceso ${formatOD(od.odNumber)}`,
-      meta: `${fechaHora(od.pistoleadaAt)} · ${s(od.operario)}`,
-      datos: [
-        ['Cliente', od.cliente],
-        ['Fecha de proceso', fecha(od.processDate)],
-        ['Peso caliente', kgs(od.pesoCalienteKg)],
-        ['Peso frío', kgs(od.despachoKg)],
-        ['Estado', od.cerradaAt ? `CERRADA ${fechaHora(od.cerradaAt)}` : 'ACTIVA'],
-        ['Órdenes de producción', od.ordenesProduccion.map((o) => formatOP(o.opNumber)).join(', ') || '—'],
-      ],
-    });
-    const productos = od.asignacionPorCanal ? od.productosCanal : od.productos;
-    if (productos.length)
-      secciones.push({
-        titulo: od.asignacionPorCanal ? 'Productos obtenidos de esta canal' : 'Productos obtenidos del lote',
-        tabla: { columnas: ['Código', 'Producto', 'Piezas', 'Kilos'], filas: productos.map((p) => [p.codigo, p.nombre, p.piezas, kgs(p.kg)]) },
-      });
-    for (const d of od.despachos)
-      secciones.push({
-        titulo: `Productos despachados ${formatDC(d.dcNumber)}`,
-        meta: d.cerrada ? `Cerrada ${fechaHora(d.cerradaAt)}` : 'Activa',
-        tabla: {
-          columnas: ['Código', 'Producto', 'Unds', 'Neto'],
-          filas: d.items.filter((x) => !od.asignacionPorCanal || x.deEstaCanal).map((x) => [x.codigo, `${x.productoCodigo} ${x.productoNombre}`, x.unds, kgs(x.netoKg)]),
-        },
-      });
-  }
-  if (dc)
-    secciones.push({
-      titulo: `Despacho ${dc.tipo === 'caliente' ? 'caliente' : 'frío'} ${formatDC(dc.dcNumber)}`,
-      meta: `${fechaHora(dc.pistoleadaAt)} · ${s(dc.operario)}`,
-      datos: [
-        ['Cliente', dc.cliente],
-        ['NIT', s(dc.clienteNit)],
-        ['Fecha de despacho', fecha(dc.processDate)],
-        ['Salió de', dc.cavaOrigen],
-        ['Peso caliente', kgs(dc.pesoCalienteKg)],
-        ['Peso de despacho', kgs(dc.despachoKg)],
-        ['Estado', dc.cerradaAt ? `CERRADA ${fechaHora(dc.cerradaAt)}` : 'ACTIVA'],
-      ],
-    });
-  const pesoFinal = dc?.despachoKg ?? od?.despachoKg ?? null;
-  await descargarTrazabilidadPdf({
+async function pdfCanal(modal: HTMLElement, t: TrazabilidadCanal) {
+  await descargarTrazabilidadPdf(modal, {
     titulo: 'Trazabilidad de la canal',
     codigo: barcodeDe(t),
     subtitulo: t.ordenBeneficio.cliente,
     estado: ESTADO[t.estado].label,
-    resumen: [
-      ['Pieza', PIEZA[t.pieza]],
-      ['Orden de beneficio', `${formatOB(t.ordenBeneficio.reference)} · ${fecha(t.ordenBeneficio.date)}`],
-      ['Peso caliente', kgs(t.canal.pesoKg)],
-      ['Peso frío / despacho', kgs(pesoFinal)],
-      ['Merma', pesoFinal != null ? kgs(t.canal.pesoKg - pesoFinal) : '—'],
-      ['Guía', t.guias.join(', ') || '—'],
-    ],
-    secciones,
   });
 }
 

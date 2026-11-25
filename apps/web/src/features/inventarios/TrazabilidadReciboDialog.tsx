@@ -8,7 +8,7 @@ import { generarRotuloPostaZpl } from '../recibo-posta/rotulo-posta-zpl';
 import { useDevice } from '../device/device-context';
 import { SIN_IMPRESORA, useImpresoraEtiquetas } from '../rotulado/ui';
 import { fecha } from './BodegasTab';
-import { descargarTrazabilidadPdf, type SeccionPdf } from './trazabilidad-pdf';
+import { descargarTrazabilidadPdf } from './trazabilidad-pdf';
 import {
   Acciones,
   Dato,
@@ -151,7 +151,7 @@ export function TrazabilidadReciboDialog({
       className="max-w-5xl"
       scrollInterno
       subencabezado={t && <Etapas etapas={etapas} />}
-      acciones={t && <Acciones codigo={codigo} onReimprimir={reimprimir} onPdf={() => pdfRecibo(tipo, t)} />}
+      acciones={t && <Acciones codigo={codigo} onReimprimir={reimprimir} onPdf={(m) => pdfRecibo(m, tipo, t)} />}
     >
       {q.isLoading ? (
         <div className="flex justify-center py-10 text-muted-foreground">
@@ -349,95 +349,12 @@ function InformePosta({ t }: { t: TrazabilidadReciboPosta }) {
   );
 }
 
-async function pdfRecibo(tipo: 'canal' | 'posta', t: Traza) {
+async function pdfRecibo(modal: HTMLElement, tipo: 'canal' | 'posta', t: Traza) {
   const o = t.orden;
-  const prefijo = tipo === 'canal' ? 'RC' : 'RP';
-  const codigo = pieza(prefijo, o.receiptNumber, t.item.codigo);
-  const secciones: SeccionPdf[] = [
-    {
-      titulo: `${tipo === 'canal' ? 'Recibo de canales' : 'Recibo en posta'} ${prefijo}${o.receiptNumber}`,
-      meta: `${fechaHora(o.createdAt)} · ${o.creadaPor ?? '—'}`,
-      datos: [
-        ['Cliente', o.cliente.concepto],
-        ['NIT', o.cliente.nit ?? '—'],
-        ['Fecha de registro', fecha(o.registrationDate)],
-        ['Fecha de proceso', fecha(o.processDate)],
-        ['Estado', estadoOrden(o.status)],
-        ['Cerrada', o.cerradaAt ? `${fechaHora(o.cerradaAt)} · ${o.cerradaPor ?? '—'}` : '—'],
-      ],
-    },
-  ];
-  if (tipo === 'canal') {
-    const i = (t as TrazabilidadReciboCanal).item;
-    secciones.push({
-      titulo: 'Ingreso de la canal',
-      meta: `${fechaHora(i.createdAt)} · ${i.registradoPor ?? '—'}`,
-      datos: [
-        ['Pieza', codigo],
-        ['Peso', kgs(i.pesoKg)],
-        ['Guía', i.guia ?? '—'],
-        ['Lote', i.lote ?? '—'],
-        ['Identificación', i.identificacion ?? '—'],
-        ['Cava', i.cava],
-      ],
-    });
-  } else {
-    const i = (t as TrazabilidadReciboPosta).item;
-    secciones.push({
-      titulo: 'Pesaje y rótulo',
-      meta: `${fechaHora(i.createdAt)} · ${i.registradoPor ?? '—'}`,
-      datos: [
-        ['Producto', `${i.producto.codigo} ${i.producto.nombre}`],
-        ['Piezas / empaques', `${i.piezas} / ${i.empaques}`],
-        ['Bruto / tara', `${kgs(i.brutoKg)} / ${kgs(i.taraKg)}`],
-        ['Neto', kgs(i.netoKg)],
-        ['Lote', i.lote ?? '—'],
-        ['Conservación', i.conservacion ?? '—'],
-        ['Sacrificio', fecha(i.fechaSacrificio)],
-        ['Vencimiento', fecha(i.fechaVencimiento)],
-      ],
-    });
-  }
-  secciones.push({
-    titulo: 'Entrada al inventario',
-    datos: [
-      ['Bodega', t.bodega?.nombre ?? '—'],
-      ['En inventario', t.enInventario ? 'SÍ' : 'NO'],
-    ],
-  });
-  if (t.reimpresiones.length)
-    secciones.push({
-      titulo: 'Reimpresiones del rótulo',
-      tabla: { columnas: ['Fecha y hora', 'Usuario', 'Estación'], filas: t.reimpresiones.map((r) => [fechaHora(r.at), r.usuario ?? '—', r.estacion ?? '—']) },
-    });
-  if (t.salida)
-    secciones.push({
-      titulo: `${SALIDA[t.salida.tipo]} ${t.salida.orden}`,
-      meta: `${fechaHora(t.salida.at)} · ${t.salida.por ?? '—'}`,
-      datos: [
-        ['Estado', t.salida.cerrada ? 'CERRADA · SALIÓ DEL INVENTARIO' : 'ACTIVA'],
-        ['Peso de despacho', kgs(t.salida.despachoKg)],
-      ],
-    });
-  await descargarTrazabilidadPdf({
+  await descargarTrazabilidadPdf(modal, {
     titulo: tipo === 'canal' ? 'Trazabilidad de canal recibida' : 'Trazabilidad de producto recibido en posta',
-    codigo,
+    codigo: pieza(tipo === 'canal' ? 'RC' : 'RP', o.receiptNumber, t.item.codigo),
     subtitulo: o.cliente.concepto,
     estado: estadoDe(t, 'DISPONIBLE').label,
-    resumen:
-      tipo === 'canal'
-        ? [
-            ['Cliente', o.cliente.concepto],
-            ['Peso recibido', kgs((t as TrazabilidadReciboCanal).item.pesoKg)],
-            ['Guía', (t as TrazabilidadReciboCanal).item.guia ?? '—'],
-            ['Cava', (t as TrazabilidadReciboCanal).item.cava],
-          ]
-        : [
-            ['Cliente', o.cliente.concepto],
-            ['Producto', `${(t as TrazabilidadReciboPosta).item.producto.codigo} ${(t as TrazabilidadReciboPosta).item.producto.nombre}`],
-            ['Peso neto', kgs((t as TrazabilidadReciboPosta).item.netoKg)],
-            ['Vence', fecha((t as TrazabilidadReciboPosta).item.fechaVencimiento)],
-          ],
-    secciones,
   });
 }

@@ -86,8 +86,12 @@ export function Dialog({
             </Button>
           </div>
         </div>
-        {subencabezado && <div className="shrink-0 border-b border-border bg-muted/20">{subencabezado}</div>}
-        <div className={cn('p-6', scrollInterno && 'scrollbar-app min-h-0 flex-1 overflow-y-auto')}>{children}</div>
+        {subencabezado && (
+          <div data-dialog-sub className="shrink-0 border-b border-border bg-muted/20">
+            {subencabezado}
+          </div>
+        )}
+        <div data-dialog-body className={cn('p-6', scrollInterno && 'scrollbar-app min-h-0 flex-1 overflow-y-auto')}>{children}</div>
       </div>
     </div>
   );

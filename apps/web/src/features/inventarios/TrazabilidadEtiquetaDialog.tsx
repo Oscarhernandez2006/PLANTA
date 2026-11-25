@@ -34,7 +34,7 @@ import {
 import { SIN_IMPRESORA, useImpresoraEtiquetas } from '../rotulado/ui';
 import { fecha, kg } from './BodegasTab';
 import { PasosCanal, TrazabilidadCanalDialog } from './TrazabilidadCanalDialog';
-import { descargarTrazabilidadPdf, type SeccionPdf } from './trazabilidad-pdf';
+import { descargarTrazabilidadPdf } from './trazabilidad-pdf';
 import {
   Acciones,
   Dato,
@@ -143,7 +143,7 @@ export function TrazabilidadEtiquetaDialog({
       className="mt-0 max-h-[calc(100vh-3rem)] max-w-[min(94vw,88rem)]"
       scrollInterno
       subencabezado={t && !isLoading && <Etapas etapas={etapasEtiqueta(t, primerAnimal.data)} />}
-      acciones={t && !isLoading && <Acciones codigo={t.etiqueta.codigo} onReimprimir={t.etiqueta.anulada ? undefined : reimprimir} onPdf={() => pdfEtiqueta(t)} />}
+      acciones={t && !isLoading && <Acciones codigo={t.etiqueta.codigo} onReimprimir={t.etiqueta.anulada ? undefined : reimprimir} onPdf={(m) => pdfEtiqueta(m, t)} />}
     >
       {isLoading ? (
         <div className="flex justify-center py-10 text-muted-foreground">
@@ -412,105 +412,13 @@ function Informe({ t, onCanal }: { t: TrazabilidadEtiqueta; onCanal: (piezaId: s
   );
 }
 
-async function pdfEtiqueta(t: TrazabilidadEtiqueta) {
+async function pdfEtiqueta(modal: HTMLElement, t: TrazabilidadEtiqueta) {
   const e = t.etiqueta;
-  const ac = t.acondicionamiento;
-  const { origenes, unica } = origenesDe(t);
-  const s = (v: unknown) => (v == null || v === '' ? '—' : String(v));
-  const secciones: SeccionPdf[] = [];
-  const canales = origenes.length ? origenes.map((x) => x.c) : t.ordenesProduccion.flatMap((op) => op.canales);
-  secciones.push({
-    titulo: unica ? 'Canal de origen' : `Canales de origen (${canales.length})`,
-    nota: !origenes.length ? 'No se pudo determinar la canal exacta: se listan todas las canales del lote.' : undefined,
-    tabla: {
-      columnas: ['Barcode', 'Orden beneficio', 'Fecha', 'Tipo', 'Pieza', 'Proveedor', 'Caliente', 'Frío'],
-      filas: canales.map((c) => [
-        barcodeCanal(c),
-        formatOB(c.reference),
-        fecha(c.obDate),
-        s(c.canalAnimalTipo).toUpperCase(),
-        PIEZA[c.pieza],
-        s(c.proveedor),
-        kgs(c.pesoCalienteKg),
-        kgs(c.pesoFrioKg),
-      ]),
-    },
-  });
-  for (const op of t.ordenesProduccion)
-    secciones.push({
-      titulo: `Orden de producción ${formatOP(op.opNumber)}`,
-      meta: s(op.creadaPor),
-      datos: [
-        ['Fecha de proceso', fecha(op.processDate)],
-        ['Orden de despacho', `${formatOD(op.odNumber)} · ${fecha(op.odProcessDate)}`],
-        ['Estado', estadoOrden(op.status)],
-        ['Canales', String(op.canales.length)],
-      ],
-    });
-  if (ac)
-    secciones.push({
-      titulo: `Acondicionamiento ${formatOC(ac.ocNumber)} ← ${formatOT(ac.otNumber)}`,
-      meta: s(ac.creadaPor),
-      datos: [
-        ['Proceso', ac.proceso.toUpperCase()],
-        ['Fecha de proceso', fecha(ac.processDate)],
-        ['Estado', estadoOrden(ac.status)],
-        ['Traslado', `${formatOT(ac.otNumber)} · ${fecha(ac.otProcessDate)}`],
-      ],
-      tabla: {
-        columnas: ['Código', 'Producto', 'Unds', 'Neto', 'Lote'],
-        filas: ac.entradas.map((i) => [i.codigo, `${i.productoCodigo} - ${i.productoNombre}`, i.unds, kgs(i.netoKg), i.opNumber ? formatOP(i.opNumber) : '—']),
-      },
-    });
-  secciones.push({
-    titulo: 'Rotulado',
-    meta: `${fechaHora(e.createdAt)} · ${e.operario}`,
-    datos: [
-      ['Pieza', `#${formatPieza(e.pieza)}`],
-      ['Estación', s(e.estacion)],
-      ['Bruto / tara', `${kgs(e.brutoKg)} / ${kgs(e.taraKg)}`],
-      ['Neto', kgs(e.netoKg)],
-      ['Empaque', e.empaque],
-      ['Conservación', `${e.conservacion} · ${e.temperatura}`],
-      ['Fecha sacrificio', fecha(e.fechaSacrificio)],
-      ['Fecha empaque', fecha(e.fechaEmpaque)],
-      ['Vence', fecha(e.fechaVencimiento)],
-      ['Canastilla', e.canastilla ? `N.º ${e.canastilla.numero}` : '—'],
-    ],
-  });
-  if (t.traslado)
-    secciones.push({
-      titulo: `Trasladada a proceso ${formatOT(t.traslado.otNumber)}`,
-      meta: `${fechaHora(t.traslado.at)} · ${t.traslado.operario}`,
-      datos: [
-        ['Peso al trasladar', kgs(t.traslado.netoKg)],
-        ['Transformada en', t.traslado.transformadoOc ? formatOC(t.traslado.transformadoOc) : 'PENDIENTE'],
-      ],
-    });
-  if (t.despacho)
-    secciones.push({
-      titulo: `Despacho ${formatDC(t.despacho.dcNumber)}`,
-      meta: `${fechaHora(t.despacho.at)} · ${t.despacho.operario}`,
-      datos: [
-        ['Peso de despacho', kgs(t.despacho.netoKg)],
-        ['Diferencia', kgs(e.netoKg - t.despacho.netoKg)],
-        ['Orden', t.despacho.cerrada ? 'CERRADA' : 'ACTIVA'],
-      ],
-    });
-  await descargarTrazabilidadPdf({
+  await descargarTrazabilidadPdf(modal, {
     titulo: 'Trazabilidad de la etiqueta',
     codigo: e.codigo ?? e.id.slice(0, 8),
     subtitulo: `${e.productoCodigo} ${e.productoNombre}`,
     estado: estadoDe(t).label,
-    resumen: [
-      ['Producto', `${e.productoCodigo} - ${e.productoNombre}`],
-      ['Peso neto', kgs(e.netoKg)],
-      ['Lote', ac ? `${formatOC(ac.ocNumber)} ← ${formatOT(ac.otNumber)}` : t.ordenesProduccion.map((o) => formatOP(o.opNumber)).join(', ')],
-      ['Tienda', e.tienda],
-      ['Vence', fecha(e.fechaVencimiento)],
-      ['Canal de origen', unica ? barcodeCanal(unica.c) : `${canales.length} canal(es)`],
-    ],
-    secciones,
   });
 }
 

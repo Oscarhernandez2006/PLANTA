@@ -69,6 +69,7 @@ export function Paso({
       <button
         type="button"
         disabled={!conContenido}
+        aria-expanded={conContenido ? abierto : undefined}
         onClick={() => setAbierto((v) => !v)}
         className="flex w-full flex-wrap items-baseline justify-between gap-x-4 rounded-md text-left enabled:hover:text-primary disabled:cursor-default"
       >
@@ -221,7 +222,8 @@ export function Acciones({
 }: {
   codigo?: string | null;
   onReimprimir?: () => Promise<string | null>;
-  onPdf?: () => Promise<void>;
+  /** Recibe el modal para copiarlo tal cual al PDF. */
+  onPdf?: (modal: HTMLElement) => Promise<void>;
 }) {
   const [aviso, setAviso] = useState<{ ok: boolean; texto: string } | null>(null);
   const [ocupado, setOcupado] = useState<'imprimir' | 'pdf' | null>(null);
@@ -268,10 +270,12 @@ export function Acciones({
           variant="outline"
           size="sm"
           disabled={!!ocupado}
-          onClick={async () => {
+          onClick={async (ev) => {
+            const modal = ev.currentTarget.closest<HTMLElement>('[role="dialog"]');
+            if (!modal) return;
             setOcupado('pdf');
             try {
-              await onPdf();
+              await onPdf(modal);
             } catch {
               avisar(false, 'No se pudo generar el PDF.');
             } finally {
