@@ -10,6 +10,11 @@ import { PickingService } from './picking.service';
 export class PickingController {
   constructor(private readonly service: PickingService) {}
 
+  @Get('tareas')
+  tareas(@CurrentUser() user: AuthContext) {
+    return this.service.tareas(user);
+  }
+
   @Delete('items/:itemId')
   quitar(@CurrentUser() user: AuthContext, @Param('itemId', ParseUUIDPipe) itemId: string) {
     return this.service.quitar(user, itemId);

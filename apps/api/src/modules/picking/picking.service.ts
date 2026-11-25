@@ -116,6 +116,35 @@ export class PickingService {
     private readonly traslado: TransferOrderService,
   ) {}
 
+  /**
+   * Pre-órdenes con orden de compra sin terminar en órdenes activas. La terminal las consulta
+   * en segundo plano y avisa (notificación + pitido) las que no había visto.
+   */
+  async tareas(ctx: AuthContext) {
+    const rows = await this.prisma.picking.findMany({
+      where: { plantId: ctx.plantId, ocNumero: { not: null }, status: PickingStatus.en_curso, ...pickingActivo },
+      orderBy: { createdAt: 'asc' },
+      take: 500,
+      select: {
+        id: true,
+        asignadoAId: true,
+        canalDispatchOrder: { select: { id: true, dcNumber: true, cliente: { select: { concepto: true } } } },
+        transferOrder: { select: { id: true, otNumber: true, cliente: { select: { concepto: true } } } },
+      },
+    });
+    return rows.map((p) => {
+      const dc = p.canalDispatchOrder;
+      const ot = p.transferOrder;
+      return {
+        id: p.id,
+        tipo: (dc ? 'posta' : 'traslado') as TipoPicking,
+        ordenId: dc?.id ?? ot?.id ?? '',
+        orden: dc ? `DC${dc.dcNumber}` : `OT${ot?.otNumber ?? ''}`,
+        cliente: dc?.cliente.concepto ?? ot?.cliente.concepto ?? '',
+        libre: !p.asignadoAId,
+      };
+    });
+  }
   private tipo(tipo: string): TipoPicking {
     if (!(TIPOS_PICKING as readonly string[]).includes(tipo)) {
       throw new BadRequestException('Tipo de picking no válido.');
