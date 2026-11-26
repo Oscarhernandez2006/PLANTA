@@ -33,6 +33,13 @@ if [ "$(timedatectl show -p NTPSynchronized --value 2>/dev/null)" = "no" ]; then
   log "AVISO el reloj del servidor no está sincronizado (NTP)."
 fi
 
+# Con la réplica en tiempo real (replica-*.sh) la nube es de solo lectura: el espejo sobra.
+if docker run --rm -e NUBE_URL -e PGCONNECT_TIMEOUT=20 "$IMAGEN" \
+  sh -c 'psql -Atc "SELECT pg_is_in_recovery()" "$NUBE_URL"' 2>/dev/null | grep -qx t; then
+  log "La nube es una réplica en tiempo real; el espejo no se envía (quita espejo-nube.sh del cron)."
+  exit 0
+fi
+
 id="$(docker ps --filter "name=$SERVICIO" --format '{{.ID}}' | head -1)"
 [ -n "$id" ] || { log "ERROR no está corriendo el contenedor $SERVICIO"; exit 1; }
 usuario="$(docker exec "$id" sh -c 'echo "${POSTGRES_USER:-postgres}"')"
