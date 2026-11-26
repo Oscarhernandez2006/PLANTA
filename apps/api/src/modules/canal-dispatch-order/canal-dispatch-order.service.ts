@@ -15,11 +15,19 @@ import {
   canalRecibidaSelect,
   parseReciboCanal,
 } from '../canal-receipt/recibo-despacho';
-import { CreateCanalDispatchOrderDto, QueryCanalDispatchOrderDto } from './canal-dispatch-order.dto';
+import { CerrarCanalDispatchOrderDto, CreateCanalDispatchOrderDto, QueryCanalDispatchOrderDto } from './canal-dispatch-order.dto';
+import { crearGuia } from '../guia-transporte/guia-transporte.service';
+import { exigirSinArrumeAbierto } from '../picking/arrume';
+import { exigirPreordenesCompletas } from '../picking/preordenes-completas';
+import { nombrePreorden } from '../picking/avance-preorden';
 
 const include = {
   cliente: { select: { id: true, nit: true, concepto: true } },
 } as const;
+
+/** Una guía de movilidad va con un solo despacho: para el mismo camión se crea otra guía. */
+const guiaUsada = (numero: number) =>
+  `La guía GM${numero} ya salió con otra orden de despacho y no se puede volver a usar. Crea una guía nueva (puedes copiar sus datos).`;
 
 @Injectable()
 export class CanalDispatchOrderService {
@@ -249,13 +257,53 @@ export class CanalDispatchOrderService {
   }
 
   /**
+   * Despacho posta al cliente: tiendas (pre-órdenes) que llevan producto. Si alguna tiene
+   * tienda, al cerrar sin punto de envío sale una remisión por tienda, cada una en su camión.
+   */
+  async tiendasRemision(ctx: AuthContext, id: string) {
+    const dc = await this.orden(ctx, id);
+    if (dc.tipo !== 'posta') return { porTienda: false, tiendas: [], sinTienda: 0 };
+    const [preordenes, sinTienda] = await Promise.all([
+      this.prisma.picking.findMany({
+        where: { canalDispatchOrderId: dc.id },
+        orderBy: { createdAt: 'asc' },
+        select: {
+          id: true,
+          ocNumero: true,
+          tiendaCodigo: true,
+          tiendaNombre: true,
+          despachoItems: { select: { netoKg: true } },
+        },
+      }),
+      this.prisma.dispatchProductItem.count({ where: { canalDispatchOrderId: dc.id, pickingId: null } }),
+    ]);
+    const tiendas = preordenes
+      .filter((p) => p.despachoItems.length)
+      .map((p) => ({
+        pickingId: p.id,
+        nombre: nombrePreorden(p),
+        tiendaCodigo: p.tiendaCodigo,
+        tiendaNombre: p.tiendaNombre,
+        ocNumero: p.ocNumero,
+        empaques: p.despachoItems.length,
+        kg: Math.round(p.despachoItems.reduce((s, i) => s + Number(i.netoKg), 0) * 100) / 100,
+      }));
+    return { porTienda: tiendas.some((t) => t.tiendaCodigo || t.tiendaNombre), tiendas, sinTienda };
+  }
+
+  /**
    * Cierra la orden: sus canales quedan despachadas y salen del inventario. Los registros
    * no se borran (consulta y posibles devoluciones).
    */
-  async cerrar(ctx: AuthContext, id: string) {
+  async cerrar(ctx: AuthContext, id: string, dto: CerrarCanalDispatchOrderDto) {
     const dc = await this.orden(ctx, id);
     if (dc.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de despacho no está activa.');
+    }
+    const remisionTiendas = dto.puntoEnvioId ? null : await this.tiendasRemision(ctx, id);
+    const porTienda = !!remisionTiendas?.porTienda;
+    if (!porTienda && !!dto.guiaTransporteId === !!dto.nuevaGuia) {
+      throw new BadRequestException('Elige la guía de transporte de la orden o crea una nueva.');
     }
     const [canales, productos, recibidas] = await Promise.all([
       this.prisma.canalDispatchOrderItem.count({ where: { canalDispatchOrderId: dc.id } }),
@@ -263,11 +311,101 @@ export class CanalDispatchOrderService {
       this.prisma.canalReceiptItem.count({ where: { canalDispatchOrderId: dc.id } }),
     ]);
     if (!canales && !productos && !recibidas) throw new BadRequestException('La orden no tiene nada registrado.');
-    await this.prisma.canalDispatchOrder.update({
-      where: { id: dc.id },
-      data: { status: DispatchOrderStatus.facturado },
+    await exigirSinArrumeAbierto(this.prisma, { canalDispatchOrderId: dc.id });
+    await exigirPreordenesCompletas(this.prisma, ctx.plantId, { canalDispatchOrderId: dc.id }, dto.pin);
+    if (dto.puntoEnvioId) {
+      const punto = await this.prisma.puntoEnvio.findFirst({
+        where: { id: dto.puntoEnvioId, clienteId: dc.clienteId, active: true },
+        select: { id: true },
+      });
+      if (!punto) throw new BadRequestException('El punto de envío no es de este cliente o está inactivo.');
+    }
+    if (dto.guiaTransporteId && !porTienda) {
+      const guia = await this.prisma.guiaTransporte.findFirst({
+        where: { id: dto.guiaTransporteId, plantId: ctx.plantId, deletedAt: null },
+        select: { id: true, numero: true, _count: { select: { despachos: true, remisiones: true } } },
+      });
+      if (!guia) throw new BadRequestException('La guía de transporte no existe.');
+      if (guia._count.despachos || guia._count.remisiones) throw new BadRequestException(guiaUsada(guia.numero));
+    }
+    const camiones = porTienda ? await this.validarCamiones(ctx, remisionTiendas!, dto) : null;
+    return this.prisma.$transaction(async (tx) => {
+      if (camiones) {
+        const guiaIds: string[] = [];
+        for (const g of camiones.guias) guiaIds.push(g.nuevaGuia ? (await crearGuia(tx, ctx, g.nuevaGuia)).id : g.guiaTransporteId!);
+        const { count } = await tx.canalDispatchOrder.updateMany({
+          where: { id: dc.id, status: DispatchOrderStatus.activo },
+          data: { status: DispatchOrderStatus.facturado, puntoEnvioId: null, guiaTransporteId: null, cerradaAt: new Date() },
+        });
+        if (!count) throw new BadRequestException('La orden de despacho ya fue cerrada.');
+        for (const [k, t] of remisionTiendas!.tiendas.entries()) {
+          await tx.picking.update({
+            where: { id: t.pickingId },
+            data: { guiaTransporteId: guiaIds[camiones.asignacion.get(t.pickingId)!], remisionNumero: k + 1 },
+          });
+        }
+        return { ok: true, guiaTransporteId: guiaIds[0], guiaTransporteIds: guiaIds, remisiones: remisionTiendas!.tiendas.length };
+      }
+      const guiaId = dto.nuevaGuia ? (await crearGuia(tx, ctx, dto.nuevaGuia)).id : dto.guiaTransporteId!;
+      // Solo cierra si sigue activa (evita doble cierre simultáneo).
+      const { count } = await tx.canalDispatchOrder.updateMany({
+        where: { id: dc.id, status: DispatchOrderStatus.activo },
+        data: {
+          status: DispatchOrderStatus.facturado,
+          puntoEnvioId: dto.puntoEnvioId ?? null,
+          guiaTransporteId: guiaId,
+          cerradaAt: new Date(),
+        },
+      });
+      if (!count) throw new BadRequestException('La orden de despacho ya fue cerrada.');
+      return { ok: true, guiaTransporteId: guiaId, guiaTransporteIds: [guiaId], remisiones: 1 };
     });
-    return { ok: true };
+  }
+
+  /** Cada tienda va en uno de los camiones, y cada camión es una guía existente o una nueva. */
+  private async validarCamiones(
+    ctx: AuthContext,
+    remision: Awaited<ReturnType<CanalDispatchOrderService['tiendasRemision']>>,
+    dto: CerrarCanalDispatchOrderDto,
+  ) {
+    if (remision.sinTienda) {
+      throw new BadRequestException(
+        `${remision.sinTienda} producto(s) de la orden no tienen tienda: quítalos y pistoléalos de nuevo eligiendo la tienda.`,
+      );
+    }
+    const guias = dto.guias ?? [];
+    if (!guias.length) throw new BadRequestException('Agrega el camión (guía de transporte) de cada tienda.');
+    for (const [k, g] of guias.entries()) {
+      if (!!g.guiaTransporteId === !!g.nuevaGuia) {
+        throw new BadRequestException(`Camión ${k + 1}: elige una guía existente o crea una nueva.`);
+      }
+    }
+    const existentes = guias.flatMap((g) => (g.guiaTransporteId ? [g.guiaTransporteId] : []));
+    if (new Set(existentes).size !== existentes.length) {
+      throw new BadRequestException('La misma guía de transporte está en dos camiones.');
+    }
+    if (existentes.length) {
+      const encontradas = await this.prisma.guiaTransporte.findMany({
+        where: { id: { in: existentes }, plantId: ctx.plantId, deletedAt: null },
+        select: { numero: true, _count: { select: { despachos: true, remisiones: true } } },
+      });
+      if (encontradas.length !== existentes.length) throw new BadRequestException('Una de las guías de transporte no existe.');
+      const usada = encontradas.find((g) => g._count.despachos || g._count.remisiones);
+      if (usada) throw new BadRequestException(guiaUsada(usada.numero));
+    }
+    const asignacion = new Map<string, number>();
+    for (const r of dto.remisiones ?? []) {
+      if (r.guia >= guias.length) throw new BadRequestException('Una tienda tiene un camión que no existe.');
+      asignacion.set(r.pickingId, r.guia);
+    }
+    const faltan = remision.tiendas.filter((t) => !asignacion.has(t.pickingId));
+    if (faltan.length) {
+      throw new BadRequestException(`Asigna el camión de: ${faltan.map((t) => t.nombre).join(', ')}.`);
+    }
+    const usados = new Set(remision.tiendas.map((t) => asignacion.get(t.pickingId)));
+    const vacio = guias.findIndex((_, k) => !usados.has(k));
+    if (vacio >= 0) throw new BadRequestException(`El camión ${vacio + 1} no lleva ninguna tienda: asígnale tiendas o quítalo.`);
+    return { guias, asignacion };
   }
 
   /** Deshace el despacho por error: la canal vuelve a su cava de origen. */

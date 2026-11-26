@@ -23,12 +23,21 @@ export class BuscarEtiquetaTrasladoDto {
   @IsString()
   @Matches(CODIGO, { message: 'Código de barras no válido.' })
   codigo!: string;
+
+  /** PIN de supervisor para registrar una etiqueta que no está en el picking de la orden. */
+  @IsOptional()
+  @Matches(/^\d{4,12}$/, { message: 'PIN no válido.' })
+  pin?: string;
 }
 
 export class RegistrarTrasladoDto {
   @IsString()
   @Matches(CODIGO, { message: 'Código de barras no válido.' })
   codigo!: string;
+
+  @IsOptional()
+  @Matches(/^\d{4,12}$/, { message: 'PIN no válido.' })
+  pin?: string;
 
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
@@ -113,6 +122,13 @@ export class PinSupervisorDto {
   @IsString()
   @Matches(/^\d{4,12}$/, { message: 'PIN no válido.' })
   pin!: string;
+}
+
+/** PIN de supervisor para cerrar con pre-órdenes sin alistar al 100 %. */
+export class CerrarTransferOrderDto {
+  @IsOptional()
+  @Matches(/^\d{4,12}$/, { message: 'PIN no válido.' })
+  pin?: string;
 }
 
 export class AnularTransferOrderDto extends PinSupervisorDto {

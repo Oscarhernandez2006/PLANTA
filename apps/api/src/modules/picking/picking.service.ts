@@ -10,9 +10,9 @@ import { PrismaService } from '../../prisma/prisma.service';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { DespachoPostaService } from '../canal-dispatch-order/despacho-posta.service';
 import { TransferOrderService } from '../transfer-order/transfer-order.service';
-import type { AgregarPickingDto, GuardarPreordenDto, ImportarOrdenesCompraDto, RegistrarArrumeDto } from './picking.dto';
-import { avancePreorden, type LineaAvance } from './avance-preorden';
-import { repartirArrume } from './repartir-arrume';
+import type { AgregarPickingDto, GuardarPreordenDto, ImportarOrdenesCompraDto } from './picking.dto';
+import { avancePreorden, nombrePreorden, type LineaAvance } from './avance-preorden';
+import { exigirPreordenesCompletas } from './preordenes-completas';
 
 export const TIPOS_PICKING = ['posta', 'traslado'] as const;
 export type TipoPicking = (typeof TIPOS_PICKING)[number];
@@ -87,8 +87,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 const fmtKg = (n: number) => n.toLocaleString('es-CO', { minimumFractionDigits: 1, maximumFractionDigits: 2 });
 const texto = (v: string | null | undefined) => v?.trim() || null;
 
-export const nombrePreorden = (p: { ocNumero: string | null; tiendaNombre: string | null }) =>
-  [p.tiendaNombre, p.ocNumero ? `OC ${p.ocNumero}` : null].filter(Boolean).join(' · ') || 'Sin orden de compra';
+export { nombrePreorden };
 
 export type AvisoPedido = { tipo: 'fuera' | 'excedido' | 'completo'; mensaje: string };
 
@@ -106,7 +105,7 @@ function exigirAsignada(ctx: AuthContext, p: { asignadoAId: string | null; asign
  * Picking (pre-órdenes): el alistador pistolea en la terminal las etiquetas que salen de la
  * cava para una orden de despacho posta o de traslado. Una orden puede tener varias
  * pre-órdenes (una por tienda / orden de compra del cliente, con sus kilos pedidos). No mueve
- * inventario; las etiquetas se registran en la orden cuando se pesa el arrume en escritorio.
+ * inventario; las etiquetas se registran en la orden al pistolear el arrume pesado en escritorio.
  */
 @Injectable()
 export class PickingService {
@@ -282,6 +281,15 @@ export class PickingService {
         })),
       ),
     };
+  }
+
+  /** Valida la clave del supervisor antes de cerrar una orden con pre-órdenes incompletas. */
+  async autorizarCierre(ctx: AuthContext, tipoParam: string, ordenId: string, pin: string) {
+    const tipo = this.tipo(tipoParam);
+    const o = await this.ordenActiva(ctx, tipo, ordenId);
+    const where = tipo === 'posta' ? { canalDispatchOrderId: o.id } : { transferOrderId: o.id };
+    await exigirPreordenesCompletas(this.prisma, ctx.plantId, where, pin);
+    return { ok: true };
   }
 
   /** Detalle de una pre-orden: etiquetas y avance por producto contra la orden de compra. */
@@ -705,60 +713,6 @@ export class PickingService {
       data: { status: PickingStatus.en_curso, terminadoAt: null, terminadoById: null },
     });
     return { ok: true };
-  }
-
-  /**
-   * Pesa un arrume (canastillas de pre-órdenes terminadas de la orden) y registra sus etiquetas
-   * en la orden repartiendo el neto y la tara en proporción al neto de cada etiqueta.
-   */
-  async arrume(ctx: AuthContext, tipoParam: string, ordenId: string, dto: RegistrarArrumeDto) {
-    const tipo = this.tipo(tipoParam);
-    const o = await this.ordenActiva(ctx, tipo, ordenId);
-    const items = await this.prisma.pickingItem.findMany({
-      where: { picking: this.whereOrden(tipo, o.id) },
-      select: { codigo: true, netoEtiquetaKg: true, picking: { select: { status: true, ocNumero: true, tiendaNombre: true } } },
-    });
-    if (items.length === 0) throw new BadRequestException('La orden no tiene picking.');
-
-    const porCodigo = new Map(items.map((i) => [i.codigo, i]));
-    const codigos = dto.codigos.map((c) => c.trim().toUpperCase());
-    const fuera = codigos.find((c) => !porCodigo.has(c));
-    if (fuera) throw new BadRequestException(`${fuera} no está en el picking de la orden.`);
-    const enCurso = codigos.find((c) => porCodigo.get(c)!.picking.status !== PickingStatus.terminado);
-    if (enCurso) {
-      throw new BadRequestException(
-        `${enCurso} es de la pre-orden ${nombrePreorden(porCodigo.get(enCurso)!.picking)}, que aún está en curso: el alistador debe terminarla antes de pesar.`,
-      );
-    }
-    const yaPesados = await this.pesados(this.prisma, tipo, o.id, codigos);
-    if (yaPesados.size > 0) throw new BadRequestException(`${[...yaPesados.keys()][0]} ya fue pesada.`);
-
-    const taraTotalKg = Number((dto.taraCanastillaKg * dto.canastillas + dto.taraEstibaKg).toFixed(2));
-    const netoTotalKg = Number((dto.pesoBrutoKg - taraTotalKg).toFixed(2));
-    if (netoTotalKg <= 0) throw new BadRequestException('El peso bruto debe ser mayor que la tara.');
-
-    const netosEtiqueta = codigos.map((c) => Number(porCodigo.get(c)!.netoEtiquetaKg));
-    let lineas;
-    try {
-      lineas = repartirArrume(netosEtiqueta, netoTotalKg, taraTotalKg);
-    } catch (err) {
-      throw new BadRequestException((err as Error).message);
-    }
-    const registro = codigos.map((codigo, i) => ({ codigo, pesoKg: lineas[i].pesoKg, taraKg: lineas[i].taraKg }));
-    const registrados =
-      tipo === 'posta'
-        ? await this.posta.registrarVarios(ctx, o.id, registro)
-        : await this.traslado.registrarVarios(ctx, o.id, registro);
-
-    const netoEtiquetasKg = Number(netosEtiqueta.reduce((a, b) => a + b, 0).toFixed(2));
-    return {
-      items: registrados,
-      pesoBrutoKg: dto.pesoBrutoKg,
-      taraTotalKg,
-      netoTotalKg,
-      netoEtiquetasKg,
-      diferenciaKg: Number((netoTotalKg - netoEtiquetasKg).toFixed(2)),
-    };
   }
 }
 

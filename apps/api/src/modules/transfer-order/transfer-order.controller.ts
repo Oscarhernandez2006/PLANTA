@@ -16,6 +16,7 @@ import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import {
   AnularTransferOrderDto,
   BuscarEtiquetaTrasladoDto,
+  CerrarTransferOrderDto,
   CreateTransferOrderDto,
   PinSupervisorDto,
   QueryTransferOrderDto,
@@ -55,7 +56,7 @@ export class TransferOrderController {
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: BuscarEtiquetaTrasladoDto,
   ) {
-    return this.service.buscarEtiqueta(user, id, query.codigo);
+    return this.service.buscarParaRegistro(user, id, query.codigo, query.pin);
   }
 
   @Get(':id/items')
@@ -105,7 +106,11 @@ export class TransferOrderController {
   }
 
   @Patch(':id/cerrar')
-  cerrar(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.cerrar(user, id);
+  cerrar(
+    @CurrentUser() user: AuthContext,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CerrarTransferOrderDto,
+  ) {
+    return this.service.cerrar(user, id, dto.pin);
   }
 }

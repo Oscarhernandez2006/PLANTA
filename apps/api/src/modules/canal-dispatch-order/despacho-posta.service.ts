@@ -11,6 +11,8 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { parseCanalBarcode } from '../../common/canal-barcode';
 import { parseReciboCanal, parseReciboPosta, piezaRP } from '../canal-receipt/recibo-despacho';
 import { advertenciaAntiguedad } from '../inventarios/advertencia-antiguedad';
+import { validarEnPicking } from '../picking/validar-picking';
+import { reabrirArrumeAlQuitar } from '../picking/arrume';
 
 type Db = Prisma.TransactionClient;
 type OrdenPosta = { id: string; clienteId: string; status: DispatchOrderStatus };
@@ -21,6 +23,32 @@ const formatDC = numero('DC');
 
 const otSelect = { select: { transferOrder: { select: { otNumber: true } } } } as const;
 const dcSelect = { select: { canalDispatchOrder: { select: { dcNumber: true } } } } as const;
+
+/** Código de error para que la pantalla pida a qué tienda (pre-orden) va el producto. */
+export const ELEGIR_TIENDA = 'ELEGIR_TIENDA';
+
+/**
+ * Pre-orden (tienda) a la que va el producto, que define su remisión: la del picking donde se
+ * alistó; si entró con PIN (no se alistó), la elegida en pantalla, o la única de la orden.
+ */
+async function preordenDestino(db: Db, dcId: string, codigo: string, elegida?: string) {
+  const alistado = await db.pickingItem.findFirst({
+    where: { codigo, picking: { canalDispatchOrderId: dcId } },
+    select: { pickingId: true },
+  });
+  if (alistado) return alistado.pickingId;
+  const preordenes = await db.picking.findMany({ where: { canalDispatchOrderId: dcId }, select: { id: true } });
+  if (elegida) {
+    if (!preordenes.some((p) => p.id === elegida)) throw new BadRequestException('La tienda elegida no es de esta orden.');
+    return elegida;
+  }
+  if (preordenes.length <= 1) return preordenes[0]?.id ?? null;
+  throw new BadRequestException({
+    statusCode: 400,
+    error: ELEGIR_TIENDA,
+    message: `${codigo} no se alistó en ninguna pre-orden: elige a qué tienda va.`,
+  });
+}
 
 const itemSelect = {
   id: true,
@@ -271,14 +299,30 @@ export class DespachoPostaService {
     return { ...info, advertenciaInventario: await advertenciaAntiguedad(this.prisma, ctx.plantId, dc.clienteId, info) };
   }
 
+  /** Lectura en el despacho: además exige que la etiqueta esté en el picking (o el PIN del supervisor). */
+  async buscarParaDespacho(ctx: AuthContext, id: string, codigo: string, pin?: string) {
+    const info = await this.buscar(ctx, id, codigo);
+    await validarEnPicking(this.prisma, this.prisma, ctx.plantId, { canalDispatchOrderId: id }, info.codigo, pin);
+    return info;
+  }
+
   /** Registra el producto con el peso nuevo (neto = peso - tara). */
-  async registrar(ctx: AuthContext, id: string, dto: { codigo: string; pesoKg: number; taraKg: number }) {
-    const [item] = await this.registrarVarios(ctx, id, [dto]);
+  async registrar(
+    ctx: AuthContext,
+    id: string,
+    dto: { codigo: string; pesoKg: number; taraKg: number; pin?: string; pickingId?: string },
+  ) {
+    const [item] = await this.registrarVarios(ctx, id, [dto], { validarPicking: true });
     return item;
   }
 
   /** Registra varios productos en una sola transacción (todo o nada), p. ej. un arrume pesado junto. */
-  async registrarVarios(ctx: AuthContext, id: string, lineas: { codigo: string; pesoKg: number; taraKg: number }[]) {
+  async registrarVarios(
+    ctx: AuthContext,
+    id: string,
+    lineas: { codigo: string; pesoKg: number; taraKg: number; pin?: string; pickingId?: string }[],
+    opciones: { validarPicking?: boolean; arrumeId?: string } = {},
+  ) {
     const dc = await this.orden(ctx, id);
     if (dc.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de despacho no está activa.');
@@ -299,10 +343,15 @@ export class DespachoPostaService {
           for (const [i, l] of lineas.entries()) {
             actual = l.codigo;
             const info = await this.resolver(tx, ctx, dc, l.codigo);
+            if (opciones.validarPicking) {
+              await validarEnPicking(tx, this.prisma, ctx.plantId, { canalDispatchOrderId: dc.id }, info.codigo, l.pin);
+            }
+            const pickingId = await preordenDestino(tx, dc.id, info.codigo, l.pickingId);
             creados.push(
               await tx.dispatchProductItem.create({
                 data: {
                   canalDispatchOrderId: dc.id,
+                  pickingId,
                   etiquetaId: info.etiquetaId,
                   canastillaId: info.canastillaId,
                   acondEtiquetaId: info.acondEtiquetaId,
@@ -314,6 +363,7 @@ export class DespachoPostaService {
                   taraKg: l.taraKg,
                   netoKg: netos[i],
                   netoEtiquetaKg: info.netoEtiquetaKg,
+                  arrumeId: opciones.arrumeId ?? null,
                   createdById: ctx.userId,
                 },
                 select: itemSelect,
@@ -346,13 +396,16 @@ export class DespachoPostaService {
   async quitar(ctx: AuthContext, itemId: string) {
     const item = await this.prisma.dispatchProductItem.findFirst({
       where: { id: itemId, canalDispatchOrder: { plantId: ctx.plantId, deletedAt: null } },
-      select: { id: true, canalDispatchOrder: { select: { status: true } } },
+      select: { id: true, arrumeId: true, canalDispatchOrderId: true, canalDispatchOrder: { select: { status: true } } },
     });
     if (!item) throw new NotFoundException('Registro no encontrado.');
     if (item.canalDispatchOrder.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de despacho no está activa.');
     }
-    await this.prisma.dispatchProductItem.delete({ where: { id: item.id } });
+    await this.prisma.$transaction(async (tx) => {
+      await reabrirArrumeAlQuitar(tx, item.arrumeId, { canalDispatchOrderId: item.canalDispatchOrderId });
+      await tx.dispatchProductItem.delete({ where: { id: item.id } });
+    });
     return { ok: true };
   }
 }

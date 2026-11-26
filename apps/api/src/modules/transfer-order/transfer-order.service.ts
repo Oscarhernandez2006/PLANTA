@@ -11,6 +11,9 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { verificarPinSupervisor } from '../../common/auth/supervisor-pin';
 import { PLANT_DAY_CUTOFF_HOUR, plantDateOnly } from '../../common/plant-date';
 import { advertenciaAntiguedad } from '../inventarios/advertencia-antiguedad';
+import { validarEnPicking } from '../picking/validar-picking';
+import { exigirSinArrumeAbierto, reabrirArrumeAlQuitar } from '../picking/arrume';
+import { exigirPreordenesCompletas } from '../picking/preordenes-completas';
 import {
   AnularTransferOrderDto,
   CreateTransferOrderDto,
@@ -389,14 +392,26 @@ export class TransferOrderService {
     return { ...info, advertenciaInventario: await advertenciaAntiguedad(this.prisma, ctx.plantId, ot.clienteId, info) };
   }
 
+  /** Lectura en el registro: además exige que la etiqueta esté en el picking (o el PIN del supervisor). */
+  async buscarParaRegistro(ctx: AuthContext, otId: string, codigo: string, pin?: string) {
+    const info = await this.buscarEtiqueta(ctx, otId, codigo);
+    await validarEnPicking(this.prisma, this.prisma, ctx.plantId, { transferOrderId: otId }, info.codigo, pin);
+    return info;
+  }
+
   /** Registra el producto en la orden con el peso nuevo (neto = peso - tara). */
   async registrar(ctx: AuthContext, otId: string, dto: RegistrarTrasladoDto) {
-    const [item] = await this.registrarVarios(ctx, otId, [dto]);
+    const [item] = await this.registrarVarios(ctx, otId, [dto], { validarPicking: true });
     return item;
   }
 
   /** Registra varios productos en una sola transacci\u00f3n (todo o nada), p. ej. un arrume pesado junto. */
-  async registrarVarios(ctx: AuthContext, otId: string, lineas: RegistrarTrasladoDto[]) {
+  async registrarVarios(
+    ctx: AuthContext,
+    otId: string,
+    lineas: RegistrarTrasladoDto[],
+    opciones: { validarPicking?: boolean; arrumeId?: string } = {},
+  ) {
     const ot = await this.orden(ctx, otId);
     if (ot.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de traslado no est\u00e1 activa.');
@@ -417,6 +432,9 @@ export class TransferOrderService {
           for (const [i, l] of lineas.entries()) {
             actual = l.codigo;
             const info = await this.resolverEtiqueta(tx, ctx, ot, l.codigo);
+            if (opciones.validarPicking) {
+              await validarEnPicking(tx, this.prisma, ctx.plantId, { transferOrderId: ot.id }, info.codigo, l.pin);
+            }
             creados.push(
               await tx.transferOrderItem.create({
                 data: {
@@ -430,6 +448,7 @@ export class TransferOrderService {
                   taraKg: l.taraKg,
                   netoKg: netos[i],
                   netoEtiquetaKg: info.netoEtiquetaKg,
+                  arrumeId: opciones.arrumeId ?? null,
                   createdById: ctx.userId,
                 },
                 select: itemSelect,
@@ -462,22 +481,27 @@ export class TransferOrderService {
   async quitar(ctx: AuthContext, itemId: string) {
     const item = await this.prisma.transferOrderItem.findFirst({
       where: { id: itemId, transferOrder: { plantId: ctx.plantId, deletedAt: null } },
-      select: { id: true, transferOrder: { select: { status: true } } },
+      select: { id: true, arrumeId: true, transferOrderId: true, transferOrder: { select: { status: true } } },
     });
     if (!item) throw new NotFoundException('Registro no encontrado.');
     if (item.transferOrder.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de traslado no est\u00e1 activa.');
     }
-    await this.prisma.transferOrderItem.delete({ where: { id: item.id } });
+    await this.prisma.$transaction(async (tx) => {
+      await reabrirArrumeAlQuitar(tx, item.arrumeId, { transferOrderId: item.transferOrderId });
+      await tx.transferOrderItem.delete({ where: { id: item.id } });
+    });
     return { ok: true };
   }
 
   /** Cierra la orden: queda finalizada y sale de la lista de \u00f3rdenes por trasladar. */
-  async cerrar(ctx: AuthContext, otId: string) {
+  async cerrar(ctx: AuthContext, otId: string, pin?: string) {
     const ot = await this.orden(ctx, otId);
     if (ot.status !== DispatchOrderStatus.activo) {
       throw new BadRequestException('La orden de traslado no est\u00e1 activa.');
     }
+    await exigirSinArrumeAbierto(this.prisma, { transferOrderId: ot.id });
+    await exigirPreordenesCompletas(this.prisma, ctx.plantId, { transferOrderId: ot.id }, pin);
     await this.prisma.transferOrder.update({
       where: { id: ot.id },
       data: { status: DispatchOrderStatus.facturado, closedAt: new Date(), closedById: ctx.userId },

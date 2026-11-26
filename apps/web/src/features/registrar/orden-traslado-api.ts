@@ -81,9 +81,9 @@ export interface ItemTraslado {
 }
 
 /** Valida la etiqueta pistoleada para la orden (cliente y que no esté ya trasladada). */
-export async function buscarEtiquetaTraslado(otId: string, codigo: string) {
+export async function buscarEtiquetaTraslado(otId: string, codigo: string, pin?: string) {
   return (
-    await api.get<EtiquetaPorTrasladar>(`/transfer-orders/${otId}/etiqueta`, { params: { codigo } })
+    await api.get<EtiquetaPorTrasladar>(`/transfer-orders/${otId}/etiqueta`, { params: { codigo, pin } })
   ).data;
 }
 
@@ -98,7 +98,7 @@ export function useItemsTraslado(otId: string | null) {
 export function useRegistrarTraslado(otId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { codigo: string; pesoKg: number; taraKg: number }) =>
+    mutationFn: async (input: { codigo: string; pesoKg: number; taraKg: number; pin?: string }) =>
       (await api.post<ItemTraslado>(`/transfer-orders/${otId}/items`, input)).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['transfer-orders', otId, 'items'] }),
   });
@@ -116,7 +116,8 @@ export function useQuitarTraslado(otId: string) {
 export function useCerrarTraslado() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (otId: string) => (await api.patch(`/transfer-orders/${otId}/cerrar`)).data,
+    mutationFn: async ({ id, pin }: { id: string; pin?: string }) =>
+      (await api.patch(`/transfer-orders/${id}/cerrar`, { pin })).data,
     onSuccess: () => qc.invalidateQueries({ queryKey: ['transfer-orders'] }),
   });
 }

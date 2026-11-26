@@ -84,6 +84,7 @@ export const navGroups: NavGroup[] = [
       { to: '/despacho-caliente', label: 'Despacho Caliente', icon: ThermometerSun },
       { to: '/despacho-frio', label: 'Despacho Frío', icon: ThermometerSnowflake },
       { to: '/despacho-posta', label: 'Despacho Posta', icon: Beef },
+      { to: '/guias-transporte', label: 'Guías de transporte', icon: ScrollText },
     ],
   },
   {

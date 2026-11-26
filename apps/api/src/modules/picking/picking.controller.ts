@@ -2,13 +2,24 @@ import { Body, Controller, Delete, Get, Param, ParseUUIDPipe, Patch, Post, Put, 
 import { CurrentUser } from '../../common/auth/current-user.decorator';
 import type { AuthContext } from '../../common/auth/auth-context';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
-import { AgregarPickingDto, GuardarPreordenDto, ImportarOrdenesCompraDto, RegistrarArrumeDto } from './picking.dto';
+import {
+  AgregarArrumeDto,
+  AgregarPickingDto,
+  AutorizarCierreDto,
+  GuardarPreordenDto,
+  ImportarOrdenesCompraDto,
+  PesoArrumeDto,
+} from './picking.dto';
+import { ArrumeService } from './arrume.service';
 import { PickingService } from './picking.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('picking')
 export class PickingController {
-  constructor(private readonly service: PickingService) {}
+  constructor(
+    private readonly service: PickingService,
+    private readonly arrumes: ArrumeService,
+  ) {}
 
   @Get('tareas')
   tareas(@CurrentUser() user: AuthContext) {
@@ -97,13 +108,52 @@ export class PickingController {
     return this.service.importar(user, tipo, ordenId, dto);
   }
 
-  @Post(':tipo/:ordenId/arrume')
-  arrume(
+  @Post(':tipo/:ordenId/autorizar-cierre')
+  autorizarCierre(
     @CurrentUser() user: AuthContext,
     @Param('tipo') tipo: string,
     @Param('ordenId', ParseUUIDPipe) ordenId: string,
-    @Body() dto: RegistrarArrumeDto,
+    @Body() dto: AutorizarCierreDto,
   ) {
-    return this.service.arrume(user, tipo, ordenId, dto);
+    return this.service.autorizarCierre(user, tipo, ordenId, dto.pin);
+  }
+
+  @Get(':tipo/:ordenId/arrume')
+  arrumeAbierto(
+    @CurrentUser() user: AuthContext,
+    @Param('tipo') tipo: string,
+    @Param('ordenId', ParseUUIDPipe) ordenId: string,
+  ) {
+    return this.arrumes.abierto(user, tipo, ordenId);
+  }
+
+  @Post(':tipo/:ordenId/arrume')
+  iniciarArrume(
+    @CurrentUser() user: AuthContext,
+    @Param('tipo') tipo: string,
+    @Param('ordenId', ParseUUIDPipe) ordenId: string,
+    @Body() dto: PesoArrumeDto,
+  ) {
+    return this.arrumes.iniciar(user, tipo, ordenId, dto);
+  }
+
+  @Patch('arrumes/:id')
+  repesarArrume(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: PesoArrumeDto) {
+    return this.arrumes.repesar(user, id, dto);
+  }
+
+  @Post('arrumes/:id/codigos')
+  agregarArrume(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AgregarArrumeDto) {
+    return this.arrumes.agregar(user, id, dto);
+  }
+
+  @Patch('arrumes/:id/terminar')
+  terminarArrume(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.arrumes.terminar(user, id);
+  }
+
+  @Delete('arrumes/:id')
+  cancelarArrume(@CurrentUser() user: AuthContext, @Param('id', ParseUUIDPipe) id: string) {
+    return this.arrumes.cancelar(user, id);
   }
 }

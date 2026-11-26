@@ -2,13 +2,12 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   ArrayMinSize,
-  ArrayUnique,
   IsArray,
-  IsInt,
   IsNumber,
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
@@ -23,15 +22,8 @@ export class AgregarPickingDto {
   codigo!: string;
 }
 
-export class RegistrarArrumeDto {
-  @IsArray()
-  @ArrayMinSize(1)
-  @ArrayMaxSize(500)
-  @ArrayUnique()
-  @IsString({ each: true })
-  @MaxLength(40, { each: true })
-  codigos!: string[];
-
+/** Peso del arrume en la báscula y sus taras (tara total = tara canastilla × canastillas + estiba). */
+export class PesoArrumeDto {
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0.01)
@@ -44,17 +36,35 @@ export class RegistrarArrumeDto {
   @Max(99)
   taraCanastillaKg!: number;
 
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(1000)
-  canastillas!: number;
-
+  @IsOptional()
   @Type(() => Number)
   @IsNumber({ maxDecimalPlaces: 2 })
   @Min(0)
   @Max(999)
-  taraEstibaKg!: number;
+  taraEstibaKg?: number;
+}
+
+export class AgregarArrumeDto {
+  @IsString()
+  @MinLength(1)
+  @MaxLength(40)
+  codigo!: string;
+
+  /** Clave del supervisor para meter una etiqueta que no está en el picking. */
+  @IsOptional()
+  @Matches(/^\d{4,12}$/, { message: 'La clave del supervisor no es válida.' })
+  pin?: string;
+
+  /** Despacho posta: pre-orden (tienda) a la que va una etiqueta que entró con PIN. */
+  @IsOptional()
+  @IsUUID()
+  pickingId?: string;
+}
+
+export class AutorizarCierreDto {
+  @IsString()
+  @Matches(/^\d{4,12}$/, { message: 'La clave del supervisor no es válida.' })
+  pin!: string;
 }
 
 export class LineaPreordenDto {

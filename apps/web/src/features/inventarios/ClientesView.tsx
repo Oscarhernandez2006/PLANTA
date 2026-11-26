@@ -91,12 +91,13 @@ const barcodeDe = (c: Canal) =>
       ? codigoBarras({ lote: c.reference, turno: c.turno ?? c.sequence, canalTipo: c.canalTipo, pieza: c.pieza })
       : '';
 const productoLibre = (p: Producto) => !p.despachoDc && !p.transformadoOc && !p.trasladoOt;
+const productoFuera = (p: Producto) => !!p.transformadoOc || p.despachoCerrado;
 
 function LotesAntiguos({ etiquetas }: { etiquetas: Producto[] }) {
   const lotes = new Map<number, number>();
   const ahora = Date.now();
   for (const p of etiquetas) {
-    if (p.transformadoOc || !p.opNumber || !p.desposteCerradoAt) continue;
+    if (productoFuera(p) || !p.opNumber || !p.desposteCerradoAt) continue;
     const dias = (ahora - new Date(p.desposteCerradoAt).getTime()) / 86_400_000;
     if (dias > 5) lotes.set(p.opNumber, Math.floor(dias));
   }
@@ -167,7 +168,10 @@ export function ClientesView({ destino = null }: { destino?: DestinoProducto | n
     const m = new Map<string, ClienteResumen>();
     for (const b of bodegas.data ?? []) {
       const total =
-        b.canales + b.productos + (SUBPRODUCTOS_ACTIVO ? b.subproductos : 0) + (verTodo ? b.canalesDespachadas + b.canalesProcesadas : 0);
+        b.canales +
+        b.productos +
+        (SUBPRODUCTOS_ACTIVO ? b.subproductos : 0) +
+        (verTodo ? b.canalesDespachadas + b.canalesProcesadas + b.productosDespachados : 0);
       if (!total) continue;
       const c = m.get(b.clienteId) ?? {
         id: b.clienteId,
@@ -219,14 +223,14 @@ export function ClientesView({ destino = null }: { destino?: DestinoProducto | n
       const d = r.data;
       if (!d) return;
       if (
-        d.productos.some((p) => (p.codigo ?? '').toUpperCase().includes(codigoQ)) ||
+        d.productos.some((p) => (verTodo || !p.despachoCerrado) && (p.codigo ?? '').toUpperCase().includes(codigoQ)) ||
         d.canales.some((c) => barcodeDe(c).toUpperCase().includes(codigoQ))
       )
         s.add(listaBodegas[i].clienteId);
     });
     return s;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [porCodigo, codigoQ, detalles.map((r) => r.dataUpdatedAt).join('|')]);
+  }, [porCodigo, codigoQ, verTodo, detalles.map((r) => r.dataUpdatedAt).join('|')]);
   const visibles = clientes.filter(
     (c) => !q || c.nombre.toUpperCase().includes(q) || (c.nit ?? '').includes(q) || conCodigo.has(c.id),
   );
@@ -270,7 +274,7 @@ export function ClientesView({ destino = null }: { destino?: DestinoProducto | n
               {buscandoCodigo && <LoaderCircle className="size-3 animate-spin" />}
               {visibles.length} cliente(s) con inventario
             </span>
-            <label className="flex cursor-pointer items-center gap-1.5" title="Incluir canales procesadas/despachadas y productos transformados">
+            <label className="flex cursor-pointer items-center gap-1.5" title="Incluir canales procesadas/despachadas y productos transformados/despachados">
               <input type="checkbox" className="size-3.5 accent-[var(--primary)]" checked={verTodo} onChange={(e) => setVerTodo(e.target.checked)} />
               Ver histórico
             </label>
@@ -384,7 +388,7 @@ function DetalleCliente({ cliente, verTodo, buscar, destino }: { cliente: Client
       const d = q.data;
       if (!d) continue;
       canales.push(...(verTodo ? d.canales : d.canales.filter((c) => !canalDespachada(c) && !canalProcesada(c))));
-      productos.push(...(verTodo ? d.productos : d.productos.filter((p) => !p.transformadoOc)));
+      productos.push(...(verTodo ? d.productos : d.productos.filter((p) => !productoFuera(p))));
       // Un subproducto puede quedar asociado a varias bodegas del mismo cliente: se cuenta una vez.
       for (const s of d.subproductos) subs.set(s.id, s);
     }
@@ -396,12 +400,14 @@ function DetalleCliente({ cliente, verTodo, buscar, destino }: { cliente: Client
   const enPlanta = canales.filter((c) => !canalDespachada(c) && !canalProcesada(c));
   const canalesKg = enPlanta.reduce((s, c) => s + c.pesoKg, 0);
   const canalesOrden = enPlanta.filter(canalEnOrden).length;
-  const productosKg = productos.reduce((s, p) => s + p.netoKg, 0);
-  const libres = productos.filter(productoLibre);
+  // Lo despachado (DC cerrada) ya salió de planta: no suma al inventario aunque se vea en el histórico.
+  const enStock = productos.filter((p) => !p.despachoCerrado);
+  const productosKg = enStock.reduce((s, p) => s + p.netoKg, 0);
+  const libres = enStock.filter(productoLibre);
   const libresKg = libres.reduce((s, p) => s + p.netoKg, 0);
   const subKg = subproductos.reduce((s, x) => s + (x.pesoKg ?? 0), 0);
   const subUnd = subproductos.reduce((s, x) => s + (x.cantidad ?? 0), 0);
-  const vigentes = productos.filter((p) => !p.transformadoOc);
+  const vigentes = productos.filter((p) => !productoFuera(p));
   const vencidas = vigentes.filter((p) => (diasVence(p.fechaVencimiento) ?? 99) < 0).length;
   const porVencer = vigentes.filter((p) => {
     const d = diasVence(p.fechaVencimiento);
@@ -511,11 +517,14 @@ function DetalleCliente({ cliente, verTodo, buscar, destino }: { cliente: Client
             {canalesOrden > 0 && <Chip className="bg-amber-100 text-amber-800">{canalesOrden} en orden</Chip>}
           </div>
         </Kpi>
-        <Kpi icon={Boxes} titulo="Producto empacado" valor={`${kg(productosKg)} kg`} sub={`${productos.length} etiquetas`}>
+        <Kpi icon={Boxes} titulo="Producto empacado" valor={`${kg(productosKg)} kg`} sub={`${enStock.length} etiquetas`}>
           <div className="flex flex-wrap gap-1.5">
             <Chip className="bg-emerald-100 text-emerald-800">{kg(libresKg)} kg disponibles</Chip>
-            {productos.length - libres.length > 0 && (
-              <Chip className="bg-amber-100 text-amber-800">{productos.length - libres.length} en proceso/despacho</Chip>
+            {enStock.length - libres.length > 0 && (
+              <Chip className="bg-amber-100 text-amber-800">{enStock.length - libres.length} en proceso/despacho</Chip>
+            )}
+            {productos.length > enStock.length && (
+              <Chip className="bg-sky-100 text-sky-800">{productos.length - enStock.length} despachados</Chip>
             )}
           </div>
         </Kpi>
@@ -657,6 +666,7 @@ interface FilaProducto {
   enProceso: number;
   enDespacho: number;
   transformados: number;
+  despachados: number;
   congelado: boolean;
   vence: string | null;
   etiquetas: Producto[];
@@ -675,13 +685,20 @@ function agruparPorProducto(productos: Producto[]): FilaProducto[] {
       enProceso: 0,
       enDespacho: 0,
       transformados: 0,
+      despachados: 0,
       congelado: false,
       vence: null,
       etiquetas: [],
     };
+    f.etiquetas.push(p);
+    m.set(p.productoCodigo, f);
+    // Lo despachado se lista pero ya no suma unidades ni kilos en planta.
+    if (p.despachoCerrado) {
+      f.despachados += 1;
+      continue;
+    }
     f.unds += 1;
     f.kg += p.netoKg;
-    f.etiquetas.push(p);
     if (p.transformadoOc) f.transformados += 1;
     else if (p.despachoDc) f.enDespacho += 1;
     else if (p.trasladoOt) f.enProceso += 1;
@@ -691,7 +708,6 @@ function agruparPorProducto(productos: Producto[]): FilaProducto[] {
     }
     if (!p.transformadoOc && p.fechaVencimiento && (!f.vence || p.fechaVencimiento < f.vence)) f.vence = p.fechaVencimiento;
     if (/congel/i.test(p.conservacion)) f.congelado = true;
-    m.set(p.productoCodigo, f);
   }
   return [...m.values()].sort((a, b) => b.kg - a.kg);
 }
@@ -793,13 +809,16 @@ function ProductosPorProducto({ filas, verTodo, buscar, codigoInicial }: {
                         {f.enProceso > 0 && <Chip className="bg-amber-100 text-amber-800">{f.enProceso} en proceso</Chip>}
                         {f.enDespacho > 0 && <Chip className="bg-sky-100 text-sky-800">{f.enDespacho} en despacho</Chip>}
                         {verTodo && f.transformados > 0 && <Chip className="bg-violet-100 text-violet-800">{f.transformados} transformados</Chip>}
-                        {!f.enProceso && !f.enDespacho && !(verTodo && f.transformados) && <span className="text-muted-foreground">—</span>}
+                        {verTodo && f.despachados > 0 && <Chip className="bg-sky-600 text-white">{f.despachados} despachados</Chip>}
+                        {!f.enProceso && !f.enDespacho && !(verTodo && (f.transformados || f.despachados)) && (
+                          <span className="text-muted-foreground">—</span>
+                        )}
                       </div>
                     </td>
                     <td>
                       <div className="flex items-center gap-2">
                         <VenceChip iso={f.vence} />
-                        <SemaforoPill estado={semaforoGeneral(f.etiquetas.filter((e) => !e.transformadoOc).map((e) => e.semaforo))} />
+                        <SemaforoPill estado={semaforoGeneral(f.etiquetas.filter((e) => !productoFuera(e)).map((e) => e.semaforo))} />
                       </div>
                     </td>
                   </tr>
@@ -845,7 +864,12 @@ function ProductosPorProducto({ filas, verTodo, buscar, codigoInicial }: {
                                   <VenceChip iso={e.fechaVencimiento} resaltado />
                                 </td>
                                 <td>
-                                  {e.transformadoOc ? (
+                                  {e.despachoCerrado ? (
+                                    <span className="font-semibold text-sky-800">
+                                      DESPACHADO · {formatDC(e.despachoDc!)}
+                                      {e.despachoCerradoAt && <span className="ml-1 font-normal text-muted-foreground">{fecha(e.despachoCerradoAt)}</span>}
+                                    </span>
+                                  ) : e.transformadoOc ? (
                                     <span className="font-semibold text-violet-700">TRANSFORMADO · {formatOC(e.transformadoOc)}</span>
                                   ) : e.despachoDc ? (
                                     <span className="font-semibold text-sky-700">EN DESPACHO · {formatDC(e.despachoDc)}</span>

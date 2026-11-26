@@ -14,9 +14,11 @@ import { CreateClienteDto, UpdateClienteDto } from './dto/create-cliente.dto';
 import { QueryClienteDto } from './dto/query-cliente.dto';
 import { CreateTiendaDto, UpdateTiendaDto } from './dto/tienda.dto';
 import { CreateBodegaDto, UpdateBodegaDto } from './dto/bodega.dto';
+import { CreatePuntoEnvioDto, UpdatePuntoEnvioDto } from './dto/punto-envio.dto';
 import { ClienteService } from './cliente.service';
 import { BodegaService } from './bodega.service';
 import { TiendaService } from './tienda.service';
+import { PuntoEnvioService } from './punto-envio.service';
 
 @UseGuards(JwtAuthGuard)
 @Controller('clientes')
@@ -25,7 +27,26 @@ export class ClienteController {
     private readonly service: ClienteService,
     private readonly tiendas: TiendaService,
     private readonly bodegas: BodegaService,
+    private readonly puntos: PuntoEnvioService,
   ) {}
+
+  @Get(':id/puntos-envio')
+  listPuntosEnvio(@Param('id', ParseUUIDPipe) id: string) {
+    return this.puntos.list(id);
+  }
+
+  @Post(':id/puntos-envio')
+  createPuntoEnvio(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CreatePuntoEnvioDto) {
+    return this.puntos.create(id, dto);
+  }
+
+  @Patch('puntos-envio/:puntoId')
+  updatePuntoEnvio(
+    @Param('puntoId', ParseUUIDPipe) puntoId: string,
+    @Body() dto: UpdatePuntoEnvioDto,
+  ) {
+    return this.puntos.update(puntoId, dto);
+  }
 
   @Get('bodegas/next-code')
   nextBodegaCode() {

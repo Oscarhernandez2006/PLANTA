@@ -10,6 +10,7 @@ import type { AuthContext } from '../../common/auth/auth-context';
 import { plantDateOnly } from '../../common/plant-date';
 import { SUBPRODUCTO_ITEM_BY_TIPO } from '../subproductos/subproducto-items';
 import { peorSemaforo, semaforoCanal, semaforoVencimiento, type Semaforo } from './semaforo';
+import { codigoRemision } from '../canal-dispatch-order/remision.service';
 
 // Producto despachado en una orden DC cerrada: ya no está en inventario.
 const despachoActivoONulo = {
@@ -25,7 +26,23 @@ const etiquetaNoDespachada = {
     { OR: [{ canastillaId: null }, { canastilla: despachoActivoONulo }] },
   ],
 };
-const dcSelect = { select: { canalDispatchOrder: { select: { dcNumber: true } } } } as const;
+const despachoCerrado = { despacho: { canalDispatchOrder: { status: DispatchOrderStatus.facturado } } };
+const etiquetaDespachada = { OR: [despachoCerrado, { canastilla: despachoCerrado }] };
+const dcSelect = {
+  select: { canalDispatchOrder: { select: { dcNumber: true, status: true, cerradaAt: true, updatedAt: true } } },
+} as const;
+type DcSel = { canalDispatchOrder: { dcNumber: number; status: DispatchOrderStatus; cerradaAt: Date | null; updatedAt: Date } };
+/** Orden DC del producto; `cerrada` = ya salió de planta (despachado). */
+const dcDe = (d: DcSel | null | undefined) => {
+  if (!d) return { despachoDc: null as number | null, despachoCerrado: false, despachoCerradoAt: null as string | null };
+  const o = d.canalDispatchOrder;
+  const cerrado = o.status === DispatchOrderStatus.facturado;
+  return {
+    despachoDc: o.dcNumber as number | null,
+    despachoCerrado: cerrado,
+    despachoCerradoAt: cerrado ? (o.cerradaAt ?? o.updatedAt).toISOString() : null,
+  };
+};
 
 // Canales con este número de días o más en cava salen en alertas.
 const DIAS_CANAL_ALERTA = 4;
@@ -395,9 +412,14 @@ export class InventariosService {
   }
 
   /** Producto recibido en posta en inventario (no despachado en una DC cerrada). */
-  private productosPosta(ctx: AuthContext, where: Prisma.PostaReceiptItemWhereInput = {}) {
+  private productosPosta(ctx: AuthContext, where: Prisma.PostaReceiptItemWhereInput = {}, incluirDespachados = false) {
     return this.prisma.postaReceiptItem.findMany({
-      where: { plantId: ctx.plantId, receiptOrder: reciboEnInventario, ...despachoActivoONulo, ...where },
+      where: {
+        plantId: ctx.plantId,
+        receiptOrder: reciboEnInventario,
+        ...(incluirDespachados ? {} : despachoActivoONulo),
+        ...where,
+      },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -815,7 +837,7 @@ export class InventariosService {
 
   /** Bodegas (internas del software) de todos los clientes con lo que tiene cada una. */
   async bodegas(ctx: AuthContext) {
-    const [bodegas, canales, productos, acond] = await Promise.all([
+    const [bodegas, canales, productos, acond, despRot, despAcond, despPosta] = await Promise.all([
       this.prisma.bodega.findMany({
         where: { active: true },
         select: {
@@ -847,6 +869,21 @@ export class InventariosService {
         where: { plantId: ctx.plantId, deletedAt: null, bodegaId: { not: null }, ...noDespachado },
         _count: { _all: true },
         _sum: { netoKg: true },
+      }),
+      // Productos ya despachados (DC cerrada): solo se ven con "Ver todo".
+      this.prisma.rotuladoEtiqueta.groupBy({
+        by: ['bodegaId'],
+        where: { plantId: ctx.plantId, deletedAt: null, bodegaId: { not: null }, ...etiquetaDespachada },
+        _count: { _all: true },
+      }),
+      this.prisma.acondicionamientoEtiqueta.groupBy({
+        by: ['bodegaId'],
+        where: { plantId: ctx.plantId, deletedAt: null, bodegaId: { not: null }, ...despachoCerrado },
+        _count: { _all: true },
+      }),
+      this.prisma.postaReceiptItem.findMany({
+        where: { plantId: ctx.plantId, receiptOrder: reciboEnInventario, ...despachoCerrado },
+        select: { receiptOrder: { select: { bodegaId: true } } },
       }),
     ]);
     // La canal guarda el nombre de la bodega; se cruza con su cliente.
@@ -914,6 +951,10 @@ export class InventariosService {
         canalesProcesadas: (canalesPor.get(clave)?.procesadas ?? 0) + (rc?.procesadas ?? 0),
         productos: (p?._count._all ?? 0) + (a?._count._all ?? 0) + (rc?.productos ?? 0),
         productosKg: r2(Number(p?._sum.netoKg ?? 0) + Number(a?._sum.netoKg ?? 0) + (rc?.productosKg ?? 0)),
+        productosDespachados:
+          (despRot.find((x) => x.bodegaId === b.id)?._count._all ?? 0) +
+          (despAcond.find((x) => x.bodegaId === b.id)?._count._all ?? 0) +
+          despPosta.filter((x) => x.receiptOrder.bodegaId === b.id).length,
         subproductos: subproductosPor.get(clave) ?? 0,
       };
     });
@@ -1035,7 +1076,7 @@ export class InventariosService {
         },
       }),
       this.prisma.rotuladoEtiqueta.findMany({
-        where: { plantId: ctx.plantId, bodegaId: b.id, deletedAt: null, ...etiquetaNoDespachada },
+        where: { plantId: ctx.plantId, bodegaId: b.id, deletedAt: null },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -1056,7 +1097,7 @@ export class InventariosService {
         },
       }),
       this.prisma.acondicionamientoEtiqueta.findMany({
-        where: { plantId: ctx.plantId, bodegaId: b.id, deletedAt: null, ...noDespachado },
+        where: { plantId: ctx.plantId, bodegaId: b.id, deletedAt: null },
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -1105,7 +1146,7 @@ export class InventariosService {
     // Lo recibido de terceros que entró a esta bodega al cerrar su recibo.
     const [recibidas, posta] = await Promise.all([
       this.canalesRecibidas(ctx, { receiptOrder: { ...reciboEnInventario, bodegaId: b.id } }, true),
-      this.productosPosta(ctx, { receiptOrder: { ...reciboEnInventario, bodegaId: b.id } }),
+      this.productosPosta(ctx, { receiptOrder: { ...reciboEnInventario, bodegaId: b.id } }, true),
     ]);
     const canalesRecibo = recibidas.map((r) => {
       const f = this.reciboCanalFila(r);
@@ -1153,7 +1194,7 @@ export class InventariosService {
       trasladoOt: null,
       transformadoOc: null,
       origenOt: null,
-      despachoDc: p.despacho?.canalDispatchOrder.dcNumber ?? null,
+      ...dcDe(p.despacho),
       rpNumber: p.receiptOrder.receiptNumber as number | null,
       lote: p.lote,
       etiquetadoPor: p.createdBy.fullName,
@@ -1242,8 +1283,7 @@ export class InventariosService {
             trasladoOt: ot?.otNumber ?? null,
             transformadoOc: transformada?.ocNumber ?? null,
             origenOt: null as number | null,
-            despachoDc:
-              (e.despacho ?? e.canastilla?.despacho)?.canalDispatchOrder.dcNumber ?? (null as number | null),
+            ...dcDe(e.despacho ?? e.canastilla?.despacho),
             rpNumber: null as number | null,
             lote: `OP${e.productionOrder.opNumber}`,
             etiquetadoPor: e.createdBy.fullName,
@@ -1272,7 +1312,7 @@ export class InventariosService {
           trasladoOt: null,
           transformadoOc: null,
           origenOt: e.conditioningOrder.transferOrder.otNumber,
-          despachoDc: e.despacho?.canalDispatchOrder.dcNumber ?? null,
+          ...dcDe(e.despacho),
           rpNumber: null,
           lote: `OC${e.conditioningOrder.ocNumber}`,
           etiquetadoPor: e.createdBy.fullName,
@@ -2001,7 +2041,59 @@ export class InventariosService {
    */
   async trazabilidadEtiqueta(ctx: AuthContext, id: string) {
     const dcInclude = {
-      include: { canalDispatchOrder: { select: { dcNumber: true, status: true, updatedAt: true } } },
+      include: {
+        canalDispatchOrder: {
+          select: {
+            id: true,
+            dcNumber: true,
+            tipo: true,
+            status: true,
+            processDate: true,
+            cerradaAt: true,
+            updatedAt: true,
+            createdById: true,
+            cliente: { select: { concepto: true, nit: true, direccion: true, telefono: true, celular: true, ciudad: true } },
+            puntoEnvio: {
+              select: { razonSocial: true, nit: true, telefono: true, direccion: true, municipio: true, departamento: true },
+            },
+            guiaTransporte: {
+              select: {
+                numero: true,
+                fecha: true,
+                tipoVehiculo: true,
+                placa: true,
+                conductor: true,
+                cedula: true,
+                observacion: true,
+                createdById: true,
+              },
+            },
+          },
+        },
+        arrume: {
+          select: { pesoBrutoKg: true, taraCanastillaKg: true, taraEstibaKg: true, createdAt: true, terminadoAt: true, createdById: true },
+        },
+        picking: {
+          select: {
+            id: true,
+            tiendaCodigo: true,
+            tiendaNombre: true,
+            remisionNumero: true,
+            guiaTransporte: {
+              select: {
+                numero: true,
+                fecha: true,
+                tipoVehiculo: true,
+                placa: true,
+                conductor: true,
+                cedula: true,
+                observacion: true,
+                createdById: true,
+              },
+            },
+          },
+        },
+      },
     } as const;
     const [des, acond] = await Promise.all([
       this.prisma.rotuladoEtiqueta.findFirst({
@@ -2120,6 +2212,35 @@ export class InventariosService {
       camiones.find((c) => dia(c.date) === dia(o.date) && o.guias.some((g) => g.trim() === c.guia));
 
     const despacho = des ? (des.despacho ?? des.canastilla?.despacho ?? null) : acond!.despacho;
+    // Pre-orden (picking) en que se alistó: por el código pistoleado en despacho o el de la etiqueta.
+    const pickingItem = despacho
+      ? await this.prisma.pickingItem.findFirst({
+          where: {
+            codigo: { in: [...new Set([despacho.codigo, e.codigo].filter((c): c is string => !!c))] },
+            picking: { canalDispatchOrderId: despacho.canalDispatchOrderId },
+          },
+          orderBy: { createdAt: 'desc' },
+          select: {
+            codigo: true,
+            tipo: true,
+            createdAt: true,
+            createdById: true,
+            picking: {
+              select: {
+                ocNumero: true,
+                tiendaCodigo: true,
+                tiendaNombre: true,
+                status: true,
+                createdAt: true,
+                createdById: true,
+                asignadoAId: true,
+                terminadoAt: true,
+                terminadoById: true,
+              },
+            },
+          },
+        })
+      : null;
     const traslado = des ? (des.traslado ?? des.canastilla?.traslado ?? null) : null;
     const otNumber = traslado?.transferOrder.otNumber ?? null;
     const transformada = otNumber
@@ -2172,6 +2293,20 @@ export class InventariosService {
     if (despacho) historial.push({
       id: 'despacho', accion: `Registro en despacho · DC${despacho.canalDispatchOrder.dcNumber}`, at: despacho.createdAt, usuarioId: despacho.createdById,
     });
+    if (pickingItem) historial.push({
+      id: 'picking', accion: `Alistado en pre-orden${pickingItem.picking.ocNumero ? ` · OC ${pickingItem.picking.ocNumero}` : ''}`,
+      at: pickingItem.createdAt, usuarioId: pickingItem.createdById,
+    });
+    const dcCerrada = despacho?.canalDispatchOrder.status === DispatchOrderStatus.facturado ? despacho.canalDispatchOrder : null;
+    // Remisión por tienda: la guía es la del camión de su pre-orden.
+    const remisionTienda = despacho?.picking?.guiaTransporte ? despacho.picking : null;
+    const guiaDespacho = remisionTienda?.guiaTransporte ?? despacho?.canalDispatchOrder.guiaTransporte ?? null;
+    if (dcCerrada) historial.push({
+      id: 'cierre-dc',
+      accion: `Cierre de despacho · ${codigoRemision(dcCerrada.dcNumber, guiaDespacho?.numero ?? null, remisionTienda?.remisionNumero ?? null)}`,
+      at: dcCerrada.cerradaAt ?? dcCerrada.updatedAt,
+      usuarioId: null,
+    });
     if (e.deletedAt) historial.push({ id: 'anulacion', accion: 'Anulación de etiqueta', at: e.deletedAt, usuarioId: e.deletedById });
     for (const r of reimpresiones) historial.push({
       id: r.id, accion: r.estacion ? `Reimpresión · ${r.estacion}` : 'Reimpresión de etiqueta', at: r.createdAt, usuarioId: r.userId,
@@ -2186,7 +2321,16 @@ export class InventariosService {
     ops.forEach((op) => ids.add(op.createdById));
     if (oc) ids.add(oc.createdById);
     if (traslado) ids.add(traslado.createdById);
-    if (despacho) ids.add(despacho.createdById);
+    if (despacho) {
+      ids.add(despacho.createdById);
+      ids.add(despacho.canalDispatchOrder.createdById);
+      if (despacho.arrume) ids.add(despacho.arrume.createdById);
+      if (guiaDespacho) ids.add(guiaDespacho.createdById);
+    }
+    if (pickingItem) {
+      const pk = pickingItem.picking;
+      [pk.createdById, pk.asignadoAId, pk.terminadoById].forEach((u) => u && ids.add(u));
+    }
     const usuarios = await this.prisma.appUser.findMany({
       where: { id: { in: [...ids] } },
       select: { id: true, fullName: true },
@@ -2242,13 +2386,95 @@ export class InventariosService {
           }
         : null,
       despacho: despacho
-        ? {
-            dcNumber: despacho.canalDispatchOrder.dcNumber,
-            cerrada: despacho.canalDispatchOrder.status === DispatchOrderStatus.facturado,
-            netoKg: Number(despacho.netoKg),
-            at: despacho.createdAt.toISOString(),
-            operario: quien(despacho.createdById),
-          }
+        ? (() => {
+            const dc = despacho.canalDispatchOrder;
+            const c = dc.cliente;
+            const p = dc.puntoEnvio;
+            const g = guiaDespacho;
+            const a = despacho.arrume;
+            const pk = pickingItem?.picking;
+            return {
+              dcId: dc.id,
+              dcNumber: dc.dcNumber,
+              remisionPickingId: remisionTienda?.id ?? null,
+              remisionCodigo: dc.status === DispatchOrderStatus.facturado
+                ? codigoRemision(dc.dcNumber, g?.numero ?? null, remisionTienda?.remisionNumero ?? null)
+                : null,
+              tiendaRemision: remisionTienda
+                ? [remisionTienda.tiendaCodigo, remisionTienda.tiendaNombre].filter(Boolean).join(' - ') || null
+                : null,
+              tipo: dc.tipo,
+              cerrada: dc.status === DispatchOrderStatus.facturado,
+              processDate: dia(dc.processDate),
+              cerradaAt: dc.status === DispatchOrderStatus.facturado ? (dc.cerradaAt ?? dc.updatedAt).toISOString() : null,
+              creadaPor: quien(dc.createdById),
+              codigo: despacho.codigo,
+              comoCanastilla: !!despacho.canastillaId,
+              brutoKg: Number(despacho.pesoKg),
+              taraKg: Number(despacho.taraKg),
+              netoKg: Number(despacho.netoKg),
+              at: despacho.createdAt.toISOString(),
+              operario: quien(despacho.createdById),
+              arrume: a
+                ? {
+                    pesoBrutoKg: Number(a.pesoBrutoKg),
+                    taraCanastillaKg: Number(a.taraCanastillaKg),
+                    taraEstibaKg: Number(a.taraEstibaKg),
+                    at: a.createdAt.toISOString(),
+                    terminadoAt: a.terminadoAt?.toISOString() ?? null,
+                    operario: quien(a.createdById),
+                  }
+                : null,
+              preorden: pickingItem && pk
+                ? {
+                    ocNumero: pk.ocNumero,
+                    tienda: pk.tiendaCodigo || pk.tiendaNombre
+                      ? [pk.tiendaCodigo, pk.tiendaNombre].filter(Boolean).join(' - ')
+                      : null,
+                    status: pk.status,
+                    creadaPor: quien(pk.createdById),
+                    creadaAt: pk.createdAt.toISOString(),
+                    asignadoA: pk.asignadoAId ? quien(pk.asignadoAId) : null,
+                    terminadoAt: pk.terminadoAt?.toISOString() ?? null,
+                    terminadoPor: pk.terminadoById ? quien(pk.terminadoById) : null,
+                    codigo: pickingItem.codigo,
+                    alistadoPor: quien(pickingItem.createdById),
+                    alistadoAt: pickingItem.createdAt.toISOString(),
+                  }
+                : null,
+              cliente: { razonSocial: c.concepto, nit: c.nit },
+              destino: p
+                ? {
+                    puntoEnvio: true,
+                    razonSocial: p.razonSocial,
+                    nit: p.nit,
+                    telefono: p.telefono,
+                    direccion: p.direccion,
+                    municipio: p.municipio,
+                    departamento: p.departamento,
+                  }
+                : {
+                    puntoEnvio: false,
+                    razonSocial: c.concepto,
+                    nit: c.nit,
+                    telefono: c.telefono ?? c.celular,
+                    direccion: c.direccion,
+                    municipio: c.ciudad,
+                    departamento: null as string | null,
+                  },
+              guia: g
+                ? {
+                    numero: g.numero,
+                    fecha: g.fecha ? dia(g.fecha) : null,
+                    tipoVehiculo: g.tipoVehiculo,
+                    placa: g.placa,
+                    conductor: g.conductor,
+                    cedula: g.cedula,
+                    observacion: g.observacion,
+                  }
+                : null,
+            };
+          })()
         : null,
       acondicionamiento: oc
         ? {

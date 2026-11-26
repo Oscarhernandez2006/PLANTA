@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api';
-import type { ItemTraslado } from '../registrar/orden-traslado-api';
 
 /** Órdenes que se alistan con picking en la terminal móvil. */
 export type TipoPicking = 'posta' | 'traslado';
@@ -15,7 +14,7 @@ export interface ItemPicking {
   unds: number;
   netoEtiquetaKg: number;
   createdAt: string;
-  /** Ya se registró en la orden (se pesó su arrume). */
+  /** Ya se registró en la orden (se pesó en el despacho). */
   pesado: boolean;
 }
 
@@ -97,23 +96,6 @@ export interface ResultadoImportacion {
   actualizadas: number;
 }
 
-export interface ArrumeInput {
-  codigos: string[];
-  pesoBrutoKg: number;
-  taraCanastillaKg: number;
-  canastillas: number;
-  taraEstibaKg: number;
-}
-
-export interface ArrumeRegistrado {
-  items: ItemTraslado[];
-  pesoBrutoKg: number;
-  taraTotalKg: number;
-  netoTotalKg: number;
-  netoEtiquetasKg: number;
-  diferenciaKg: number;
-}
-
 /** Pre-órdenes de la orden con su avance y todas las etiquetas alistadas. */
 export function usePicking(tipo: TipoPicking | undefined, ordenId: string | null) {
   return useQuery({
@@ -181,18 +163,109 @@ export function useImportarOrdenesCompra(tipo: TipoPicking, ordenId: string) {
   });
 }
 
-/** Pesa un arrume del picking y registra sus etiquetas en la orden (neto repartido por etiqueta). */
-export function useRegistrarArrume(tipo: TipoPicking, ordenId: string) {
+/** Valida la clave del supervisor para cerrar la orden con pre-órdenes sin alistar al 100 %. */
+export async function autorizarCierre(tipo: TipoPicking, ordenId: string, pin: string) {
+  await api.post(`/picking/${tipo}/${ordenId}/autorizar-cierre`, { pin });
+}
+
+export interface LineaArrume {
+  id: string;
+  codigo: string;
+  productoCodigo: string;
+  productoNombre: string;
+  unds: number;
+  netoEtiquetaKg: number;
+}
+
+/** Arrume abierto: peso de la báscula vs. neto de las etiquetas pistoleadas. */
+export interface Arrume {
+  id: string;
+  numero: number;
+  pesoBrutoKg: number;
+  taraCanastillaKg: number;
+  taraEstibaKg: number;
+  canastillas: number;
+  taraTotalKg: number;
+  netoKg: number;
+  netoEtiquetasKg: number;
+  diferenciaKg: number;
+  toleranciaKg: number;
+  items: LineaArrume[];
+}
+
+export interface PesoArrume {
+  pesoBrutoKg: number;
+  taraCanastillaKg: number;
+  taraEstibaKg: number;
+}
+
+export function useArrumeAbierto(tipo: TipoPicking, ordenId: string | null) {
+  return useQuery({
+    queryKey: ['arrume', tipo, ordenId],
+    queryFn: async () =>
+      (await api.get<{ arrume: Arrume | null }>(`/picking/${tipo}/${ordenId}/arrume`)).data.arrume,
+    enabled: !!ordenId,
+  });
+}
+
+/** Lo que cambia al registrar o quitar etiquetas del arrume. */
+export function useInvalidarArrume(tipo: TipoPicking, ordenId: string) {
   const qc = useQueryClient();
+  return () => {
+    qc.invalidateQueries({ queryKey: ['arrume', tipo, ordenId] });
+    qc.invalidateQueries({
+      queryKey: tipo === 'posta' ? ['canal-dispatch-orders', ordenId, 'productos'] : ['transfer-orders', ordenId, 'items'],
+    });
+    qc.invalidateQueries({ queryKey: ['picking'] });
+    qc.invalidateQueries({ queryKey: ['inventarios'] });
+  };
+}
+
+export function useIniciarArrume(tipo: TipoPicking, ordenId: string) {
+  const invalidar = useInvalidarArrume(tipo, ordenId);
   return useMutation({
-    mutationFn: async (dto: ArrumeInput) =>
-      (await api.post<ArrumeRegistrado>(`/picking/${tipo}/${ordenId}/arrume`, dto)).data,
-    onSettled: () => {
-      qc.invalidateQueries({ queryKey: ['picking'] });
-      qc.invalidateQueries({
-        queryKey: tipo === 'posta' ? ['canal-dispatch-orders', ordenId, 'productos'] : ['transfer-orders', ordenId, 'items'],
-      });
-      qc.invalidateQueries({ queryKey: ['inventarios'] });
+    mutationFn: async (dto: PesoArrume) => (await api.post<Arrume>(`/picking/${tipo}/${ordenId}/arrume`, dto)).data,
+    onSettled: invalidar,
+  });
+}
+
+export function useRepesarArrume(tipo: TipoPicking, ordenId: string) {
+  const invalidar = useInvalidarArrume(tipo, ordenId);
+  return useMutation({
+    mutationFn: async ({ id, ...dto }: PesoArrume & { id: string }) =>
+      (await api.patch<Arrume>(`/picking/arrumes/${id}`, dto)).data,
+    onSettled: invalidar,
+  });
+}
+
+export function useAgregarArrume(tipo: TipoPicking, ordenId: string) {
+  const invalidar = useInvalidarArrume(tipo, ordenId);
+  return useMutation({
+    mutationFn: async ({ id, ...dto }: { id: string; codigo: string; pin?: string; pickingId?: string }) =>
+      (
+        await api.post<{ arrume: Arrume; advertenciaInventario: string | null; item: { productoNombre: string; netoEtiquetaKg: number } }>(
+          `/picking/arrumes/${id}/codigos`,
+          dto,
+        )
+      ).data,
+    onSettled: invalidar,
+  });
+}
+
+export function useTerminarArrume(tipo: TipoPicking, ordenId: string) {
+  const invalidar = useInvalidarArrume(tipo, ordenId);
+  return useMutation({
+    mutationFn: async (id: string) => (await api.patch<Arrume>(`/picking/arrumes/${id}/terminar`)).data,
+    onSettled: invalidar,
+  });
+}
+
+export function useCancelarArrume(tipo: TipoPicking, ordenId: string) {
+  const invalidar = useInvalidarArrume(tipo, ordenId);
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/picking/arrumes/${id}`);
     },
+    onSettled: invalidar,
   });
 }

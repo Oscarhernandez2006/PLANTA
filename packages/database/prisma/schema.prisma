@@ -182,8 +182,59 @@ model Cliente {
   recibosCanales           CanalReceiptOrder[]
   recibosPosta             PostaReceiptOrder[]
   plus                     ClientePlu[]
+  puntosEnvio              PuntoEnvio[]
 
   @@map("cliente")
+}
+
+// Punto de envío: cliente del cliente. El despacho se procesa para el cliente pero se
+// envía a uno de sus puntos; la guía de transporte sale con los datos del punto.
+model PuntoEnvio {
+  id           String   @id @default(uuid()) @db.Uuid
+  clienteId    String   @map("cliente_id") @db.Uuid
+  razonSocial  String   @map("razon_social")
+  nit          String?
+  telefono     String?
+  direccion    String?
+  municipio    String?
+  departamento String?
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  cliente   Cliente              @relation(fields: [clienteId], references: [id], onDelete: Cascade)
+  despachos CanalDispatchOrder[]
+
+  @@unique([clienteId, razonSocial])
+  @@map("punto_envio")
+}
+
+// Guía de transporte (GM1, GM2…): vehículo y conductor que llevan una o varias
+// órdenes de despacho de canales (caliente, frío o posta).
+model GuiaTransporte {
+  id           String    @id @default(uuid()) @db.Uuid
+  plantId      String    @map("plant_id") @db.Uuid
+  numero       Int
+  fecha        DateTime  @db.Date
+  tipoVehiculo String    @map("tipo_vehiculo")
+  placa        String
+  conductor    String
+  cedula       String?
+  observacion  String?
+  createdById  String    @map("created_by") @db.Uuid
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  plant     Plant                @relation(fields: [plantId], references: [id])
+  createdBy AppUser              @relation("guiaTransporteCreatedBy", fields: [createdById], references: [id])
+  despachos CanalDispatchOrder[]
+  // Remisiones por tienda (pre-órdenes) de despachos posta que van en esta guía.
+  remisiones Picking[]
+
+  @@unique([plantId, numero])
+  @@index([plantId, fecha])
+  @@map("guia_transporte")
 }
 
 // Tiendas (puntos de entrega) de un cliente; el código completo es NIT-codigo.
@@ -400,6 +451,10 @@ model CanalDispatchOrder {
   processDate      DateTime            @map("process_date") @db.Date
   clienteId        String              @map("cliente_id") @db.Uuid
   status           DispatchOrderStatus @default(activo)
+  // Al cerrar: a dónde se envía (null = al cliente) y en qué guía de transporte va.
+  puntoEnvioId     String?             @map("punto_envio_id") @db.Uuid
+  guiaTransporteId String?             @map("guia_transporte_id") @db.Uuid
+  cerradaAt        DateTime?           @map("cerrada_at") @db.Timestamptz(6)
   createdById      String              @map("created_by") @db.Uuid
   createdAt        DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt        DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -407,14 +462,18 @@ model CanalDispatchOrder {
 
   plant            Plant                    @relation(fields: [plantId], references: [id])
   cliente          Cliente                  @relation(fields: [clienteId], references: [id])
+  puntoEnvio       PuntoEnvio?              @relation(fields: [puntoEnvioId], references: [id])
+  guiaTransporte   GuiaTransporte?          @relation(fields: [guiaTransporteId], references: [id])
   createdBy        AppUser                  @relation("canalDispatchCreatedBy", fields: [createdById], references: [id])
   items            CanalDispatchOrderItem[]
   productos        DispatchProductItem[]
   canalesRecibidas CanalReceiptItem[]
   pickings         Picking[]
+  arrumes          Arrume[]
 
   @@unique([plantId, dcNumber])
   @@index([plantId, tipo, status])
+  @@index([guiaTransporteId])
   @@map("canal_dispatch_order")
 }
 
@@ -454,10 +513,16 @@ model DispatchProductItem {
   taraKg               Decimal  @map("tara_kg") @db.Decimal(12, 2)
   netoKg               Decimal  @map("neto_kg") @db.Decimal(12, 2)
   netoEtiquetaKg       Decimal  @map("neto_etiqueta_kg") @db.Decimal(12, 2)
+  // Arrume con que se pesó (neto y tara repartidos al terminarlo).
+  arrumeId             String?  @map("arrume_id") @db.Uuid
+  // Pre-orden (tienda) a la que va: define en qué remisión sale.
+  pickingId            String?  @map("picking_id") @db.Uuid
   createdById          String   @map("created_by") @db.Uuid
   createdAt            DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   canalDispatchOrder CanalDispatchOrder         @relation(fields: [canalDispatchOrderId], references: [id])
+  arrume             Arrume?                    @relation(fields: [arrumeId], references: [id], onDelete: SetNull)
+  picking            Picking?                   @relation(fields: [pickingId], references: [id], onDelete: SetNull)
   etiqueta           RotuladoEtiqueta?          @relation(fields: [etiquetaId], references: [id])
   canastilla         RotuladoCanastilla?        @relation(fields: [canastillaId], references: [id])
   acondEtiqueta      AcondicionamientoEtiqueta? @relation(fields: [acondEtiquetaId], references: [id])
@@ -466,6 +531,7 @@ model DispatchProductItem {
   createdBy          AppUser                    @relation("dispatchProductItemCreatedBy", fields: [createdById], references: [id])
 
   @@index([canalDispatchOrderId])
+  @@index([pickingId])
   @@map("dispatch_product_item")
 }
 
@@ -494,6 +560,7 @@ model TransferOrder {
   conditioningOrders ConditioningOrder[]
   serviciosManuales  ServicioManual[]
   pickings           Picking[]
+  arrumes            Arrume[]
 
   @@unique([plantId, otNumber])
   @@index([plantId, status])
@@ -590,10 +657,12 @@ model TransferOrderItem {
   netoKg          Decimal  @map("neto_kg") @db.Decimal(12, 2)
   // Neto que traía la etiqueta, para comparar con el repesaje.
   netoEtiquetaKg  Decimal  @map("neto_etiqueta_kg") @db.Decimal(12, 2)
+  arrumeId        String?  @map("arrume_id") @db.Uuid
   createdById     String   @map("created_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
   transferOrder TransferOrder       @relation(fields: [transferOrderId], references: [id], onDelete: Cascade)
+  arrume        Arrume?             @relation(fields: [arrumeId], references: [id], onDelete: SetNull)
   etiqueta      RotuladoEtiqueta?   @relation(fields: [etiquetaId], references: [id])
   canastilla    RotuladoCanastilla? @relation(fields: [canastillaId], references: [id])
   product       Product             @relation(fields: [productId], references: [id])
@@ -603,6 +672,30 @@ model TransferOrderItem {
   @@map("transfer_order_item")
 }
 
+// Arrume del despacho posta / traslado: se sube completo a la báscula, se captura el peso y
+// luego se pistolean sus canastillas. Solo se termina si el neto pesado y el de las etiquetas
+// difieren máximo 1 kg; con un arrume sin terminar la orden no se puede cerrar.
+model Arrume {
+  id                   String    @id @default(uuid()) @db.Uuid
+  plantId              String    @map("plant_id") @db.Uuid
+  canalDispatchOrderId String?   @map("canal_dispatch_order_id") @db.Uuid
+  transferOrderId      String?   @map("transfer_order_id") @db.Uuid
+  pesoBrutoKg          Decimal   @map("peso_bruto_kg") @db.Decimal(12, 2)
+  taraCanastillaKg     Decimal   @map("tara_canastilla_kg") @db.Decimal(8, 2)
+  taraEstibaKg         Decimal   @default(0) @map("tara_estiba_kg") @db.Decimal(8, 2)
+  terminadoAt          DateTime? @map("terminado_at") @db.Timestamptz(6)
+  createdById          String    @map("created_by") @db.Uuid
+  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  canalDispatchOrder CanalDispatchOrder?   @relation(fields: [canalDispatchOrderId], references: [id], onDelete: Cascade)
+  transferOrder      TransferOrder?        @relation(fields: [transferOrderId], references: [id], onDelete: Cascade)
+  despachoItems      DispatchProductItem[]
+  trasladoItems      TransferOrderItem[]
+
+  @@index([canalDispatchOrderId])
+  @@index([transferOrderId])
+  @@map("arrume")
+}
 // Pre-orden (picking) de una orden de despacho posta o de traslado: lo que el alistador
 // pistolea en la terminal. Una orden puede tener varias pre-órdenes (una por tienda / orden
 // de compra del cliente). No mueve inventario; se registra en la orden al pesar el arrume.
@@ -622,11 +715,17 @@ model Picking {
   status               PickingStatus @default(en_curso)
   terminadoAt          DateTime?     @map("terminado_at") @db.Timestamptz(6)
   terminadoById        String?       @map("terminado_by") @db.Uuid
+  // Despacho posta al cliente con tiendas: al cerrar, cada pre-orden es una remisión
+  // (DC#-GM#-T##) y va en la guía de transporte del camión que la lleva.
+  guiaTransporteId     String?       @map("guia_transporte_id") @db.Uuid
+  remisionNumero       Int?          @map("remision_numero")
   createdById          String        @map("created_by") @db.Uuid
   createdAt            DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt            DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   plant              Plant               @relation(fields: [plantId], references: [id])
+  guiaTransporte     GuiaTransporte?     @relation(fields: [guiaTransporteId], references: [id])
+  despachoItems      DispatchProductItem[]
   canalDispatchOrder CanalDispatchOrder? @relation(fields: [canalDispatchOrderId], references: [id], onDelete: Cascade)
   transferOrder      TransferOrder?      @relation(fields: [transferOrderId], references: [id], onDelete: Cascade)
   createdBy          AppUser             @relation("pickingCreatedBy", fields: [createdById], references: [id])
@@ -637,6 +736,7 @@ model Picking {
   @@unique([canalDispatchOrderId, ocNumero])
   @@unique([transferOrderId, ocNumero])
   @@index([plantId, status])
+  @@index([guiaTransporteId])
   @@map("picking")
 }
 
@@ -1127,6 +1227,7 @@ model Plant {
   traceUnits                   TraceUnit[]
   traceEvents                  TraceEvent[]
   bodegaTransfers              BodegaTransfer[]
+  guiasTransporte              GuiaTransporte[]
 
   @@map("plant")
 }
@@ -1179,6 +1280,7 @@ model AppUser {
   postaReceiptItems         PostaReceiptItem[]          @relation("postaReceiptItemCreatedBy")
   traceEvents               TraceEvent[]
   bodegaTransfers           BodegaTransfer[]            @relation("bodegaTransferCreatedBy")
+  guiasTransporte           GuiaTransporte[]            @relation("guiaTransporteCreatedBy")
 
   @@index([plantId])
   @@map("app_user")

@@ -31,7 +31,12 @@ import { useProductosCliente } from '../conservacion/api';
 import {
   useActualizarBodega,
   useActualizarCliente,
+  useActualizarPuntoEnvio,
   useActualizarTienda,
+  useCrearPuntoEnvio,
+  usePuntosEnvio,
+  type PuntoEnvio,
+  type PuntoEnvioInput,
   useBodegas,
   useClientesAdmin,
   useCrearBodega,
@@ -71,7 +76,7 @@ function nombreBase(s: string) {
 }
 
 type Filtro = 'movimiento' | 'todos' | 'inactivos' | 'incompletos' | 'duplicados';
-type Pestana = 'datos' | 'bodegas' | 'tiendas' | 'productos' | 'ordenes';
+type Pestana = 'datos' | 'bodegas' | 'tiendas' | 'envio' | 'productos' | 'ordenes';
 
 interface Info {
   r: ResumenCliente | undefined;
@@ -393,6 +398,7 @@ function FichaCliente({
     { key: 'datos', label: 'Datos' },
     { key: 'bodegas', label: 'Bodegas', n: r?.bodegas },
     { key: 'tiendas', label: 'Tiendas', n: r?.tiendas },
+    { key: 'envio', label: 'Puntos de envío' },
     { key: 'productos', label: 'Productos', n: r?.productos },
     { key: 'ordenes', label: 'Órdenes', n: r?.ordenes },
   ];
@@ -505,6 +511,7 @@ function FichaCliente({
           )}
           {pestana === 'bodegas' && <BodegasPanel cliente={cliente} stock={stock} />}
           {pestana === 'tiendas' && <TiendasPanel cliente={cliente} />}
+          {pestana === 'envio' && <PuntosEnvioPanel cliente={cliente} />}
           {pestana === 'productos' && <ProductosPanel cliente={cliente} />}
           {pestana === 'ordenes' && <OrdenesPanel clienteId={cliente.id} />}
         </div>
@@ -1052,6 +1059,213 @@ function TiendasPanel({ cliente }: { cliente: ClienteCompleto }) {
           </Table>
         </div>
       </div>
+  );
+}
+
+const PUNTO_VACIO: PuntoEnvioInput = {
+  razonSocial: '',
+  nit: '',
+  telefono: '',
+  direccion: '',
+  municipio: '',
+  departamento: '',
+};
+
+const CAMPOS_PUNTO: { k: keyof PuntoEnvioInput; label: string; max: number; span?: string }[] = [
+  { k: 'razonSocial', label: 'Razón social', max: 160, span: 'lg:col-span-2' },
+  { k: 'nit', label: 'NIT', max: 30 },
+  { k: 'telefono', label: 'Teléfono', max: 40 },
+  { k: 'direccion', label: 'Dirección', max: 200, span: 'lg:col-span-2' },
+  { k: 'municipio', label: 'Municipio', max: 80 },
+  { k: 'departamento', label: 'Departamento', max: 80 },
+];
+
+/** Puntos de envío: los clientes de mi cliente, a donde se despacha. Salen en la guía de transporte. */
+function PuntosEnvioPanel({ cliente }: { cliente: ClienteCompleto }) {
+  const puntos = usePuntosEnvio(cliente.id);
+  const crear = useCrearPuntoEnvio(cliente.id);
+  const actualizar = useActualizarPuntoEnvio(cliente.id);
+  const [form, setForm] = useState<PuntoEnvio | 'nuevo' | null>(null);
+  const [valores, setValores] = useState<PuntoEnvioInput>(PUNTO_VACIO);
+  const [active, setActive] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const guardando = crear.isPending || actualizar.isPending;
+  const rows = puntos.data ?? [];
+  const editando = form && form !== 'nuevo' ? form : null;
+
+  function abrir(p: PuntoEnvio | 'nuevo') {
+    setForm(p);
+    setValores(
+      p === 'nuevo'
+        ? PUNTO_VACIO
+        : {
+            razonSocial: p.razonSocial,
+            nit: p.nit ?? '',
+            telefono: p.telefono ?? '',
+            direccion: p.direccion ?? '',
+            municipio: p.municipio ?? '',
+            departamento: p.departamento ?? '',
+          },
+    );
+    setActive(p === 'nuevo' ? true : p.active);
+    setError(null);
+  }
+
+  function cerrar() {
+    setForm(null);
+    setError(null);
+  }
+
+  async function guardar(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const datos = Object.fromEntries(
+      Object.entries(valores).map(([k, v]) => [k, v.trim()]),
+    ) as unknown as PuntoEnvioInput;
+    try {
+      if (editando) await actualizar.mutateAsync({ id: editando.id, ...datos, active });
+      else await crear.mutateAsync(datos);
+      cerrar();
+    } catch (err) {
+      setError(mensajeError(err, 'No se pudo guardar el punto de envío.'));
+    }
+  }
+
+  const v = (s: string | null) => s || 'N/A';
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">
+          Clientes de este cliente a donde se despacha. Al cerrar una orden de despacho se elige el destino y sus datos salen en la guía de transporte.
+        </p>
+        <div className="flex gap-2">
+          <Button variant="outline" className="h-9" onClick={() => puntos.refetch()} disabled={puntos.isFetching}>
+            <RefreshCw className={puntos.isFetching ? 'size-4 animate-spin' : 'size-4'} />
+            Refrescar
+          </Button>
+          <Button className="h-9" onClick={() => abrir('nuevo')}>
+            <Plus className="size-4" />
+            Agregar punto de envío
+          </Button>
+        </div>
+      </div>
+
+      {form && (
+        <Dialog
+          open
+          onClose={cerrar}
+          title={editando ? 'Editar punto de envío' : 'Registrar punto de envío'}
+          description={`${cliente.nit ?? 'SIN NIT'} - ${cliente.concepto}`}
+          className="max-w-3xl"
+        >
+          <form onSubmit={guardar}>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {CAMPOS_PUNTO.map((c, i) => (
+                <div key={c.k} className={cn('space-y-1.5', c.span)}>
+                  <Label htmlFor={`punto-${c.k}`}>{c.label}</Label>
+                  <Input
+                    id={`punto-${c.k}`}
+                    className="h-9 uppercase"
+                    value={valores[c.k]}
+                    onChange={(e) => setValores((prev) => ({ ...prev, [c.k]: e.target.value }))}
+                    maxLength={c.max}
+                    autoFocus={i === 0}
+                    placeholder={i === 0 ? '' : 'N/A'}
+                  />
+                </div>
+              ))}
+            </div>
+            <div className="mt-4 flex flex-wrap items-end justify-end gap-2 border-t border-border pt-4">
+              {editando && (
+                <div className="mr-auto space-y-1.5">
+                  <Label htmlFor="punto-estado">Estado</Label>
+                  <Select
+                    id="punto-estado"
+                    className="h-9 w-40"
+                    value={active ? 'activo' : 'inactivo'}
+                    onChange={(e) => setActive(e.target.value === 'activo')}
+                  >
+                    <option value="activo">Activo</option>
+                    <option value="inactivo">Inactivo</option>
+                  </Select>
+                </div>
+              )}
+              <Button type="button" variant="outline" className="h-9" onClick={cerrar}>
+                <X className="size-4" />
+                Cancelar
+              </Button>
+              <Button
+                type="submit"
+                className="h-9 px-6"
+                disabled={valores.razonSocial.trim().length < 2 || guardando}
+              >
+                <Save className="size-4" />
+                {guardando ? 'Guardando…' : 'Guardar'}
+              </Button>
+            </div>
+            {error && (
+              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                {error}
+              </p>
+            )}
+          </form>
+        </Dialog>
+      )}
+
+      <div className="overflow-auto rounded-md border border-border">
+        <Table>
+          <THead>
+            <TR>
+              <TH>Razón social</TH>
+              <TH>NIT</TH>
+              <TH>Teléfono</TH>
+              <TH>Dirección</TH>
+              <TH>Municipio / Depto.</TH>
+              <TH className="w-24 text-right">Acciones</TH>
+            </TR>
+          </THead>
+          <TBody>
+            {puntos.isLoading ? (
+              <TR>
+                <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                  Cargando…
+                </TD>
+              </TR>
+            ) : rows.length === 0 ? (
+              <TR>
+                <TD colSpan={6} className="py-8 text-center text-muted-foreground">
+                  Este cliente aún no tiene puntos de envío. Si no se configura ninguno, se despacha al mismo cliente.
+                </TD>
+              </TR>
+            ) : (
+              rows.map((p) => (
+                <TR key={p.id} className={cn(!p.active && 'text-muted-foreground', editando?.id === p.id && 'bg-emerald-50')}>
+                  <TD className="font-semibold">
+                    {p.razonSocial}
+                    {!p.active && <span className="ml-2 text-xs font-normal">(inactivo)</span>}
+                  </TD>
+                  <TD className="tabular-nums">{v(p.nit)}</TD>
+                  <TD className="tabular-nums">{v(p.telefono)}</TD>
+                  <TD>{v(p.direccion)}</TD>
+                  <TD>
+                    {[p.municipio, p.departamento].filter(Boolean).join(' - ') || 'N/A'}
+                  </TD>
+                  <TD>
+                    <div className="flex justify-end">
+                      <Button size="sm" variant="outline" onClick={() => abrir(p)}>
+                        <Pencil className="size-4" />
+                        Editar
+                      </Button>
+                    </div>
+                  </TD>
+                </TR>
+              ))
+            )}
+          </TBody>
+        </Table>
+      </div>
+    </div>
   );
 }
 

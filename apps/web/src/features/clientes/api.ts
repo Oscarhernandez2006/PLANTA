@@ -177,6 +177,55 @@ export function useCrearTienda(clienteId: string) {
   });
 }
 
+// ---- Puntos de envío (clientes de mi cliente) ----
+
+export interface PuntoEnvio {
+  id: string;
+  razonSocial: string;
+  nit: string | null;
+  telefono: string | null;
+  direccion: string | null;
+  municipio: string | null;
+  departamento: string | null;
+  active: boolean;
+}
+
+export interface PuntoEnvioInput {
+  razonSocial: string;
+  nit: string;
+  telefono: string;
+  direccion: string;
+  municipio: string;
+  departamento: string;
+}
+
+export function usePuntosEnvio(clienteId: string | null | undefined) {
+  return useQuery({
+    queryKey: ['clientes', clienteId, 'puntos-envio'],
+    queryFn: async () =>
+      (await api.get<PuntoEnvio[]>(`/clientes/${clienteId}/puntos-envio`)).data,
+    enabled: !!clienteId,
+  });
+}
+
+export function useCrearPuntoEnvio(clienteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: PuntoEnvioInput) =>
+      (await api.post<PuntoEnvio>(`/clientes/${clienteId}/puntos-envio`, input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clientes', clienteId, 'puntos-envio'] }),
+  });
+}
+
+export function useActualizarPuntoEnvio(clienteId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, ...input }: Partial<PuntoEnvioInput> & { id: string; active?: boolean }) =>
+      (await api.patch<PuntoEnvio>(`/clientes/puntos-envio/${id}`, input)).data,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['clientes', clienteId, 'puntos-envio'] }),
+  });
+}
+
 export function useActualizarTienda(clienteId: string) {
   const qc = useQueryClient();
   return useMutation({

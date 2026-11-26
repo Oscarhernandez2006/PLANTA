@@ -95,13 +95,40 @@ export function usePesarItemDespachoCanales(dcId: string | null) {
   });
 }
 
+export interface CerrarDespachoInput {
+  dcId: string;
+  puntoEnvioId?: string;
+  guiaTransporteId?: string;
+  nuevaGuia?: {
+    fecha?: string;
+    tipoVehiculo: string;
+    placa: string;
+    conductor: string;
+    cedula?: string;
+    observacion?: string;
+  };
+  /** Clave del supervisor si la orden tiene pre-órdenes sin alistar al 100 %. */
+  pin?: string;
+  /** Posta al cliente con tiendas: camiones (guías) y en cuál va cada tienda (índice en `guias`). */
+  guias?: { guiaTransporteId?: string; nuevaGuia?: CerrarDespachoInput['nuevaGuia'] }[];
+  remisiones?: { pickingId: string; guia: number }[];
+}
+
+/** Cierra la orden DC con su destino (punto de envío o el cliente) y su guía de transporte. */
 export function useCerrarDespachoCanales() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (dcId: string) => (await api.patch(`/canal-dispatch-orders/${dcId}/cerrar`)).data,
+    mutationFn: async ({ dcId, ...body }: CerrarDespachoInput) =>
+      (
+        await api.patch<{ ok: boolean; guiaTransporteId: string; guiaTransporteIds: string[]; remisiones: number }>(
+          `/canal-dispatch-orders/${dcId}/cerrar`,
+          body,
+        )
+      ).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['canal-dispatch-orders'] });
       qc.invalidateQueries({ queryKey: ['inventarios'] });
+      qc.invalidateQueries({ queryKey: ['guias-transporte'] });
     },
   });
 }
@@ -124,9 +151,9 @@ export function useDespachosPostaActivos() {
   return useDespachosCanalesActivos('posta');
 }
 
-export async function buscarProductoPosta(dcId: string, codigo: string) {
+export async function buscarProductoPosta(dcId: string, codigo: string, pin?: string) {
   return (
-    await api.get<EtiquetaPorTrasladar>(`/canal-dispatch-orders/${dcId}/producto`, { params: { codigo } })
+    await api.get<EtiquetaPorTrasladar>(`/canal-dispatch-orders/${dcId}/producto`, { params: { codigo, pin } })
   ).data;
 }
 
@@ -141,7 +168,7 @@ export function useProductosPosta(dcId: string | null) {
 export function useRegistrarProductoPosta(dcId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { codigo: string; pesoKg: number; taraKg: number }) =>
+    mutationFn: async (input: { codigo: string; pesoKg: number; taraKg: number; pin?: string }) =>
       (await api.post<ItemTraslado>(`/canal-dispatch-orders/${dcId}/productos`, input)).data,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['canal-dispatch-orders', dcId, 'productos'] });

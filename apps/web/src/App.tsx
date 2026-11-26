@@ -33,6 +33,7 @@ import { OrdenBeneficioPage } from './features/registrar/OrdenBeneficioPage';
 import { OrdenDespachoPage } from './features/registrar/OrdenDespachoPage';
 import { DespachoCanalesPage } from './features/registrar/DespachoCanalesPage';
 import { DespachoLogisticaPage } from './features/logistica/DespachoLogisticaPage';
+import { GuiasTransportePage } from './features/guias-transporte/GuiasTransportePage';
 import { OrdenTrasladoPage } from './features/registrar/OrdenTrasladoPage';
 import { OrdenAcondicionamientoPage } from './features/registrar/OrdenAcondicionamientoPage';
 import { TrasladoPage } from './features/traslado/TrasladoPage';
@@ -97,6 +98,7 @@ const router = createRouter([
       { path: 'despacho-caliente', element: <DespachoLogisticaPage key="caliente" tipo="caliente" /> },
       { path: 'despacho-frio', element: <DespachoLogisticaPage key="frio" tipo="frio" /> },
       { path: 'despacho-posta', element: <DespachoLogisticaPage key="posta" tipo="posta" /> },
+      { path: 'guias-transporte', element: <GuiasTransportePage /> },
       { path: 'orden-traslado', element: <OrdenTrasladoPage /> },
       { path: 'traslado', element: <TrasladoPage /> },
       { path: 'orden-produccion', element: <OrdenProduccionPage /> },

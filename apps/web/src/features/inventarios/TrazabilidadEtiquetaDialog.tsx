@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Beef,
   ChevronLeft,
   ChevronRight,
   CircleCheck,
   Factory,
+  FileDown,
+  Maximize2,
   FlaskConical,
   PackageOpen,
   LoaderCircle,
@@ -49,7 +51,10 @@ import {
   kgs,
   type Etapa,
 } from './trazabilidad-ui';
-import { useTrazabilidadCanal, useTrazabilidadEtiqueta, type TrazabilidadCanal, type TrazabilidadEtiqueta } from './api';
+import { useTrazabilidadCanal, useTrazabilidadEtiqueta, type TrazabilidadCanal, type TrazabilidadDespacho, type TrazabilidadEtiqueta } from './api';
+import { useAuth } from '../auth/auth-context';
+import { descargarGuiaDespacho, formatGM, urlGuiaDespacho } from '../guias-transporte/api';
+import { VisorRemision } from '../guias-transporte/VisorRemision';
 
 type Canal = TrazabilidadEtiqueta['ordenesProduccion'][number]['canales'][number];
 
@@ -256,25 +261,6 @@ function Informe({ t, onCanal }: { t: TrazabilidadEtiqueta; onCanal: (piezaId: s
         vista={<EtiquetaDespostePreview className="w-52 drop-shadow-md" datos={datosEtiqueta(t)} />}
       />
 
-      {t.historial?.length > 0 && (
-        <section className="rounded-lg border border-border p-4">
-          <h3 className="mb-2 font-semibold">Historial de la etiqueta</h3>
-          <ol className="divide-y divide-border">
-            {t.historial.map((paso) => (
-              <li key={paso.id} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2 text-sm">
-                <div>
-                  <p className="font-medium">{paso.accion}</p>
-                  <p className="text-muted-foreground">
-                    {paso.id === 'rotulado' ? 'Etiquetado por' : 'Realizado por'}: {paso.operario ?? 'No registrado'}
-                  </p>
-                </div>
-                <time dateTime={paso.at} className="text-xs tabular-nums text-muted-foreground">{fechaHora(paso.at)}</time>
-              </li>
-            ))}
-          </ol>
-        </section>
-      )}
-
       <Linea>
         {(() => {
           const pasoLote = (
@@ -395,13 +381,7 @@ function Informe({ t, onCanal }: { t: TrazabilidadEtiqueta; onCanal: (piezaId: s
           operario={t.despacho?.operario}
           vacio={!t.despacho && 'Aún no ha salido en ninguna orden de despacho.'}
         >
-          {t.despacho && (
-            <Grid>
-              <Dato label="Peso de despacho" valor={kgs(t.despacho.netoKg)} />
-              <Dato label="Diferencia" valor={kgs(e.netoKg - t.despacho.netoKg)} />
-              <Dato label="Orden" valor={t.despacho.cerrada ? 'CERRADA' : 'ACTIVA'} />
-            </Grid>
-          )}
+          {t.despacho && <DetalleDespacho d={t.despacho} netoEtiqueta={e.netoKg} />}
         </Paso>
 
         <Paso id="te-final" icon={CircleCheck} titulo={estado.label} final>
@@ -409,6 +389,196 @@ function Informe({ t, onCanal }: { t: TrazabilidadEtiqueta; onCanal: (piezaId: s
         </Paso>
       </Linea>
     </div>
+  );
+}
+
+const TIPO_DC: Record<string, string> = { caliente: 'CALIENTE', frio: 'FRÍO', posta: 'POSTA' };
+const ESTADO_PICKING: Record<string, string> = { en_curso: 'EN CURSO', terminado: 'TERMINADA' };
+
+function Seccion({ titulo, children }: { titulo: string; children: ReactNode }) {
+  return (
+    <section className="space-y-2">
+      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{titulo}</h4>
+      {children}
+    </section>
+  );
+}
+
+function DetalleDespacho({ d, netoEtiqueta }: { d: TrazabilidadDespacho; netoEtiqueta: number }) {
+  const pk = d.preorden;
+  const a = d.arrume;
+  const g = d.guia;
+  const dest = d.destino;
+  return (
+    <div className="grid items-start gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="space-y-4">
+        <Seccion titulo="Orden de despacho">
+          <Grid>
+            <Dato label="Orden" valor={formatDC(d.dcNumber)} />
+            <Dato label="Tipo" valor={TIPO_DC[d.tipo] ?? d.tipo.toUpperCase()} />
+            <Dato label="Fecha de proceso" valor={fecha(d.processDate)} />
+            <Dato label="Estado" valor={d.cerrada ? 'CERRADA' : 'ACTIVA'} resaltar={d.cerrada} />
+            {d.cerradaAt && <Dato label="Cerrada el" valor={fechaHora(d.cerradaAt)} />}
+            <Dato label="Creada por" valor={d.creadaPor} />
+            <Dato label="Registrada como" valor={d.comoCanastilla ? `CANASTILLA ${d.codigo}` : `PIEZA ${d.codigo}`} />
+            <Dato label="Bruto / tara" valor={`${kgs(d.brutoKg)} / ${kgs(d.taraKg)}`} />
+            <Dato label="Peso de despacho" valor={kgs(d.netoKg)} />
+            <Dato label="Diferencia vs. etiqueta" valor={kgs(netoEtiqueta - d.netoKg)} />
+          </Grid>
+        </Seccion>
+
+        <Seccion titulo="Pre-orden (alistamiento)">
+          {pk ? (
+            <Grid>
+              <Dato label="Orden de compra" valor={pk.ocNumero ?? '—'} />
+              <Dato label="Tienda" valor={pk.tienda ?? '—'} />
+              <Dato label="Estado" valor={ESTADO_PICKING[pk.status] ?? pk.status.toUpperCase()} />
+              <Dato label="Alistada por" valor={pk.alistadoPor} />
+              <Dato label="Alistada el" valor={fechaHora(pk.alistadoAt)} />
+              <Dato label="Código pistoleado" valor={pk.codigo} />
+              <Dato label="Asignada a" valor={pk.asignadoA ?? '—'} />
+              <Dato label="Creada por" valor={`${pk.creadaPor} · ${fechaHora(pk.creadaAt)}`} />
+              {pk.terminadoAt && (
+                <Dato label="Terminada" valor={`${fechaHora(pk.terminadoAt)}${pk.terminadoPor ? ` · ${pk.terminadoPor}` : ''}`} />
+              )}
+            </Grid>
+          ) : (
+            <p className="text-sm text-muted-foreground">No se alistó en una pre-orden (picking).</p>
+          )}
+        </Seccion>
+
+        {a && (
+          <Seccion titulo="Pesaje del arrume">
+            <Grid>
+              <Dato label="Peso bruto arrume" valor={kgs(a.pesoBrutoKg)} />
+              <Dato label="Tara canastillas" valor={kgs(a.taraCanastillaKg)} />
+              <Dato label="Tara estiba" valor={kgs(a.taraEstibaKg)} />
+              <Dato label="Pesado por" valor={`${a.operario} · ${fechaHora(a.at)}`} />
+            </Grid>
+          </Seccion>
+        )}
+
+        <Seccion titulo={dest.puntoEnvio ? 'Destino · punto de envío' : 'Destino · cliente'}>
+          <Grid>
+            <Dato label="Cliente" valor={`${d.cliente.razonSocial}${d.cliente.nit ? ` · NIT ${d.cliente.nit}` : ''}`} ancho />
+            {dest.puntoEnvio && (
+              <Dato label="Punto de envío" valor={`${dest.razonSocial}${dest.nit ? ` · NIT ${dest.nit}` : ''}`} ancho />
+            )}
+            {d.tiendaRemision && <Dato label="Tienda" valor={d.tiendaRemision} ancho />}
+            <Dato label="Dirección" valor={dest.direccion ?? '—'} />
+            <Dato
+              label="Municipio"
+              valor={[dest.municipio, dest.departamento].filter(Boolean).join(' - ') || '—'}
+            />
+            <Dato label="Teléfono" valor={dest.telefono ?? '—'} />
+          </Grid>
+        </Seccion>
+
+        <Seccion titulo="Guía de transporte / remisión">
+          {g ? (
+            <Grid>
+              <Dato label="Guía" valor={formatGM(g.numero)} resaltar />
+              {d.remisionCodigo && <Dato label="Remisión" valor={d.remisionCodigo} resaltar />}
+              <Dato label="Fecha" valor={g.fecha ? fecha(g.fecha) : '—'} />
+              <Dato label="Vehículo" valor={`${g.tipoVehiculo ?? '—'}${g.placa ? ` · ${g.placa}` : ''}`} />
+              <Dato label="Conductor" valor={`${g.conductor ?? '—'}${g.cedula ? ` · C.C. ${g.cedula}` : ''}`} />
+              {g.observacion && <Dato label="Observación" valor={g.observacion} ancho />}
+            </Grid>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {d.cerrada ? 'La orden se cerró sin guía de transporte.' : 'La orden aún no se ha cerrado; la guía se asigna al cerrar.'}
+            </p>
+          )}
+        </Seccion>
+      </div>
+      {d.cerrada && (
+        <VistaGuia dcId={d.dcId} dcNumber={d.dcNumber} pickingId={d.remisionPickingId} codigo={d.remisionCodigo} />
+      )}
+    </div>
+  );
+}
+
+/** Vista previa del PDF de la guía/remisión con la que salió el producto; al hacer clic se amplía. */
+function VistaGuia({
+  dcId,
+  dcNumber,
+  pickingId,
+  codigo,
+}: {
+  dcId: string;
+  dcNumber: number;
+  pickingId: string | null;
+  codigo: string | null;
+}) {
+  const { user } = useAuth();
+  const operario = user?.fullName ?? '';
+  const [url, setUrl] = useState<string | null>(null);
+  const [error, setError] = useState(false);
+  const [ampliada, setAmpliada] = useState(false);
+
+  useEffect(() => {
+    let vivo = true;
+    let creada: string | null = null;
+    setUrl(null);
+    setError(false);
+    urlGuiaDespacho(dcId, operario, 'cliente', pickingId)
+      .then((u) => {
+        creada = u;
+        if (vivo) setUrl(u);
+        else URL.revokeObjectURL(u);
+      })
+      .catch(() => vivo && setError(true));
+    return () => {
+      vivo = false;
+      if (creada) URL.revokeObjectURL(creada);
+    };
+  }, [dcId, operario, pickingId]);
+
+  return (
+    <figure className="mx-auto w-full shrink-0 md:w-96">
+      <div className="relative flex h-[32rem] items-center justify-center overflow-hidden rounded-md border bg-muted/30">
+        {url ? (
+          <>
+            <iframe title="Guía de transporte" src={`${url}#toolbar=0&view=FitH`} className="pointer-events-none h-full w-full" />
+            <button
+              type="button"
+              title="Ver documento completo"
+              className="group absolute inset-0 flex cursor-zoom-in items-center justify-center transition-colors hover:bg-slate-950/10"
+              onClick={() => setAmpliada(true)}
+            >
+              <span className="flex items-center gap-1.5 rounded-full bg-slate-900/80 px-3 py-1.5 text-xs font-medium text-white opacity-0 shadow transition-opacity group-hover:opacity-100">
+                <Maximize2 className="h-3.5 w-3.5" /> Ver documento
+              </span>
+            </button>
+          </>
+        ) : error ? (
+          <p className="px-4 text-center text-sm text-destructive">No se pudo generar la guía.</p>
+        ) : (
+          <LoaderCircle className="h-6 w-6 animate-spin text-muted-foreground" />
+        )}
+      </div>
+      <figcaption className="mt-1 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
+        <span>Documento con el que salió</span>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 font-medium text-primary hover:underline disabled:opacity-50"
+          disabled={!url}
+          onClick={() => void descargarGuiaDespacho(dcId, operario, 'cliente', pickingId)}
+        >
+          <FileDown className="h-3.5 w-3.5" /> Descargar PDF
+        </button>
+      </figcaption>
+      {ampliada && (
+        <VisorRemision
+          dcId={dcId}
+          dcNumber={dcNumber}
+          pickingId={pickingId}
+          titulo={codigo}
+          operario={operario}
+          onClose={() => setAmpliada(false)}
+        />
+      )}
+    </figure>
   );
 }
 

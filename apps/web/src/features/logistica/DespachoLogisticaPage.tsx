@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Beef,
   CheckCircle2,
+  FileDown,
   LoaderCircle,
   Lock,
   ThermometerSnowflake,
@@ -13,16 +14,16 @@ import {
 } from 'lucide-react';
 import { useBascula } from '@/components/bascula/Bascula';
 import { Button } from '@/components/ui/button';
-import { Dialog } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { useAuth } from '../auth/auth-context';
+import { descargarGuiaDespacho } from '../guias-transporte/api';
+import { CierreDespachoDialog } from '../guias-transporte/components';
 import { PIEZA_LABEL, PanelFria, TablaDespacho, TotalesFria } from '../canal-fria/CanalFriaPage';
 import type { ItemDespacho } from '../canal-fria/api';
 import { ReporteMerma } from '../canal-fria/ReporteMerma';
 import {
-  buscarProductoPosta,
   formatDC,
   useAgregarItemDespachoCanales,
-  useCerrarDespachoCanales,
   useDespachosCanalesActivos,
   useDespachosPostaActivos,
   useItemsDespachoCanales,
@@ -30,7 +31,6 @@ import {
   useProductosPosta,
   useQuitarItemDespachoCanales,
   useQuitarProductoPosta,
-  useRegistrarProductoPosta,
   type OrdenDespachoCanales,
   type TipoDespachoCanales,
 } from '../registrar/despacho-canales-api';
@@ -63,10 +63,8 @@ const CONFIG_POSTA: ConfigRegistroProductos<OrdenDespachoCanales> = {
   indicadoresDespacho: true,
   useOrdenes: useDespachosPostaActivos,
   useItems: useProductosPosta,
-  useRegistrar: useRegistrarProductoPosta,
   useQuitar: useQuitarProductoPosta,
-  useCerrar: useCerrarDespachoCanales,
-  buscar: buscarProductoPosta,
+  cierreDespacho: true,
   pickingTipo: 'posta',
 };
 
@@ -90,7 +88,8 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
   const agregar = useAgregarItemDespachoCanales(orden?.id ?? null);
   const quitar = useQuitarItemDespachoCanales(orden?.id ?? null);
   const pesar = usePesarItemDespachoCanales(orden?.id ?? null);
-  const cerrar = useCerrarDespachoCanales();
+  const { user } = useAuth();
+  const [descargando, setDescargando] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
   const [seleccionadoId, setSeleccionadoId] = useState<string | null>(null);
   const seleccionado = items.find((i) => i.itemId === seleccionadoId) ?? null;
@@ -171,22 +170,16 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
     setUltimo(null);
   }
 
-  function cerrarOrden() {
-    if (!orden) return;
-    const dc = formatDC(orden.dcNumber);
-    cerrar.mutate(orden.id, {
-      onSuccess: () => {
-        setConfirmarCierre(false);
-        elegirOrden(null);
-        setPeso('0.0');
-        setVista('ordenes');
-        flash('success', `Orden ${dc} cerrada.`);
-      },
-      onError: (err) => {
-        setConfirmarCierre(false);
-        flash('error', mensajeApi(err, 'No se pudo cerrar la orden.'));
-      },
-    });
+  async function descargarGuia() {
+    if (!orden || descargando) return;
+    setDescargando(true);
+    try {
+      await descargarGuiaDespacho(orden.id, user?.fullName ?? '');
+    } catch (err) {
+      flash('error', mensajeApi(err, 'No se pudo generar la guía de transporte.'));
+    } finally {
+      setDescargando(false);
+    }
   }
 
   return (
@@ -268,15 +261,24 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
               ))}
             </div>}
             <ReporteMerma items={items} orden={formatDC(orden.dcNumber)} cliente={orden.cliente.concepto} proceso={titulo} errorCarga={itemsQuery.isError} />
-            {orden.status === 'activo' && <Button
+            {orden.status === 'activo' ? <Button
               variant="outline"
               className="h-12 px-5 text-base"
               onClick={() => setConfirmarCierre(true)}
-              disabled={!items.length || cerrar.isPending}
+              disabled={!items.length}
               title={items.length ? 'Cerrar la orden de despacho' : 'La orden no tiene canales'}
             >
-              {cerrar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Lock className="size-5" />}
+              <Lock className="size-5" />
               Cerrar orden
+            </Button> : <Button
+              variant="outline"
+              className="h-12 px-5 text-base"
+              onClick={() => void descargarGuia()}
+              disabled={descargando}
+              title="Descargar la guía de transporte (remisión) de la orden"
+            >
+              {descargando ? <LoaderCircle className="size-5 animate-spin" /> : <FileDown className="size-5" />}
+              Guía PDF
             </Button>}
           </div>
 
@@ -321,28 +323,31 @@ function DespachoCanales({ tipo }: { tipo: TipoDespachoCanales }) {
       )}
 
       {confirmarCierre && orden && (
-        <Dialog open onClose={() => setConfirmarCierre(false)} title="Cerrar orden" className="max-w-lg">
-          <div className="space-y-4">
-            <p className="text-base">
-              ¿Está seguro de cerrar la orden con consecutivo <b>{formatDC(orden.dcNumber)}</b>?
-            </p>
-            <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+        <CierreDespachoDialog
+          ordenId={orden.id}
+          numero={formatDC(orden.dcNumber)}
+          cliente={orden.cliente}
+          resumen={
+            <p className="rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2 font-semibold text-amber-900">
               Las {items.length} canales ({num(totalNeto)} kg) quedan como DESPACHADAS: salen de la
               cava y en Inventarios se ven marcadas con esta orden, con su trazabilidad.
               {sinPesar > 0 &&
                 ` Ojo: ${sinPesar} ${sinPesar === 1 ? 'canal no tiene' : 'canales no tienen'} peso de despacho.`}
             </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setConfirmarCierre(false)}>
-                No
-              </Button>
-              <Button disabled={cerrar.isPending} onClick={cerrarOrden}>
-                <Lock className="size-4" />
-                {cerrar.isPending ? 'Cerrando…' : 'Sí, cerrar'}
-              </Button>
-            </div>
-          </div>
-        </Dialog>
+          }
+          onClose={() => setConfirmarCierre(false)}
+          onCerrada={(texto) => {
+            setConfirmarCierre(false);
+            elegirOrden(null);
+            setPeso('0.0');
+            setVista('ordenes');
+            flash('success', texto);
+          }}
+          onError={(texto) => {
+            setConfirmarCierre(false);
+            flash('error', texto);
+          }}
+        />
       )}
     </div>
   );

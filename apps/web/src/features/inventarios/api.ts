@@ -161,6 +161,8 @@ export interface BodegaResumen {
   canalesProcesadas: number;
   productos: number;
   productosKg: number;
+  /** Productos de órdenes DC ya cerradas: se ven en el histórico. */
+  productosDespachados: number;
   subproductos: number;
 }
 
@@ -227,8 +229,11 @@ export interface BodegaDetalle {
     trasladoOt: number | null;
     /** OC cerrada en la que esta pieza se transformó en otro producto. */
     transformadoOc: number | null;
-    /** Orden DC (posta) activa en la que va; al cerrarla sale del inventario. */
+    /** Orden DC (posta) en la que va; activa = sigue en planta. */
     despachoDc: number | null;
+    /** DC cerrada: el producto ya salió de planta (solo se muestra con "Ver histórico"). */
+    despachoCerrado: boolean;
+    despachoCerradoAt: string | null;
     /** Producto recibido en posta (orden RP); null = rotulado en planta. */
     rpNumber: number | null;
     lote: string | null;
@@ -597,6 +602,68 @@ export interface ProductoResumen {
   kg: number;
 }
 
+export interface TrazabilidadDespacho {
+  dcId: string;
+  dcNumber: number;
+  /** Remisión por tienda con la que salió (null = remisión única de la orden). */
+  remisionPickingId: string | null;
+  /** DC3-GM1 o DC3-GM1-T01; null si la orden no está cerrada. */
+  remisionCodigo: string | null;
+  tiendaRemision: string | null;
+  tipo: string;
+  cerrada: boolean;
+  processDate: string;
+  cerradaAt: string | null;
+  creadaPor: string;
+  codigo: string;
+  comoCanastilla: boolean;
+  brutoKg: number;
+  taraKg: number;
+  netoKg: number;
+  at: string;
+  operario: string;
+  arrume: {
+    pesoBrutoKg: number;
+    taraCanastillaKg: number;
+    taraEstibaKg: number;
+    at: string;
+    terminadoAt: string | null;
+    operario: string;
+  } | null;
+  preorden: {
+    ocNumero: string | null;
+    tienda: string | null;
+    status: string;
+    creadaPor: string;
+    creadaAt: string;
+    asignadoA: string | null;
+    terminadoAt: string | null;
+    terminadoPor: string | null;
+    codigo: string;
+    alistadoPor: string;
+    alistadoAt: string;
+  } | null;
+  cliente: { razonSocial: string; nit: string | null };
+  destino: {
+    puntoEnvio: boolean;
+    razonSocial: string;
+    nit: string | null;
+    telefono: string | null;
+    direccion: string | null;
+    municipio: string | null;
+    departamento: string | null;
+  };
+  guia: {
+    numero: number;
+    fecha: string | null;
+    tipoVehiculo: string | null;
+    placa: string | null;
+    conductor: string | null;
+    cedula: string | null;
+    observacion: string | null;
+  } | null;
+}
+
 export interface TrazabilidadEtiqueta {
   historial: { id: string; accion: string; at: string; operario: string | null }[];
   tipo: 'desposte' | 'acondicionamiento';
@@ -642,7 +709,7 @@ export interface TrazabilidadEtiqueta {
     operario: string;
     transformadoOc: number | null;
   } | null;
-  despacho: { dcNumber: number; cerrada: boolean; netoKg: number; at: string; operario: string } | null;
+  despacho: TrazabilidadDespacho | null;
   acondicionamiento: {
     ocNumber: number;
     proceso: string;

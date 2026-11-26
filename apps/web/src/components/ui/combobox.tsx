@@ -18,6 +18,7 @@ export function Combobox({
   onKeyboard,
   id,
   className,
+  inputClassName,
 }: {
   options: ComboboxOption[];
   value: string;
@@ -27,6 +28,7 @@ export function Combobox({
   onKeyboard?: () => void;
   id?: string;
   className?: string;
+  inputClassName?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -108,6 +110,7 @@ export function Combobox({
             'placeholder:text-muted-foreground',
             'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             onKeyboard ? 'pr-[4.5rem]' : 'pr-[4.25rem]',
+            inputClassName,
           )}
         />
         <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">

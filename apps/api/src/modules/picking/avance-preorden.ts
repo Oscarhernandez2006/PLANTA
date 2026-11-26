@@ -28,6 +28,9 @@ export interface TotalesAvance {
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
+export const nombrePreorden = (p: { ocNumero: string | null; tiendaNombre: string | null }) =>
+  [p.tiendaNombre, p.ocNumero ? `OC ${p.ocNumero}` : null].filter(Boolean).join(' · ') || 'Sin orden de compra';
+
 export function avancePreorden(
   pedidos: { productoId: string; productoCodigo: string; productoNombre: string; plu: string | null; productoCliente: string | null; kgPedidos: number }[],
   items: { productoId: string; productoCodigo: string; productoNombre: string; netoEtiquetaKg: number; netoPesadoKg: number | null }[],

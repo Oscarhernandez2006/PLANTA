@@ -156,10 +156,11 @@ function Resumen({ d }: { d: BodegaDetalle }) {
   const canalesEnOrden = enPlanta.filter((c) => c.enOrden || c.enDespacho).length;
   const despachadas = d.canales.filter((c) => c.enDespacho?.cerrada).length;
   const procesadas = d.canales.filter((c) => c.enOrden?.cerrada).length;
-  const vigentes = d.productos.filter((p) => !p.transformadoOc);
+  const vigentes = d.productos.filter((p) => !p.transformadoOc && !p.despachoCerrado);
   const productosKg = vigentes.reduce((s, p) => s + p.netoKg, 0);
-  const productosEnProceso = d.productos.filter((p) => p.trasladoOt && !p.transformadoOc && !p.despachoDc).length;
+  const productosEnProceso = vigentes.filter((p) => p.trasladoOt && !p.despachoDc).length;
   const transformados = d.productos.filter((p) => p.transformadoOc).length;
+  const productosDespachados = d.productos.filter((p) => p.despachoCerrado).length;
   const porVencer = vigentes.filter((p) => {
     const dias = diasVence(p.fechaVencimiento);
     return dias != null && dias <= DIAS_VENCE;
@@ -169,7 +170,11 @@ function Resumen({ d }: { d: BodegaDetalle }) {
       <Caja titulo="Canales en planta" valor={`${kg(canalesKg)} kg`} detalle={`${enPlanta.length} piezas · ${canalesEnOrden} en orden`} />
       <Caja titulo="Productos en planta" valor={`${kg(productosKg)} kg`} detalle={`${vigentes.length} etiquetas · ${productosEnProceso} en proceso`} className="text-emerald-700" />
       <Caja titulo="Por vencer o vencidas" valor={String(porVencer)} detalle="Etiquetas dentro de 5 días o vencidas" className={porVencer ? 'text-amber-700' : undefined} />
-      <Caja titulo="Histórico" valor={String(despachadas + procesadas + transformados)} detalle={`${despachadas} despachadas · ${procesadas} procesadas · ${transformados} transformados`} />
+      <Caja
+        titulo="Histórico"
+        valor={String(despachadas + procesadas + transformados + productosDespachados)}
+        detalle={`${despachadas} canales despachadas · ${procesadas} procesadas · ${transformados} transformados · ${productosDespachados} productos despachados`}
+      />
     </div>
   );
 }
@@ -284,16 +289,21 @@ export function Productos({ d, ajustarAncho = false }: { d: Pick<BodegaDetalle, 
   }, [d.productos]);
 
   const resumen = useMemo(() => {
-    const m = new Map<string, { codigo: string; producto: string; piezas: number; kg: number; enProceso: number; enDespacho: number; transformados: number; vence: string | null }>();
+    const m = new Map<string, { codigo: string; producto: string; piezas: number; kg: number; enProceso: number; enDespacho: number; transformados: number; despachados: number; vence: string | null }>();
     for (const p of d.productos) {
-      const g = m.get(p.productoCodigo) ?? { codigo: p.productoCodigo, producto: p.productoNombre, piezas: 0, kg: 0, enProceso: 0, enDespacho: 0, transformados: 0, vence: null };
+      const g = m.get(p.productoCodigo) ?? { codigo: p.productoCodigo, producto: p.productoNombre, piezas: 0, kg: 0, enProceso: 0, enDespacho: 0, transformados: 0, despachados: 0, vence: null };
+      m.set(p.productoCodigo, g);
+      // Lo despachado ya salió de planta: se lista pero no suma piezas ni kilos.
+      if (p.despachoCerrado) {
+        g.despachados += 1;
+        continue;
+      }
       g.piezas += 1;
       g.kg += p.netoKg;
       if (p.transformadoOc) g.transformados += 1;
       else if (p.despachoDc) g.enDespacho += 1;
       else if (p.trasladoOt) g.enProceso += 1;
       if (!p.transformadoOc && p.fechaVencimiento && (!g.vence || p.fechaVencimiento < g.vence)) g.vence = p.fechaVencimiento;
-      m.set(p.productoCodigo, g);
     }
     return [...m.values()].sort((a, b) => a.codigo.localeCompare(b.codigo, 'es', { numeric: true }));
   }, [d.productos]);
@@ -344,14 +354,17 @@ export function Productos({ d, ajustarAncho = false }: { d: Pick<BodegaDetalle, 
                       <td className={cn(td, ajuste)}>{r.piezas}</td>
                       <td className={cn(td, ajuste, 'text-right font-semibold text-emerald-700')}>{kg(r.kg)}</td>
                       <td className={cn(td, ajuste, 'text-amber-700')}>{r.enProceso}</td>
-                      <td className={cn(td, ajuste, 'text-sky-700')}>{r.enDespacho}</td>
+                      <td className={cn(td, ajuste, 'text-sky-700')}>
+                        {r.enDespacho}
+                        {r.despachados > 0 && <span className="ml-1 text-xs font-semibold">(+{r.despachados} despachados)</span>}
+                      </td>
                       <td className={cn(td, ajuste, 'text-violet-700')}>{r.transformados}</td>
                       <td className={cn(td, ajuste, 'text-emerald-700')}>{r.piezas - r.enProceso - r.enDespacho - r.transformados}</td>
                       <td className={cn(td, ajuste)}>
                         <div className="flex items-center gap-2">
                           <VenceChip iso={r.vence} />
-                          {etiquetas.some((e) => !e.transformadoOc) && (
-                            <SemaforoPill estado={semaforoGeneral(etiquetas.filter((e) => !e.transformadoOc).map((e) => e.semaforo))} />
+                          {etiquetas.some((e) => !e.transformadoOc && !e.despachoCerrado) && (
+                            <SemaforoPill estado={semaforoGeneral(etiquetas.filter((e) => !e.transformadoOc && !e.despachoCerrado).map((e) => e.semaforo))} />
                           )}
                         </div>
                       </td>
@@ -406,7 +419,11 @@ export function Productos({ d, ajustarAncho = false }: { d: Pick<BodegaDetalle, 
                                       )}
                                     </td>
                                     <td className={sub}>
-                                      {p.despachoDc ? (
+                                      {p.despachoCerrado ? (
+                                        <span className="rounded-sm bg-sky-900 px-1.5 py-0.5 text-[10px] font-bold text-white">
+                                          DESPACHADO · {formatDC(p.despachoDc!)}
+                                        </span>
+                                      ) : p.despachoDc ? (
                                         <span className="rounded-sm bg-sky-600 px-1.5 py-0.5 text-[10px] font-bold text-white">
                                           EN DESPACHO · {formatDC(p.despachoDc)}
                                         </span>

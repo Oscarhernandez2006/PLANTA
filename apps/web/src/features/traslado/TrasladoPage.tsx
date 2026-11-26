@@ -25,26 +25,37 @@ import { useBascula } from '@/components/bascula/Bascula';
 import { NumericKeypad } from '@/components/keyboard/NumericKeypad';
 import { Button } from '@/components/ui/button';
 import { Dialog } from '@/components/ui/dialog';
+import { Combobox } from '@/components/ui/combobox';
 import { Input } from '@/components/ui/input';
 import { Table, TBody, TD, TH, THead, TR } from '@/components/ui/table';
 import { cn, formatFechaDia, soloDecimal } from '@/lib/utils';
 import {
   TIPO_ORDEN_TRASLADO,
-  buscarEtiquetaTraslado,
   formatOT,
   useCerrarTraslado,
   useItemsTraslado,
   useOrdenesTrasladoActivas,
   useQuitarTraslado,
-  useRegistrarTraslado,
-  type EtiquetaPorTrasladar,
   type ItemTraslado,
   type OrdenTraslado,
 } from '../registrar/orden-traslado-api';
 import { Mensaje } from '../rotulado/ui';
-import { ArrumeDialog } from '../picking/ArrumeDialog';
+import { SupervisorPinDialog } from '@/components/ui/SupervisorPinDialog';
 import { PreordenesDialog } from '../picking/PreordenesDialog';
-import { usePicking, type TipoPicking } from '../picking/picking-api';
+import {
+  autorizarCierre,
+  useAgregarArrume,
+  useArrumeAbierto,
+  useCancelarArrume,
+  useIniciarArrume,
+  useInvalidarArrume,
+  usePicking,
+  useRepesarArrume,
+  useTerminarArrume,
+  type Arrume,
+  type TipoPicking,
+} from '../picking/picking-api';
+import { CierreDespachoDialog } from '../guias-transporte/components';
 
 const TARAS = [1.5, 1.75, 1.8, 2.02, 0];
 
@@ -55,6 +66,9 @@ const mensajeApi = (err: unknown, porDefecto: string) => {
   const m = isAxiosError(err) ? err.response?.data?.message : null;
   return Array.isArray(m) ? m.join(' ') : typeof m === 'string' ? m : porDefecto;
 };
+
+/** La API rechaza la etiqueta porque no está en el picking de la orden (se puede autorizar con PIN). */
+const esFueraDePicking = (err: unknown) => isAxiosError(err) && err.response?.data?.error === 'FUERA_DE_PICKING';
 
 /** Registros agrupados por producto: empaques (etiquetas), unidades y kilos netos. */
 function agrupar(items: ItemTraslado[]) {
@@ -80,14 +94,20 @@ function agrupar(items: ItemTraslado[]) {
   );
 }
 
+/** Un renglón por barcode pistoleado (pieza o canastilla), sin consolidar; el mismo producto queda junto. */
 function TablaProductos({ items, movimiento }: { items: ItemTraslado[]; movimiento?: boolean }) {
-  const filas = agrupar(items);
+  const filas = [...items].sort(
+    (a, b) =>
+      a.productoCodigo.localeCompare(b.productoCodigo, 'es', { numeric: true }) ||
+      a.createdAt.localeCompare(b.createdAt),
+  );
   if (!filas.length) return <Mensaje text="Aún no hay productos registrados en esta orden." />;
   return (
     <table className="w-full text-sm tabular-nums">
       <thead className="sticky top-0 bg-muted text-left text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         <tr className="[&>th]:h-10 [&>th]:px-3">
-          <th className="w-28 text-center">Empaques</th>
+          <th className="w-36">Código de barras</th>
+          <th className="w-28">Tipo</th>
           <th className="w-24">Código</th>
           <th>Producto</th>
           <th className="w-20 text-center">Unds</th>
@@ -97,12 +117,22 @@ function TablaProductos({ items, movimiento }: { items: ItemTraslado[]; movimien
       </thead>
       <tbody className="divide-y divide-border">
         {filas.map((f) => (
-          <tr key={f.codigo} className="h-11 hover:bg-muted/40 [&>td]:px-3">
-            <td className="text-center font-semibold">{f.empaques}</td>
-            <td className="text-muted-foreground">{f.codigo}</td>
-            <td className="font-semibold uppercase">{f.producto}</td>
+          <tr key={f.id} className="h-11 hover:bg-muted/40 [&>td]:px-3">
+            <td className="font-mono font-semibold text-primary">{f.codigo}</td>
+            <td>
+              <span
+                className={cn(
+                  'rounded-full px-2 py-0.5 text-xs font-bold uppercase',
+                  f.tipo === 'canastilla' ? 'bg-amber-100 text-amber-800' : 'bg-muted text-muted-foreground',
+                )}
+              >
+                {f.tipo}
+              </span>
+            </td>
+            <td className="text-muted-foreground">{f.productoCodigo}</td>
+            <td className="font-semibold uppercase">{f.productoNombre}</td>
             <td className="text-center">{f.unds}</td>
-            <td className="text-right font-bold">{kg(f.kg)}</td>
+            <td className="text-right font-bold">{kg(f.netoKg)}</td>
             {movimiento && (
               <td className="text-center">
                 <span className="rounded-full bg-sky-100 px-2 py-0.5 text-xs font-bold text-sky-800">SALIDA</span>
@@ -289,7 +319,7 @@ export function TrasladoPage() {
 export interface OrdenRegistro {
   id: string;
   processDate: string;
-  cliente: { concepto: string; nit: string | null };
+  cliente: { id?: string; concepto: string; nit: string | null };
 }
 
 type Mutacion<V> = {
@@ -310,12 +340,13 @@ export interface ConfigRegistroProductos<O extends OrdenRegistro> {
   indicadoresDespacho?: boolean;
   useOrdenes: () => { data?: O[]; isLoading: boolean; isFetching: boolean; refetch: () => unknown };
   useItems: (ordenId: string | null) => { data?: ItemTraslado[] };
-  useRegistrar: (ordenId: string) => Mutacion<{ codigo: string; pesoKg: number; taraKg: number }>;
   useQuitar: (ordenId: string) => Mutacion<string>;
-  useCerrar: () => Mutacion<string>;
-  buscar: (ordenId: string, codigo: string) => Promise<EtiquetaPorTrasladar>;
-  /** La orden se alista con picking en la terminal y se pesa por arrumes. */
-  pickingTipo?: TipoPicking;
+  /** Cierre simple (confirmación). Si no está, se cierra con `cierreDespacho`. */
+  useCerrar?: () => Mutacion<{ id: string; pin?: string }>;
+  /** Orden de despacho a cliente: al cerrar se elige el punto de envío y la guía de transporte. */
+  cierreDespacho?: boolean;
+  /** La orden se alista con picking en la terminal y se despacha por arrumes pesados en la báscula. */
+  pickingTipo: TipoPicking;
 }
 
 const CONFIG_TRASLADO: ConfigRegistroProductos<OrdenTraslado> = {
@@ -327,46 +358,77 @@ const CONFIG_TRASLADO: ConfigRegistroProductos<OrdenTraslado> = {
   tituloCierre: 'Cerrar orden de traslado',
   useOrdenes: useOrdenesTrasladoActivas,
   useItems: useItemsTraslado,
-  useRegistrar: useRegistrarTraslado,
   useQuitar: useQuitarTraslado,
   useCerrar: useCerrarTraslado,
-  buscar: buscarEtiquetaTraslado,
   pickingTipo: 'traslado',
 };
+
+const SIN_CIERRE: Mutacion<{ id: string; pin?: string }> = {
+  mutate: () => undefined,
+  mutateAsync: async () => undefined,
+  isPending: false,
+};
+const useSinCierre = () => SIN_CIERRE;
+
+/** Registro a quitar de la orden (del listado o de la lista del arrume). */
+type PorQuitar = { id: string; codigo: string; productoCodigo: string; productoNombre: string; unds: number; kg: number };
+
+const excede = (a: Arrume) => Math.abs(a.diferenciaKg) > a.toleranciaKg;
+const tolerancia = (a: Arrume) => a.toleranciaKg.toFixed(1);
 
 export function RegistroProductosPage<O extends OrdenRegistro>({
   config,
 }: {
   config: ConfigRegistroProductos<O>;
 }) {
+  const tipo = config.pickingTipo;
   const [vista, setVista] = useState<'ordenes' | 'orden'>('ordenes');
   const [orden, setOrden] = useState<O | null>(null);
+  const ordenId = orden?.id ?? '';
   const ordenes = config.useOrdenes();
   const items = config.useItems(orden?.id ?? null);
-  const registrar = config.useRegistrar(orden?.id ?? '');
-  const quitar = config.useQuitar(orden?.id ?? '');
-  const cerrar = config.useCerrar();
+  const quitar = config.useQuitar(ordenId);
+  const cerrar = (config.useCerrar ?? useSinCierre)();
+
+  const arrumeQ = useArrumeAbierto(tipo, orden?.id ?? null);
+  const arrume = arrumeQ.data ?? null;
+  const iniciar = useIniciarArrume(tipo, ordenId);
+  const repesar = useRepesarArrume(tipo, ordenId);
+  const agregar = useAgregarArrume(tipo, ordenId);
+  const terminar = useTerminarArrume(tipo, ordenId);
+  const cancelarArrume = useCancelarArrume(tipo, ordenId);
+  const invalidarArrume = useInvalidarArrume(tipo, ordenId);
 
   const [codigo, setCodigo] = useState('');
-  const [pendiente, setPendiente] = useState<EtiquetaPorTrasladar | null>(null);
-  const [buscando, setBuscando] = useState(false);
   const { peso, setPeso, leyendo, error: errorBascula, leerBascula } = useBascula('0.00');
-  const [tara, setTara] = useState(0);
+  const [tara, setTara] = useState(TARAS[0]);
+  const [estiba, setEstiba] = useState('0');
   const [tecladoPeso, setTecladoPeso] = useState(false);
+  const [repesando, setRepesando] = useState(false);
   const [alerta, setAlerta] = useState<{ id: number; texto: string; ok?: boolean } | null>(null);
-  const [confirmarDiferencia, setConfirmarDiferencia] = useState(false);
-  const [confirmarQuitar, setConfirmarQuitar] = useState<ItemTraslado | null>(null);
+  const [alertaDiferencia, setAlertaDiferencia] = useState<string | null>(null);
+  const [confirmarQuitar, setConfirmarQuitar] = useState<PorQuitar | null>(null);
+  const [confirmarCancelar, setConfirmarCancelar] = useState(false);
   const [confirmarCierre, setConfirmarCierre] = useState(false);
-  const [arrume, setArrume] = useState(false);
+  // Cierre con pre-órdenes sin alistar al 100 %: pide la clave del supervisor antes de cerrar.
+  const [pedirPinCierre, setPedirPinCierre] = useState(false);
+  const [pinCierre, setPinCierre] = useState<string | undefined>(undefined);
   const [ordenCompra, setOrdenCompra] = useState(false);
-  const picking = usePicking(config.pickingTipo, orden?.id ?? null);
-  const porPesar = picking.data?.items.filter((i) => !i.pesado && i.listo).length ?? 0;
-  const enCurso = picking.data?.items.filter((i) => !i.pesado && !i.listo).length ?? 0;
+  // Etiqueta fuera del picking esperando la clave del supervisor.
+  const [fueraPicking, setFueraPicking] = useState<{ codigo: string; mensaje: string } | null>(null);
+  const picking = usePicking(tipo, orden?.id ?? null);
+  // Posta con varias pre-órdenes (tiendas): la canastilla autorizada va a la remisión de una tienda.
+  const tiendasFuera = tipo === 'posta' ? (picking.data?.preordenes ?? []) : [];
+  const elegirTienda = tiendasFuera.length >= 2;
+  const [tiendaFuera, setTiendaFuera] = useState('');
+  const preordenesIncompletas = (picking.data?.preordenes ?? []).filter(
+    (p) => p.porcentaje != null && p.porcentaje < 100,
+  );
   const codigoRef = useRef<HTMLInputElement>(null);
 
   const lista = items.data ?? [];
   const pesoKg = Number(peso) || 0;
-  const netoKg = Math.max(Number((pesoKg - tara).toFixed(2)), 0);
+  const estibaKg = Number(estiba) || 0;
   const totales = useMemo(
     () => ({
       empaques: lista.length,
@@ -374,7 +436,7 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
       kg: lista.reduce((s, i) => s + i.netoKg, 0),
       tara: lista.reduce((s, i) => s + i.taraKg, 0),
       bruto: lista.reduce((s, i) => s + i.pesoKg, 0),
-      // Diferencia entre el repesaje y lo que decían las etiquetas.
+      // Diferencia entre el peso de los arrumes y lo que decían las etiquetas.
       diff: lista.reduce((s, i) => s + (i.netoKg - i.netoEtiquetaKg), 0),
     }),
     [lista],
@@ -386,7 +448,7 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
 
   useEffect(() => {
     if (!alerta) return;
-    const t = setTimeout(() => setAlerta(null), 3000);
+    const t = setTimeout(() => setAlerta(null), 3500);
     return () => clearTimeout(t);
   }, [alerta]);
 
@@ -394,61 +456,139 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
     setAlerta({ id: Date.now(), texto, ok });
   }
 
-  function limpiarLectura() {
-    setCodigo('');
-    setPendiente(null);
-    setPeso('0.00');
-    codigoRef.current?.focus();
+  function enfocarCodigo() {
+    setTimeout(() => codigoRef.current?.focus(), 0);
   }
 
   function elegirOrden(o: O) {
     setOrden(o);
-    limpiarLectura();
+    setCodigo('');
+    setRepesando(false);
+    setPeso('0.00');
+    setEstiba('0');
     setVista('orden');
   }
 
-  async function buscar() {
+  /** Paso 1: el arrume completo está en la báscula; se guarda su peso y sus taras. */
+  function guardarPeso() {
+    if (pesoKg <= 0) return avisar('Sube el arrume a la báscula y captura el peso.');
+    const dto = { pesoBrutoKg: pesoKg, taraCanastillaKg: tara, taraEstibaKg: estibaKg };
+    const opts = {
+      onSuccess: (a: Arrume) => {
+        avisar(
+          repesando ? `Arrume N.º ${a.numero} pesado de nuevo: ${kg(a.pesoBrutoKg)} kg.` : `Arrume N.º ${a.numero} pesado: ahora pistolea sus canastillas.`,
+          true,
+        );
+        setRepesando(false);
+        setPeso('0.00');
+        enfocarCodigo();
+      },
+      onError: (err: unknown) => avisar(mensajeApi(err, 'No se pudo guardar el peso del arrume.')),
+    };
+    if (arrume) repesar.mutate({ id: arrume.id, ...dto }, opts);
+    else iniciar.mutate(dto, opts);
+  }
+
+  function empezarRepesaje() {
+    if (!arrume) return;
+    setPeso(arrume.pesoBrutoKg.toFixed(2));
+    setTara(arrume.taraCanastillaKg);
+    setEstiba(String(arrume.taraEstibaKg));
+    setRepesando(true);
+  }
+
+  /** Paso 2: cada canastilla pistoleada entra a la orden con el neto de su etiqueta. */
+  async function pistolear(valor: string, pin?: string, pickingId?: string) {
+    if (!arrume) {
+      avisar('Primero sube el arrume a la báscula y captura el peso.');
+      return null;
+    }
+    try {
+      const r = await agregar.mutateAsync({ id: arrume.id, codigo: valor, pin, pickingId });
+      setCodigo('');
+      avisar(`${r.item.productoNombre} · ${kg(r.item.netoEtiquetaKg)} kg en el arrume.`, true);
+      if (r.advertenciaInventario) setTimeout(() => avisar(r.advertenciaInventario!), 1500);
+      enfocarCodigo();
+      return null;
+    } catch (err) {
+      if (!pin && esFueraDePicking(err)) {
+        setTiendaFuera('');
+        setFueraPicking({ codigo: valor, mensaje: mensajeApi(err, `${valor} no fue prealistada en el picking.`) });
+        return null;
+      }
+      const texto = mensajeApi(err, 'No se pudo registrar la canastilla.');
+      if (!pin) {
+        setCodigo('');
+        avisar(texto);
+        enfocarCodigo();
+      }
+      return texto;
+    }
+  }
+
+  function leerCodigo() {
     const valor = codigo.trim().toUpperCase();
-    if (!valor) return;
-    if (!orden) return avisar('Selecciona primero una orden.');
-    setBuscando(true);
+    if (valor && !agregar.isPending) void pistolear(valor);
+  }
+
+  /** El supervisor autoriza meter una canastilla que no está en el picking. */
+  async function autorizarFueraPicking(pin: string) {
+    if (!fueraPicking) return null;
+    if (elegirTienda && !tiendaFuera) return 'Elige la tienda a la que va la canastilla.';
+    const error = await pistolear(fueraPicking.codigo, pin, tiendaFuera || undefined);
+    if (!error) setFueraPicking(null);
+    return error;
+  }
+
+  /** Paso 3: cuadra el arrume; con más de 1 kg de diferencia no se termina. */
+  function terminarArrume() {
+    if (!arrume) return;
+    if (!arrume.canastillas) return avisar('Pistolea las canastillas del arrume antes de terminarlo.');
+    if (excede(arrume)) {
+      return setAlertaDiferencia(
+        `Hay una diferencia superior a ${tolerancia(arrume)} kilos (${kg(arrume.diferenciaKg)} kg) entre el peso del arrume y el de las etiquetas.`,
+      );
+    }
+    terminar.mutate(arrume.id, {
+      onSuccess: (a) => {
+        avisar(
+          `Arrume N.º ${a.numero} terminado: ${a.canastillas} canastilla(s) · neto ${kg(a.netoKg)} kg (diferencia ${kg(a.diferenciaKg)} kg).`,
+          true,
+        );
+        setPeso('0.00');
+        setEstiba('0');
+      },
+      onError: (err) =>
+        isAxiosError(err) && err.response?.data?.error === 'DIFERENCIA_ARRUME'
+          ? setAlertaDiferencia(mensajeApi(err, 'Hay una diferencia superior a 1.0 kilos.'))
+          : avisar(mensajeApi(err, 'No se pudo terminar el arrume.')),
+    });
+  }
+
+  function pedirCierre() {
+    if (arrume) {
+      return setAlertaDiferencia(
+        arrume.canastillas && excede(arrume)
+          ? `No se puede cerrar la orden. Hay una diferencia superior a ${tolerancia(arrume)} kilos (${kg(arrume.diferenciaKg)} kg) en el arrume N.º ${arrume.numero}. Corrige la diferencia y termina el arrume.`
+          : `No se puede cerrar la orden: el arrume N.º ${arrume.numero} no está terminado. Termínalo o cancélalo.`,
+      );
+    }
+    setPinCierre(undefined);
+    if (preordenesIncompletas.length) return setPedirPinCierre(true);
+    setConfirmarCierre(true);
+  }
+
+  async function autorizarCierreConPin(pin: string) {
+    if (!orden) return null;
     try {
-      setPendiente(await config.buscar(orden.id, valor));
+      await autorizarCierre(tipo, orden.id, pin);
     } catch (err) {
-      setPendiente(null);
-      avisar(mensajeApi(err, 'No se pudo consultar la etiqueta.'));
-    } finally {
-      setBuscando(false);
+      return mensajeApi(err, 'No se pudo validar la clave del supervisor.');
     }
-  }
-
-  function confirmar() {
-    if (!orden) return avisar('Selecciona primero una orden.');
-    if (!pendiente) return avisar('Pistolea el código de barras de la etiqueta.');
-    if (netoKg <= 0) return avisar('Toma el peso: el neto debe ser mayor que cero.');
-    if (Math.abs(netoKg - pendiente.netoEtiquetaKg) > 0.009) {
-      setConfirmarDiferencia(true);
-      return;
-    }
-    void guardar();
-  }
-
-  async function guardar() {
-    if (!pendiente) return;
-    setConfirmarDiferencia(false);
-    try {
-      await registrar.mutateAsync({ codigo: pendiente.codigo, pesoKg, taraKg: tara });
-      avisar(`${pendiente.productoNombre} registrado (${kg(netoKg)} kg).`, true);
-      limpiarLectura();
-    } catch (err) {
-      avisar(mensajeApi(err, 'No se pudo registrar el producto.'));
-    }
-  }
-
-  function cancelar() {
-    if (pendiente || codigo) return limpiarLectura();
-    setOrden(null);
-    setVista('ordenes');
+    setPinCierre(pin);
+    setPedirPinCierre(false);
+    setConfirmarCierre(true);
+    return null;
   }
 
   const indicadores = config.indicadoresDespacho
@@ -468,6 +608,75 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
         { label: 'Bruto (kg)', valor: kg(totales.bruto), color: 'text-red-600' },
         { label: 'Diferencia (kg)', valor: kg(totales.diff), color: 'text-blue-700' },
       ];
+
+  const guardandoPeso = iniciar.isPending || repesar.isPending;
+
+  /** Peso del arrume en la báscula y sus taras (al iniciarlo o al volver a pesarlo). */
+  const bloquePeso = (
+    <>
+      <div>
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Peso bruto del arrume</span>
+        <div className="relative mt-1 flex items-baseline justify-center gap-2 rounded-xl border-2 border-primary/40 bg-muted/30 px-4 py-3 focus-within:border-primary">
+          <input
+            value={peso}
+            onChange={(e) => setPeso(soloDecimal(e.target.value))}
+            onClick={() => setTecladoPeso(true)}
+            onFocus={(e) => e.currentTarget.select()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') guardarPeso();
+            }}
+            inputMode="none"
+            aria-label="Peso bruto del arrume en kg"
+            className="w-full min-w-0 bg-transparent text-right text-5xl font-bold tabular-nums text-foreground outline-none"
+          />
+          <span className="text-2xl font-semibold text-muted-foreground">kg</span>
+          {tecladoPeso && <NumericKeypad value={peso} onChange={setPeso} onClose={() => setTecladoPeso(false)} />}
+        </div>
+      </div>
+
+      <div className="grid grid-cols-[minmax(0,1fr)_7rem] gap-3">
+        <div>
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tara por canastilla (kg)</span>
+          <div className="mt-1 grid grid-cols-5 gap-1 rounded-lg bg-muted p-1">
+            {TARAS.map((t) => (
+              <button
+                key={t}
+                onClick={() => setTara(t)}
+                aria-pressed={tara === t}
+                className={cn(
+                  'h-10 rounded-md text-sm font-bold tabular-nums transition-colors',
+                  tara === t ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-card hover:text-foreground',
+                )}
+              >
+                {t === 0 ? '0.0' : t.toFixed(2)}
+              </button>
+            ))}
+          </div>
+        </div>
+        <label className="block">
+          <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Estiba (kg)</span>
+          <Input
+            value={estiba}
+            onChange={(e) => setEstiba(soloDecimal(e.target.value))}
+            onFocus={(e) => e.currentTarget.select()}
+            className="mt-1 h-12 text-right text-lg font-bold tabular-nums"
+            aria-label="Tara de la estiba en kg"
+          />
+        </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <Button variant="outline" className="h-14 text-base" onClick={leerBascula} disabled={leyendo}>
+          {leyendo ? <LoaderCircle className="size-5 animate-spin" /> : <Gauge className="size-5" />}
+          Leer báscula
+        </Button>
+        <Button className="h-14 text-base" onClick={guardarPeso} disabled={pesoKg <= 0 || guardandoPeso}>
+          {guardandoPeso ? <LoaderCircle className="size-5 animate-spin" /> : <Check className="size-5" />}
+          {arrume ? 'Guardar peso' : 'Capturar peso'}
+        </Button>
+      </div>
+    </>
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-3">
@@ -515,44 +724,25 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
                 <b className="tabular-nums text-foreground">{kg(totales.kg)}</b> kg
               </div>
             </div>
-            {config.pickingTipo && (
-              <Button
-                variant="outline"
-                className="h-12 px-5 text-base"
-                onClick={() => setOrdenCompra(true)}
-                title="Órdenes de compra del cliente (una pre-orden por tienda): la terminal muestra el avance del picking"
-              >
-                <ClipboardList className="size-5" />
-                Pre-órdenes
-                {!!picking.data?.preordenes.length && (
-                  <span className="rounded-md bg-muted px-1.5 text-sm tabular-nums">
-                    {picking.data.preordenes.length}
-                    {picking.data.porcentaje != null ? ` · ${picking.data.porcentaje.toLocaleString('es-CO')}%` : ''}
-                  </span>
-                )}
-              </Button>
-            )}
-            {config.pickingTipo && (
-              <Button
-                variant={porPesar ? 'default' : 'outline'}
-                className="h-12 px-5 text-base"
-                onClick={() => setArrume(true)}
-                title="Pesar en la báscula las canastillas alistadas en la terminal"
-              >
-                <Layers className="size-5" />
-                Pesar arrume
-                {porPesar + enCurso > 0 && (
-                  <span className="rounded-md bg-white/20 px-1.5 text-sm tabular-nums">
-                    {porPesar}
-                    {enCurso ? ` · ${enCurso} en curso` : ''}
-                  </span>
-                )}
-              </Button>
-            )}
             <Button
-              variant={lista.length ? 'default' : 'outline'}
+              variant="outline"
               className="h-12 px-5 text-base"
-              onClick={() => setConfirmarCierre(true)}
+              onClick={() => setOrdenCompra(true)}
+              title="Órdenes de compra del cliente (una pre-orden por tienda): la terminal muestra el avance del picking"
+            >
+              <ClipboardList className="size-5" />
+              Pre-órdenes
+              {!!picking.data?.preordenes.length && (
+                <span className="rounded-md bg-muted px-1.5 text-sm tabular-nums">
+                  {picking.data.preordenes.length}
+                  {picking.data.porcentaje != null ? ` · ${picking.data.porcentaje.toLocaleString('es-CO')}%` : ''}
+                </span>
+              )}
+            </Button>
+            <Button
+              variant={lista.length && !arrume ? 'default' : 'outline'}
+              className="h-12 px-5 text-base"
+              onClick={pedirCierre}
               disabled={!lista.length || cerrar.isPending}
               title={lista.length ? 'Cerrar la orden' : 'La orden no tiene productos'}
             >
@@ -561,11 +751,11 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
             </Button>
           </div>
 
-          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_440px]">
             {/* Productos registrados */}
             <div className="flex min-h-0 flex-col rounded-xl border border-border bg-card">
               <h3 className="shrink-0 px-4 pt-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                Productos <span className="tabular-nums text-foreground">({agrupar(lista).length})</span>
+                Productos <span className="tabular-nums text-foreground">({lista.length} registro(s) · {agrupar(lista).length} referencia(s))</span>
               </h3>
               <div className="scrollbar-app m-4 mt-2 min-h-0 flex-1 overflow-auto rounded-lg border border-border">
                 <TablaProductos items={lista} />
@@ -580,178 +770,284 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
               </div>
             </div>
 
-            {/* Lectura y báscula */}
+            {/* Arrume: peso en la báscula y canastillas pistoleadas */}
             <div className="scrollbar-app flex min-h-0 flex-col gap-4 overflow-auto rounded-xl border border-border bg-card p-5 shadow-sm">
-              <label className="block">
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Código de barras</span>
-                <div className="mt-1 flex h-14 items-center gap-2 rounded-xl border-2 border-input bg-background px-3 focus-within:border-primary">
-                  <ScanBarcode className="size-6 shrink-0 text-muted-foreground" />
-                  <input
-                    ref={codigoRef}
-                    value={codigo}
-                    onChange={(e) => setCodigo(e.target.value.toUpperCase().replace(/[^0-9ACRP-]/g, ''))}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') void buscar();
-                    }}
-                    autoFocus
-                    placeholder="Pistolea la etiqueta"
-                    className="h-full w-full min-w-0 bg-transparent text-xl font-bold tabular-nums outline-none placeholder:text-base placeholder:font-normal"
-                  />
-                  {buscando && <LoaderCircle className="size-5 shrink-0 animate-spin text-muted-foreground" />}
-                </div>
-              </label>
-
-              {pendiente ? (
-                <div className="rounded-xl border-2 border-primary/40 bg-primary/5 px-4 py-3">
-                  <p className="truncate text-base font-bold uppercase">
-                    {pendiente.productoCodigo} · {pendiente.productoNombre}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {pendiente.tipo === 'canastilla'
-                      ? `Canastilla N.º ${pendiente.canastillaNumero}`
-                      : `Pieza #${pendiente.pieza}${pendiente.canastillaNumero ? ` · canastilla N.º ${pendiente.canastillaNumero}` : ''}`}
-                    {' · '}
-                    {pendiente.codigo}
-                  </p>
-                  <div className="mt-2 grid grid-cols-3 gap-2">
-                    <Dato label="Unds" valor={pendiente.unds} />
-                    <Dato label="Neto etiqueta" valor={kg(pendiente.netoEtiquetaKg)} />
-                    <Dato label="Neto nuevo" valor={kg(netoKg)} className="text-emerald-700" />
+              {arrumeQ.isLoading ? (
+                <Mensaje text="Cargando…" />
+              ) : !arrume ? (
+                <>
+                  <div>
+                    <h3 className="flex items-center gap-2 text-base font-bold">
+                      <Layers className="size-5 text-primary" />
+                      Nuevo arrume
+                    </h3>
+                    <ol className="mt-2 list-decimal space-y-0.5 pl-5 text-sm text-muted-foreground">
+                      <li>Sube el arrume completo a la báscula y captura el peso.</li>
+                      <li>Pistolea todas sus canastillas.</li>
+                      <li>Termina el arrume: la diferencia no puede superar 1,0 kg.</li>
+                    </ol>
                   </div>
-                  {pendiente.advertenciaInventario && (
-                    <p role="status" className="mt-2 rounded-lg bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-900">
-                      {pendiente.advertenciaInventario}
-                    </p>
-                  )}
-                </div>
+                  {bloquePeso}
+                  <Button
+                    variant="outline"
+                    className="mt-auto h-11 text-red-600 hover:bg-red-50 hover:text-red-700"
+                    onClick={() =>
+                      lista[0] &&
+                      setConfirmarQuitar({ ...lista[0], kg: lista[0].netoKg })
+                    }
+                    disabled={!lista.length || quitar.isPending}
+                  >
+                    <Trash2 className="size-4" />
+                    Quitar último registro
+                  </Button>
+                </>
               ) : (
-                <div className="rounded-xl border border-dashed border-border px-4 py-3 text-sm text-muted-foreground">
-                  Pistolea la etiqueta o canastilla, toma el peso y registra.
-                </div>
-              )}
+                <>
+                  <div className="flex items-center gap-2">
+                    <h3 className="flex flex-1 items-center gap-2 text-base font-bold">
+                      <Layers className="size-5 text-primary" />
+                      Arrume N.º {arrume.numero}
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-800">ABIERTO</span>
+                    </h3>
+                    {!repesando && (
+                      <Button variant="outline" size="sm" onClick={empezarRepesaje}>
+                        <RefreshCw className="size-4" />
+                        Volver a pesar
+                      </Button>
+                    )}
+                  </div>
 
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Peso</span>
-                <div
-                  className={cn(
-                    'relative mt-1 flex items-baseline justify-center gap-2 rounded-xl border-2 bg-muted/30 px-4 py-3 transition-colors',
-                    pendiente ? 'border-primary/40 focus-within:border-primary' : 'border-border',
-                  )}
-                >
-                  <input
-                    value={peso}
-                    onChange={(e) => setPeso(soloDecimal(e.target.value))}
-                    onClick={() => setTecladoPeso(true)}
-                    onFocus={(e) => e.currentTarget.select()}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') confirmar();
-                    }}
-                    inputMode="none"
-                    aria-label="Peso en kg"
-                    className="w-full min-w-0 bg-transparent text-right text-5xl font-bold tabular-nums text-foreground outline-none"
-                  />
-                  <span className="text-2xl font-semibold text-muted-foreground">kg</span>
-                  {tecladoPeso && <NumericKeypad value={peso} onChange={setPeso} onClose={() => setTecladoPeso(false)} />}
-                </div>
-              </div>
-
-              <div>
-                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Tara (kg)</span>
-                <div className="mt-1 grid grid-cols-5 gap-1 rounded-lg bg-muted p-1">
-                  {TARAS.map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => setTara(t)}
-                      aria-pressed={tara === t}
-                      className={cn(
-                        'h-10 rounded-md text-sm font-bold tabular-nums transition-colors',
-                        tara === t ? 'bg-primary text-primary-foreground shadow-sm' : 'text-muted-foreground hover:bg-card hover:text-foreground',
+                  {repesando ? (
+                    <>
+                      {bloquePeso}
+                      <Button variant="ghost" onClick={() => setRepesando(false)}>
+                        Cancelar
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="grid grid-cols-3 gap-2">
+                        <Dato label="Bruto" valor={kg(arrume.pesoBrutoKg)} />
+                        <Dato
+                          label={`Tara (${arrume.canastillas}×${arrume.taraCanastillaKg}${arrume.taraEstibaKg ? ` + ${arrume.taraEstibaKg}` : ''})`}
+                          valor={kg(arrume.taraTotalKg)}
+                        />
+                        <Dato label="Neto báscula" valor={kg(arrume.netoKg)} className="text-emerald-700" />
+                        <Dato label="Canastillas" valor={arrume.canastillas} />
+                        <Dato label="Neto etiquetas" valor={kg(arrume.netoEtiquetasKg)} />
+                        <Dato
+                          label="Diferencia"
+                          valor={kg(arrume.diferenciaKg)}
+                          className={excede(arrume) ? 'text-red-600' : 'text-emerald-700'}
+                        />
+                      </div>
+                      {arrume.canastillas > 0 && (
+                        <p
+                          role="status"
+                          className={cn(
+                            'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-semibold',
+                            excede(arrume) ? 'bg-red-50 text-red-700' : 'bg-emerald-50 text-emerald-700',
+                          )}
+                        >
+                          {excede(arrume) ? <TriangleAlert className="size-4 shrink-0" /> : <CheckCircle2 className="size-4 shrink-0" />}
+                          {excede(arrume)
+                            ? `Diferencia superior a ${tolerancia(arrume)} kg: pistolea las que faltan o revisa el arrume.`
+                            : `Diferencia dentro de ${tolerancia(arrume)} kg: puedes terminar el arrume.`}
+                        </p>
                       )}
-                    >
-                      {t === 0 ? '0.0' : t.toFixed(2)}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <Button variant="outline" className="h-16 text-base" onClick={leerBascula} disabled={leyendo}>
-                  {leyendo ? <LoaderCircle className="size-5 animate-spin" /> : <Gauge className="size-5" />}
-                  Leer báscula
-                </Button>
-                <Button className="h-16 text-base" onClick={confirmar} disabled={!pendiente || registrar.isPending}>
-                  {registrar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Check className="size-5" />}
-                  Registrar
-                </Button>
-              </div>
+                      <label className="block">
+                        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Código de barras</span>
+                        <div className="mt-1 flex h-14 items-center gap-2 rounded-xl border-2 border-input bg-background px-3 focus-within:border-primary">
+                          <ScanBarcode className="size-6 shrink-0 text-muted-foreground" />
+                          <input
+                            ref={codigoRef}
+                            value={codigo}
+                            onChange={(e) => setCodigo(e.target.value.toUpperCase().replace(/[^0-9ACRP-]/g, ''))}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') leerCodigo();
+                            }}
+                            autoFocus
+                            placeholder="Pistolea las canastillas del arrume"
+                            className="h-full w-full min-w-0 bg-transparent text-xl font-bold tabular-nums outline-none placeholder:text-base placeholder:font-normal"
+                          />
+                          {agregar.isPending && <LoaderCircle className="size-5 shrink-0 animate-spin text-muted-foreground" />}
+                        </div>
+                      </label>
 
-              <div className="mt-auto grid grid-cols-2 gap-3">
-                <Button variant="outline" className="h-11" onClick={cancelar} disabled={!pendiente && !codigo}>
-                  <X className="size-4" />
-                  Cancelar lectura
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-11 text-red-600 hover:bg-red-50 hover:text-red-700"
-                  onClick={() => lista[0] && setConfirmarQuitar(lista[0])}
-                  disabled={!lista.length || quitar.isPending}
-                >
-                  <Trash2 className="size-4" />
-                  Quitar último
-                </Button>
-              </div>
+                      <div className="scrollbar-app min-h-24 flex-1 overflow-auto rounded-lg border border-border">
+                        {arrume.items.length ? (
+                          <ul className="divide-y divide-border text-sm">
+                            {arrume.items.map((i) => (
+                              <li key={i.id} className="flex items-center gap-2 px-3 py-2">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-semibold uppercase">{i.productoNombre}</p>
+                                  <p className="text-xs tabular-nums text-muted-foreground">
+                                    {i.codigo} · {i.unds} und
+                                  </p>
+                                </div>
+                                <span className="font-bold tabular-nums">{kg(i.netoEtiquetaKg)}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => setConfirmarQuitar({ ...i, kg: i.netoEtiquetaKg })}
+                                  aria-label={`Quitar ${i.codigo}`}
+                                  className="rounded-md p-1 text-muted-foreground hover:bg-red-50 hover:text-red-600"
+                                >
+                                  <X className="size-4" />
+                                </button>
+                              </li>
+                            ))}
+                          </ul>
+                        ) : (
+                          <p className="px-3 py-6 text-center text-sm text-muted-foreground">
+                            Pistolea las canastillas que están en la báscula.
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-[auto_minmax(0,1fr)] gap-3">
+                        <Button
+                          variant="outline"
+                          className="h-14 text-red-600 hover:bg-red-50 hover:text-red-700"
+                          onClick={() => setConfirmarCancelar(true)}
+                          disabled={cancelarArrume.isPending}
+                        >
+                          <Trash2 className="size-4" />
+                          Cancelar
+                        </Button>
+                        <Button className="h-14 text-base" onClick={terminarArrume} disabled={terminar.isPending || !arrume.canastillas}>
+                          {terminar.isPending ? <LoaderCircle className="size-5 animate-spin" /> : <Check className="size-5" />}
+                          Terminar arrume
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
             </div>
           </div>
         </>
       )}
 
-      {ordenCompra && orden && config.pickingTipo && (
+      {ordenCompra && orden && (
         <PreordenesDialog
-          tipo={config.pickingTipo}
+          tipo={tipo}
           ordenId={orden.id}
           numero={config.numero(orden)}
           onClose={() => {
             setOrdenCompra(false);
-            codigoRef.current?.focus();
+            enfocarCodigo();
           }}
           onMensaje={(texto) => avisar(texto, true)}
         />
       )}
 
-      {arrume && orden && config.pickingTipo && (
-        <ArrumeDialog
-          tipo={config.pickingTipo}
-          ordenId={orden.id}
-          numero={config.numero(orden)}
-          onClose={() => {
-            setArrume(false);
-            codigoRef.current?.focus();
-          }}
-          onRegistrado={(r) =>
-            avisar(
-              `Arrume registrado: ${r.items.length} etiqueta(s) · neto ${kg(r.netoTotalKg)} kg · diferencia ${kg(r.diferenciaKg)} kg.`,
-              true,
-            )
+      {fueraPicking && (
+        <SupervisorPinDialog
+          open
+          title="Canastilla no prealistada"
+          description={
+            <div className="space-y-2">
+              <p className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 font-medium text-red-700">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                {fueraPicking.mensaje}
+              </p>
+              <p>
+                No se registra en la orden. Si la encontraron después del alistamiento y debe ir a este
+                cliente, un supervisor puede autorizarla con su clave.
+              </p>
+              {elegirTienda && (
+                <div className="space-y-1.5 pt-1 text-left">
+                  <label htmlFor="tienda-fuera" className="text-sm font-semibold text-foreground">
+                    ¿A qué tienda va?
+                  </label>
+                  <Combobox
+                    id="tienda-fuera"
+                    inputClassName="h-10"
+                    options={tiendasFuera.map((p) => ({
+                      value: p.id,
+                      label: [p.tiendaCodigo, p.tiendaNombre].filter(Boolean).join(' - ') || p.nombre,
+                    }))}
+                    value={tiendaFuera}
+                    onChange={setTiendaFuera}
+                    placeholder="Buscar tienda…"
+                    emptyText="No hay una tienda con ese nombre en las pre-órdenes"
+                  />
+                </div>
+              )}
+            </div>
           }
+          accion="Autorizar"
+          onClose={() => {
+            setFueraPicking(null);
+            setCodigo('');
+            enfocarCodigo();
+          }}
+          onConfirm={autorizarFueraPicking}
         />
       )}
 
-      {confirmarDiferencia && pendiente && (
-        <Dialog open onClose={() => setConfirmarDiferencia(false)} title="Peso diferente al de la etiqueta" className="max-w-lg">
+      {alertaDiferencia && (
+        <Dialog open onClose={() => setAlertaDiferencia(null)} title="Diferencia en el arrume" className="max-w-lg">
+          <div className="space-y-4">
+            <p className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-3 text-base font-semibold text-red-700">
+              <TriangleAlert className="mt-0.5 size-5 shrink-0" />
+              {alertaDiferencia}
+            </p>
+            <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+              <li>Pistolea las canastillas del arrume que falten.</li>
+              <li>Quita las que no están en la báscula.</li>
+              <li>Si se movió el arrume, vuelve a pesarlo o revisa las taras.</li>
+            </ul>
+            <div className="flex justify-end">
+              <Button
+                onClick={() => {
+                  setAlertaDiferencia(null);
+                  enfocarCodigo();
+                }}
+              >
+                Entendido
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      )}
+
+      {confirmarCancelar && arrume && (
+        <Dialog open onClose={() => setConfirmarCancelar(false)} title={`¿Cancelar el arrume N.º ${arrume.numero}?`} className="max-w-lg">
           <div className="space-y-4">
             <p className="text-base">
-              El peso neto nuevo de <b>{pendiente.productoNombre}</b> es <b>{kg(netoKg)} kg</b> y la
-              etiqueta dice <b>{kg(pendiente.netoEtiquetaKg)} kg</b> (diferencia{' '}
-              {kg(netoKg - pendiente.netoEtiquetaKg)} kg).
+              Se borra el peso del arrume
+              {arrume.canastillas ? (
+                <>
+                  {' '}y salen de la orden sus <b>{arrume.canastillas}</b> canastilla(s) pistoleada(s)
+                </>
+              ) : null}
+              .
             </p>
-            <p className="font-semibold">¿Desea registrar el producto con el peso nuevo?</p>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setConfirmarDiferencia(false)}>
-                Cancelar
+              <Button variant="outline" onClick={() => setConfirmarCancelar(false)}>
+                No
               </Button>
-              <Button onClick={() => void guardar()} disabled={registrar.isPending}>
-                <Check className="size-4" />
-                Aceptar
+              <Button
+                variant="destructive"
+                disabled={cancelarArrume.isPending}
+                onClick={() =>
+                  cancelarArrume.mutate(arrume.id, {
+                    onSuccess: () => {
+                      setConfirmarCancelar(false);
+                      setRepesando(false);
+                      avisar('Arrume cancelado.', true);
+                    },
+                    onError: (err) => {
+                      setConfirmarCancelar(false);
+                      avisar(mensajeApi(err, 'No se pudo cancelar el arrume.'));
+                    },
+                  })
+                }
+              >
+                <Trash2 className="size-4" />
+                Sí, cancelar
               </Button>
             </div>
           </div>
@@ -759,12 +1055,13 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
       )}
 
       {confirmarQuitar && (
-        <Dialog open onClose={() => setConfirmarQuitar(null)} title="¿Quitar el último registro?" className="max-w-lg">
+        <Dialog open onClose={() => setConfirmarQuitar(null)} title="¿Quitar el registro?" className="max-w-lg">
           <div className="space-y-4">
             <p className="text-base">
               {confirmarQuitar.productoCodigo} · <b>{confirmarQuitar.productoNombre}</b> ·{' '}
-              {confirmarQuitar.unds} und · {kg(confirmarQuitar.netoKg)} kg ({confirmarQuitar.codigo}). Vuelve a
-              quedar disponible en el inventario.
+              {confirmarQuitar.unds} und · {kg(confirmarQuitar.kg)} kg ({confirmarQuitar.codigo}). Sale de la orden y
+              vuelve a quedar disponible en el inventario. Si era de un arrume ya terminado, el arrume se
+              abre de nuevo para volver a pesarlo.
             </p>
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setConfirmarQuitar(null)}>
@@ -777,6 +1074,7 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
                   quitar.mutate(confirmarQuitar.id, {
                     onSuccess: () => {
                       setConfirmarQuitar(null);
+                      invalidarArrume();
                       avisar('Registro quitado.', true);
                     },
                     onError: (err) => {
@@ -794,7 +1092,64 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
         </Dialog>
       )}
 
-      {confirmarCierre && orden && (
+      {pedirPinCierre && orden && (
+        <SupervisorPinDialog
+          open
+          title="Pre-órdenes sin completar"
+          description={
+            <div className="space-y-2">
+              <p className="flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 font-medium text-red-700">
+                <TriangleAlert className="mt-0.5 size-4 shrink-0" />
+                La orden {config.numero(orden)} no se puede cerrar: hay {preordenesIncompletas.length} pre-orden(es)
+                sin alistar al 100 %.
+              </p>
+              <ul className="scrollbar-app max-h-48 space-y-1 overflow-auto rounded-lg border border-border px-3 py-2">
+                {preordenesIncompletas.map((p) => (
+                  <li key={p.id} className="flex items-center justify-between gap-3">
+                    <span className="truncate font-semibold uppercase text-foreground">{p.nombre}</span>
+                    <span className="shrink-0 font-bold tabular-nums text-red-600">
+                      {(p.porcentaje ?? 0).toLocaleString('es-CO')} %
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              <p>Para cerrarla así, un supervisor debe autorizarlo con su clave.</p>
+            </div>
+          }
+          accion="Autorizar cierre"
+          onClose={() => setPedirPinCierre(false)}
+          onConfirm={autorizarCierreConPin}
+        />
+      )}
+
+      {confirmarCierre && orden && config.cierreDespacho && orden.cliente.id && (
+        <CierreDespachoDialog
+          ordenId={orden.id}
+          pin={pinCierre}
+          numero={config.numero(orden)}
+          cliente={{ id: orden.cliente.id, concepto: orden.cliente.concepto, nit: orden.cliente.nit }}
+          resumen={
+            <p>
+              Lleva {totales.empaques} canastilla(s)/empaque(s), {totales.unds} pieza(s) y {kg(totales.kg)} kg.
+              Al cerrarla queda finalizada y ya no se le pueden agregar ni quitar productos.
+            </p>
+          }
+          onClose={() => setConfirmarCierre(false)}
+          onCerrada={(texto) => {
+            setConfirmarCierre(false);
+            avisar(texto, true);
+            setOrden(null);
+            setCodigo('');
+            setVista('ordenes');
+          }}
+          onError={(texto) => {
+            setConfirmarCierre(false);
+            avisar(texto);
+          }}
+        />
+      )}
+
+      {confirmarCierre && orden && !config.cierreDespacho && (
         <Dialog open onClose={() => setConfirmarCierre(false)} title={config.tituloCierre} className="max-w-lg">
           <div className="space-y-4">
             <p className="text-lg font-semibold">
@@ -813,16 +1168,20 @@ export function RegistroProductosPage<O extends OrdenRegistro>({
               <Button
                 disabled={cerrar.isPending}
                 onClick={() =>
-                  cerrar.mutate(orden.id, {
+                  cerrar.mutate({ id: orden.id, pin: pinCierre }, {
                     onSuccess: () => {
                       setConfirmarCierre(false);
                       avisar(`Orden ${config.numero(orden)} cerrada.`, true);
                       setOrden(null);
-                      limpiarLectura();
+                      setCodigo('');
                       setVista('ordenes');
                     },
                     onError: (err) => {
                       setConfirmarCierre(false);
+                      if (isAxiosError(err) && err.response?.data?.error === 'PREORDENES_INCOMPLETAS') {
+                        void picking.refetch();
+                        return setPedirPinCierre(true);
+                      }
                       avisar(mensajeApi(err, 'No se pudo cerrar la orden.'));
                     },
                   })

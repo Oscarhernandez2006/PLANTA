@@ -26,6 +26,7 @@ import { descargarDespachoPdf } from './despacho-canales-export';
 import { descargarListadoExcel, descargarListadoPdf, type ListadoInforme } from './listado-export';
 import { desplazarFecha, pesoInforme, ResumenInforme } from './resumen-informe';
 import { DescargasDesposte } from './DescargasDesposte';
+import { InformeDespachos } from './InformeDespachos';
 import {
   DIF_MEDIAS_MAX_KG,
   RANGO_RENDIMIENTO,
@@ -93,6 +94,7 @@ const INFORMES = [
   { key: 'produccion', label: 'Producción', descripcion: 'Órdenes, piezas y rotulado', disponible: true },
   { key: 'sacrificio', label: 'Sacrificio', descripcion: 'Guías y animales sacrificados', disponible: true },
   { key: 'proceso-general', label: 'Proceso general', descripcion: 'Trazabilidad por orden de beneficio', disponible: true },
+  { key: 'despachos', label: 'Despachos', descripcion: 'Guías de transporte / remisiones', disponible: true },
   { key: 'canal-fria', label: 'Canal fría', descripcion: 'Próximamente', disponible: false },
   { key: 'productos', label: 'Productos', descripcion: 'Próximamente', disponible: false },
 ] as const;
@@ -105,7 +107,7 @@ const PeriodoInforme = createContext<{
   cambiar: (rango: RangoInforme) => void;
 } | null>(null);
 
-function usePeriodoInforme() {
+export function usePeriodoInforme() {
   const periodo = useContext(PeriodoInforme);
   if (!periodo) throw new Error('Falta el periodo del informe.');
   return periodo;
@@ -190,6 +192,7 @@ export function InformesPage() {
           {seleccionado === 'produccion' && <InformeProduccion />}
           {seleccionado === 'sacrificio' && <InformeSacrificio />}
           {seleccionado === 'proceso-general' && <InformeProceso />}
+          {seleccionado === 'despachos' && <InformeDespachos />}
           {actual && !actual.disponible && (
             <section className="order-2 flex min-h-60 flex-col items-center justify-center gap-2 rounded-xl bg-card p-6 text-center shadow-sm lg:col-start-2 lg:row-start-2">
               <FileText className="size-7 text-primary" />
@@ -228,7 +231,7 @@ const ESTADO_LABEL: Record<OrdenBeneficioStatus, string> = {
 
 type FilaFiltrable = { cliente: string; status: string; clienteId?: string };
 
-function useFiltrosInforme() {
+export function useFiltrosInforme() {
   const [busqueda, setBusqueda] = useState('');
   const [cliente, setCliente] = useState('');
   const [estado, setEstado] = useState('');
@@ -240,12 +243,14 @@ function useFiltrosInforme() {
   };
 }
 
-function FiltrosInforme({
-  filtros, estados, limitarFecha = true,
+export function FiltrosInforme({
+  filtros, estados, limitarFecha = true, todosEstados = 'Todos los estados',
 }: {
   filtros: ReturnType<typeof useFiltrosInforme> & { clientes: string[]; estados: string[] };
   estados: Record<string, string>;
   limitarFecha?: boolean;
+  /** Texto de la opción "todos" del segundo filtro (estado, tipo…). */
+  todosEstados?: string;
 }) {
   const { rango: { desde, hasta }, cambiar } = usePeriodoInforme();
   const [errorFecha, setErrorFecha] = useState('');
@@ -282,7 +287,7 @@ function FiltrosInforme({
       <label className="min-w-0 text-xs font-semibold text-muted-foreground">
         <span className="sr-only">Estado</span>
         <Select className="h-9 bg-card font-normal text-foreground shadow-none" value={filtros.estado} onChange={(e) => filtros.setEstado(e.target.value)}>
-          <option value="">Todos los estados</option>
+          <option value="">{todosEstados}</option>
           {filtros.estados.map((e) => <option key={e} value={e}>{estados[e] ?? e}</option>)}
         </Select>
       </label>

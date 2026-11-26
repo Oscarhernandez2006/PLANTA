@@ -16,7 +16,7 @@ const fecha = (iso: string | null) => iso ? iso.split('-').reverse().join('/') :
 
 function estadoProducto(p: Producto) {
   return p.transformadoOc ? `TRANSFORMADO OC${p.transformadoOc}` :
-    p.despachoDc ? `EN DESPACHO DC${p.despachoDc}` :
+    p.despachoDc ? `${p.despachoCerrado ? 'DESPACHADO' : 'EN DESPACHO'} DC${p.despachoDc}` :
       p.trasladoOt ? `EN PROCESO OT${p.trasladoOt}` : 'DISPONIBLE';
 }
 

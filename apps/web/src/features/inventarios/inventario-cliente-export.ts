@@ -70,7 +70,7 @@ export async function descargarInventarioClienteExcel(d: {
       fecha(p.fechaEmpaque),
       fecha(p.fechaVencimiento),
       p.rpNumber ? `RP${p.rpNumber}` : p.ocNumber ? `OC${p.ocNumber}` : p.opNumber ? `OP${p.opNumber}` : '',
-      p.despachoDc ? `EN DESPACHO DC${p.despachoDc}` : p.transformadoOc ? 'TRANSFORMADO' : p.trasladoOt ? `EN PROCESO OT${p.trasladoOt}` : 'DISPONIBLE',
+      p.despachoDc ? `${p.despachoCerrado ? 'DESPACHADO' : 'EN DESPACHO'} DC${p.despachoDc}` : p.transformadoOc ? 'TRANSFORMADO' : p.trasladoOt ? `EN PROCESO OT${p.trasladoOt}` : 'DISPONIBLE',
     ]),
   );
   hoja(
