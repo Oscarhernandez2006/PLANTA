@@ -30,10 +30,26 @@ fila="$(docker exec -u postgres "$id" psql -U "$usuario" -d "$bd" -AtF '|' -c "
 [ -n "$fila" ] || { log "ERROR no existe el slot \"nube\" (corre replica-preparar-planta.sh)"; exit 1; }
 IFS='|' read -r activo estado retraso pendiente wal <<<"$fila"
 
+error=0
 if [ "$activo" = "t" ] && [ "$estado" = "streaming" ]; then
   log "OK   réplica al día (retraso ${retraso}s, pendiente $pendiente)"
 else
   log "ALERTA la nube NO está recibiendo cambios: $estado, pendiente $pendiente, wal $wal (revisa: systemctl status planta-tunel-replica)"
   [ "$wal" = "lost" ] && log "ALERTA se superó REPLICA_WAL_MAX: hay que rehacer la réplica (replica-crear-nube.sh)"
-  exit 1
+  error=1
 fi
+
+# Slot "archivo": registro de cambios para la recuperación a un momento exacto (pitr-archivo-nube.sh).
+arch="$(docker exec -u postgres "$id" psql -U "$usuario" -d "$bd" -AtF '|' -c "
+  SELECT active, pg_size_pretty(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn)), wal_status
+  FROM pg_replication_slots WHERE slot_name = 'archivo'")"
+if [ -n "$arch" ]; then
+  IFS='|' read -r activo pendiente wal <<<"$arch"
+  if [ "$activo" = "t" ]; then
+    log "OK   registro de cambios al día (pendiente $pendiente)"
+  else
+    log "ALERTA el registro de cambios de la nube está detenido: pendiente $pendiente, wal $wal (revisa en la nube: docker logs planta-wal)"
+    error=1
+  fi
+fi
+exit "$error"

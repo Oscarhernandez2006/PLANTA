@@ -84,6 +84,27 @@ y la réplica se pone al día sola al volver la conexión.
 **Emergencia** (se perdió la planta): en la nube `~/bin/replica-promover-nube.sh` la convierte
 en base principal. Después hay que restaurar la planta desde ella y rehacer la réplica.
 
+## Recuperación a un momento exacto (errores, borrados, migraciones malas)
+
+La réplica copia también los errores. Para eso la nube guarda además cada cambio de la planta
+(contenedor `planta-wal`, slot `archivo`) y una copia base diaria (03:00), con 15 días hacia atrás
+(`PITR_DIAS`). Se puede devolver la planta a cualquier segundo de esos días.
+
+Instalación (una vez, en la nube, con la réplica ya funcionando): agregar `PITR_DIAS=15` y
+`PG_BD=PLANTALOCALDB` a `~/.config/planta-replica.env` y correr `~/bin/pitr-archivo-nube.sh`.
+
+Si pasa algo, **detén la operación** y en la planta:
+```bash
+~/ops/restaurar-momento.sh                       # desde cuándo se puede volver
+~/ops/restaurar-momento.sh "2026-11-26 10:41"    # hora de Colombia, un minuto antes del error
+```
+Muestra qué tablas cambian, pide escribir `RESTAURAR`, guarda la base actual en
+`~/backups/restauraciones/antes-de-restaurar_*.dump`, detiene el backend, reemplaza el esquema
+completo en una sola transacción y lo vuelve a encender. La réplica de la nube sigue sola.
+Se pierde lo digitado después de la hora elegida. Para solo revisar, contesta otra cosa que no sea
+`RESTAURAR`: el `.dump` de ese momento queda guardado. `restaurar-desde-nube.sh` ya no aplica
+(usaba la base vieja de la nube).
+
 ## Recomendado además
 
 - Copiar `~/backups` fuera del servidor (Azure Storage / S3 desde Dokploy → Backups)
